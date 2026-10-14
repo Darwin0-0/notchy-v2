@@ -38,10 +38,10 @@ html[data-desktop="true"],html[data-desktop="true"] body { background: transpare
 
 .notch {
   --width: 260px;
-  --height: 14px;
-  --band: 14px;
-  --shoulder: 4.9px;
-  --surface-width: 269.8px;
+  --height: 10px;
+  --band: 10px;
+  --shoulder: 3.5px;
+  --surface-width: 267px;
   --panel-height: 196px;
   --music-progress: 0;
   position: relative;
@@ -804,6 +804,7 @@ body[data-motion="false"] .notch *,body[data-motion="false"] .notch *::before,bo
 .settings-player { height: 100%; overflow-y: auto; padding: 10px 20px 18px; color: #fff; font: 13px/18px -apple-system,system-ui,'Segoe UI',sans-serif; scrollbar-width: none; text-shadow: 0 1px 8px #0006; }
 .settings-player::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .settings-player[hidden] { display: none; }
+.settings-player .welcome-settings { margin-bottom: 0; }
 @media (prefers-reduced-motion: reduce) {
   .music-spectrum, .music-spectrum i, .music-progress > span, .music-strip-fill, .music-controls button { transition: none; }
 }

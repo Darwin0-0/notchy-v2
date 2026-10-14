@@ -12,7 +12,9 @@ Une encoche pour Windows, avec un moteur Rust et une interface Tauri. Surface no
 
 Le dock ouvert par clic droit propose seulement Musique, Pomodoro, Météo et Étagère. LocalSend se trouve dans Tray. Les modules restent retirables et leurs anciens emplacements compatibles sont conservés. L'interface charge **trois scripts et une feuille CSS**, sans framework frontend ni serveur Node.js dans l'application.
 
-L'encoche possède les états **discret, survol et ouvert**. Le discret reste une bande de **260 × 14 px**, même avec de la musique, un Pomodoro ou un transfert. Il affiche seulement les progressions ; pochette, titre, spectre et anneau Focus apparaissent sur une ligne au survol, en **312 × 36 px** (+20 % de largeur). Un léger ressort accompagne le mouvement et conserve son élan lorsque la transition s'inverse. Une sortie du pointeur la replie ; le clavier et les dialogues conservent leurs protections. Liquid Glass et la capture du fond d'écran ont été retirés.
+L'encoche possède les états **discret, survol et ouvert**. Le discret reste une bande de **260 × 10 px**, même avec de la musique, un Pomodoro ou un transfert. Il affiche seulement les progressions ; pochette, titre, spectre et anneau Focus apparaissent sur une ligne au survol, en **312 × 36 px** (+20 % de largeur). Un léger ressort accompagne le mouvement et conserve son élan lorsque la transition s'inverse. Une sortie du pointeur la replie ; le clavier et les dialogues conservent leurs protections. Liquid Glass et la capture du fond d'écran ont été retirés.
+
+Le panneau ouvert s'élargit et se réduit selon la vue et les modules présents. Fermer « À suivre » rend sa largeur au lecteur ; les paramètres prennent la hauteur de leur formulaire. Un court délai protège la navigation après un clic pendant que le contour se redimensionne, sans maintenir un espace vide.
 
 ## Compiler sous Windows
 

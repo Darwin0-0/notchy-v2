@@ -38,11 +38,11 @@ struct DesktopState {
 }
 fn initial_geometry() -> Geometry {
     Geometry {
-        width: 269.8,
-        height: 14.,
-        band: 14.,
+        width: 267.,
+        height: 10.,
+        band: 10.,
         radius: 4.,
-        shoulder: 4.9,
+        shoulder: 3.5,
         state: NotchState::Discreet,
     }
 }
@@ -285,7 +285,7 @@ async fn desktop_command(
                 }) && reports.iter().any(|r| {
                     r["phase"] == "discreet"
                         && r["state"] == "discreet"
-                        && r["geometry"]["height"] == 14
+                        && r["geometry"]["height"] == 10
                         && r["geometry"]["radius"] == 4
                         && r["morphing"] == false
                         && r["visible"] == true

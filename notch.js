@@ -258,7 +258,7 @@
   }
 
   function closedBandSize(state, {music = false, focus = false, transfer = false, feedback = null} = {}) {
-    if (state === 'discreet') return {width: 260, band: 14, radius: 4, progress: 0};
+    if (state === 'discreet') return {width: 260, band: 10, radius: 4, progress: 0};
     let size = {width: 312, band: 36, radius: 12, progress: 0};
     if (feedback === 'done') size = {width: 440, band: 110, radius: 18, progress: 0};
     if (feedback === 'track') size = {width: 312, band: 44, radius: 12, progress: 0};
@@ -287,7 +287,7 @@
     open: {width: 560, band: 40, radius: 18, progress: 1},
   };
   let state = 'discreet', view = 'nook', frame = 0, disposed = false, geometry, collapseTimer = 0, collapseDeferred = false, fileDialogOpen = false;
-  let homeLayout = null, openWidth = 0, pointerInside = false, keyboardNavigation = false, activationPoint = null, naturalOpenHeight = 0;
+  let homeLayout = null, pointerInside = false, keyboardNavigation = false;
   let localSendContext = null, nearbyMutation = 0, nearbyLoaded = false;
   const byId = id => document.getElementById(id);
   const desktop = window.notchyDesktop?.isDesktop ? window.notchyDesktop : null;
@@ -305,7 +305,6 @@
   }
   function setAppearance(value, persist = true) {
     if (disposed) return false;
-    if (value.format && value.format !== appearance.format) openWidth = 0;
     appearance = normalizeAppearance({...appearance, ...value});
     if (persist) try { window.localStorage.setItem('notchy-minimal-appearance-v1', JSON.stringify(appearance)); } catch {}
     renderAppearance(); update(); musicLifecycle(); return true;
@@ -656,6 +655,15 @@
   function renderSettings() {
     settingsPlayer.hidden = view !== 'settings' || getModuleEditorActive();
     renderAppearance();
+    if (view === 'settings') update();
+  }
+  function settingsNaturalPanelHeight() {
+    const style = getComputedStyle(settingsPlayer);
+    const number = value => parseFloat(value) || 0;
+    return Math.ceil([...settingsPlayer.children].filter(child => !child.hidden).reduce((height, child) => {
+      const childStyle = getComputedStyle(child);
+      return height + child.getBoundingClientRect().height + number(childStyle.marginTop) + number(childStyle.marginBottom);
+    }, number(style.paddingTop) + number(style.paddingBottom)));
   }
 
   function shelfGlyph(kind) {
@@ -1839,19 +1847,13 @@
     const hasMusic = musicInBand(), hasFocus = isModuleEnabled('focus') && focusIsActive();
     const quiet = state === 'open' ? sizes.open : closedBandSize(state, {music: hasMusic, focus: hasFocus, transfer: !!transferBand, feedback: moduleFeedback && notch.dataset.feedback});
     const definition = view === 'nook' ? moduleDefinitions[homePrimary()] : Object.values(moduleDefinitions).find(item => item.view === view);
-    const directWidth = localSend ? localSend.direction === 'receive' ? 440 : 520 : view === 'files' ? 520 * scale : definition ? definition.size.width * scale : format.width;
-    const size = {...quiet, ...(state === 'open' ? {width: view === 'welcome' ? 300 : getModuleEditorActive() ? Math.min(editorWidth, Math.max(1, window.innerWidth - 32)) : homeActive ? homeWidth : expandedMusic ? Math.min(Math.max(780, directWidth), Math.max(1, window.innerWidth - 80)) : directWidth, radius: appearance.radius} : {})};
-    if (state === 'open') {
-      // Keep the menu under the pointer when a narrower route replaces the current panel.
-      openWidth = view === 'welcome' || localSend ? size.width : Math.max(openWidth, size.width);
-      size.width = Math.min(openWidth, Math.max(1, window.innerWidth - 32));
-      if (view === 'welcome') activationPoint = null;
-    }
+    const directWidth = localSend ? localSend.direction === 'receive' ? 440 : 520 : view === 'settings' ? 360 * scale : view === 'files' ? 520 * scale : definition ? definition.size.width * scale : format.width;
+    const size = {...quiet, ...(state === 'open' ? {width: view === 'welcome' ? 300 : getModuleEditorActive() ? Math.min(editorWidth, Math.max(1, window.innerWidth - 32)) : homeActive ? homeWidth : expandedMusic ? Math.min(directWidth + 284 * scale, Math.max(1, window.innerWidth - 80)) : directWidth, radius: appearance.radius} : {})};
     if (state === 'open' && (view === 'welcome' || localSend)) size.band = 0;
     if (localSend) size.radius = 18;
     const directItem = definition ? homeModuleLayout([definition.id], directWidth, 16, context).items[0] : null;
     let contentHeight = view === 'welcome' ? 196 : definition ? Math.max(definition.size.minHeight, Math.min(Math.max(definition.size.height * scale, (directItem?.minHeight || 0) + 30), definition.size.maxHeight)) : format.height;
-    if (view === 'settings') contentHeight = 440;
+    if (view === 'settings') contentHeight = settingsNaturalPanelHeight();
     if (view === 'files') contentHeight = ['result', 'ocr', 'preview'].includes(fileMode) ? 264 : 238;
     if (localSend) contentHeight = localSend.direction === 'send' ? 210 : localSend.stage === 'consent' ? 116 : 158;
     const shelfDetails = view === 'tray' && !!shelfSelectionItem();
@@ -1861,14 +1863,10 @@
     const desiredHeight = getModuleEditorActive() ? editorHeight : homeActive ? homeHeight : view === 'settings' || shelfDetails ? contentHeight : expandedMusic && window.innerWidth <= 640 ? Math.max(370, contentHeight) : !desktop && window.innerHeight <= 430 ? Math.min(contentHeight, 180) : contentHeight;
     const maximumHeight = desktop ? desktopMaxHeight - size.band - 8 : window.innerHeight - 96;
     let panelHeight = Math.max(0, Math.min(desiredHeight, maximumHeight));
-    naturalOpenHeight = size.band + panelHeight;
-    if (state === 'open' && view !== 'welcome' && activationPoint) {
-      // A shorter destination keeps the clicked point visible until the pointer returns to its content.
-      const pointerHeight = activationPoint.y - notch.getBoundingClientRect().top + 16;
-      panelHeight = Math.max(0, Math.min(Math.max(panelHeight, pointerHeight - size.band), maximumHeight));
-    }
     notch.style.setProperty('--panel-height', panelHeight + 'px');
-    motion.setTarget({...size, width: Math.min(size.width, Math.max(1, window.innerWidth - 32)), height: size.band + (state === 'open' ? panelHeight : 0)}, {snap: !motionEnabled() || document.hidden});
+    const target = {...size, width: Math.min(size.width, Math.max(1, window.innerWidth - 32)), height: size.band + (state === 'open' ? panelHeight : 0)};
+    protectLayoutResize(target.width, target.height);
+    motion.setTarget(target, {snap: !motionEnabled() || document.hidden});
     paint();
     renderLocalSend();
     recheckCollapse();
@@ -1877,7 +1875,7 @@
   function setState(next) {
     if (disposed || !Object.hasOwn(sizes, next)) return false;
     window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
-    if (next !== 'open' || state !== 'open') {openWidth = 0; activationPoint = null;}
+    if (next !== 'open' || state !== 'open') {layoutResizeClick = null; layoutResizeGraceUntil = 0;}
     if (next !== 'open' && (menu.contains(document.activeElement) || panel.contains(document.activeElement))) toggle.focus({preventScroll: true});
     state = next;
     notch.dataset.state = next;
@@ -1901,13 +1899,24 @@
     return true;
   }
 
+  let layoutResizeClick = null, layoutResizeGraceUntil = 0;
+  function protectLayoutResize(width, height) {
+    const now = Date.now(), click = layoutResizeClick;
+    if (disposed || state !== 'open' || !click || click.armed || now - click.at > 250 || now < click.at || !Number.isFinite(width) || !Number.isFinite(height)) return;
+    if (width >= geometry.width - .5 && height >= geometry.height - .5) return;
+    click.armed = true;
+    // A shrinking contour can leave the clicked control behind the cursor.
+    // Give the user time to reach the new content without keeping an oversized panel.
+    layoutResizeGraceUntil = click.at + 650;
+    if (!pointerInside) scheduleCollapse();
+  }
   function protectedInteraction() {
     const focused = document.hasFocus() ? document.activeElement : null;
     return welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]') || keyboardNavigation && state !== 'discreet' && !!focused?.closest('#notch-toggle,#notch-panel,#notch-menu');
   }
   function scheduleCollapse(deactivated = false) {
     window.clearTimeout(collapseTimer); collapseTimer = 0;
-    if (disposed || state === 'discreet') { collapseDeferred = false; return; }
+    if (disposed || state === 'discreet') { collapseDeferred = false; layoutResizeClick = null; layoutResizeGraceUntil = 0; return; }
     collapseDeferred = protectedInteraction();
     if (collapseDeferred) return;
     collapseTimer = window.setTimeout(() => {
@@ -1915,7 +1924,7 @@
       if (disposed || !(deactivated || !pointerInside)) return;
       collapseDeferred = protectedInteraction();
       if (!collapseDeferred) setState('discreet');
-    }, 220);
+    }, Math.max(220, state === 'open' ? layoutResizeGraceUntil - Date.now() : 0));
   }
   function recheckCollapse() { if (collapseDeferred && !disposed && !pointerInside && !protectedInteraction()) scheduleCollapse(); }
   function enter() { pointerInside = true; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false; if (state !== 'open') setState('hover'); }
@@ -1923,6 +1932,7 @@
   function nativePointer(value) {
     const inside = value?.inside;
     if (disposed || document.hidden || typeof inside !== 'boolean') return;
+    if (value.moved === true) layoutResizeClick = null;
     if (value.moved === true && keyboardNavigation) {
       keyboardNavigation = false;
       if (!inside) { leave(); return; }
@@ -1937,18 +1947,14 @@
   function keyboardInteraction(event) { if (['Tab', 'Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {keyboardNavigation = true; focusInteraction();} }
   function pointerInteraction(event) {
     keyboardNavigation = false;
-    activationPoint = state === 'open' && notch.contains(event.target) && Number.isFinite(event.clientY) ? {y: event.clientY} : null;
+    layoutResizeClick = state === 'open' && notch.contains(event.target) ? {at: Date.now(), armed: false} : null;
   }
   function pointerPosition(event) {
     // A real mouse move ends the keyboard guard without moving DOM focus.
-    if (keyboardNavigation && event.pointerType === 'mouse' && (event.movementX || event.movementY)) {
-      keyboardNavigation = false;
-      if (!notch.contains(event.target)) scheduleCollapse();
-    }
-    if (!activationPoint) return;
-    if (state !== 'open' || !notch.contains(event.target) || event.clientY - notch.getBoundingClientRect().top <= naturalOpenHeight - 16) {
-      activationPoint = null;
-      if (state === 'open') update();
+    if (event.pointerType === 'mouse' && (event.movementX || event.movementY)) {
+      const wasKeyboard = keyboardNavigation;
+      keyboardNavigation = false; layoutResizeClick = null;
+      if (wasKeyboard && !notch.contains(event.target)) scheduleCollapse();
     }
   }
   function showFileChooser(input) { fileDialogOpen = true; desktop?.setDialogOpen?.(true); input.click(); }

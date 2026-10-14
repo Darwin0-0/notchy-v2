@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, closedBandSize} = require('../notch.js');
 
-const closed = {width: 260, height: 14, band: 14, radius: 4, progress: 0};
+const closed = {width: 260, height: 10, band: 10, radius: 4, progress: 0};
 const opened = {width: 640, height: 280, band: 32, radius: 28, progress: 1};
 
 test('opening has a restrained rebound, stays bounded and settles all dimensions together', () => {
@@ -16,7 +16,7 @@ test('opening has a restrained rebound, stays bounded and settles all dimensions
       assert(Number.isFinite(frame[key]));
       assert(frame[key] >= closed[key] && frame[key] <= opened[key] + distance * .02);
     }
-    assert(Math.abs((frame.width - closed.width) / 380 - (frame.height - closed.height) / 266) < .00001);
+    assert(Math.abs((frame.width - closed.width) / (opened.width - closed.width) - (frame.height - closed.height) / (opened.height - closed.height)) < .00001);
     peak = Math.max(peak, frame.width);
   }
   assert(peak > opened.width + 380 * .01 && peak < opened.width + 380 * .02);
@@ -82,29 +82,29 @@ test('the painted spring sends valid native geometry on every large-panel closin
     const opacity = Number(scope.notch.style.values['--menu-opacity']);
     assert(opacity >= 0 && opacity <= 1);
   }
-  assert(sent.some(value => value.height < 14), 'the test includes the actual closing rebound');
-  assert.equal(sent.at(-1).height, 14);
-  assert.equal(sent.at(-1).band, 14);
+  assert(sent.some(value => value.height < closed.height), 'the test includes the actual closing rebound');
+  assert.equal(sent.at(-1).height, closed.height);
+  assert.equal(sent.at(-1).band, closed.band);
   assert.equal(motion.isActive(), false);
 });
 
 test('the contour keeps centered shoulders and rounded ends in small viewports', () => {
   const reduced = shape(closed, 960);
-  assert.equal(reduced.height, 14); assert.equal(reduced.radius, 4);
-  assert.equal(reduced.shoulder, 4.9); assert.equal(reduced.totalWidth, 269.8);
+  assert.equal(reduced.height, 10); assert.equal(reduced.radius, 4);
+  assert.equal(reduced.shoulder, 3.5); assert.equal(reduced.totalWidth, 267);
   const narrow = shape({...opened, width: 343}, 375);
   assert.equal(narrow.shoulder, 16); assert.equal(narrow.totalWidth, 375);
   assert.equal(narrow.radius, 28); assert(!narrow.path.includes('NaN'));
 });
 
-test('discreet geometry stays 14 pixels with music, focus, transfers and completion feedback', () => {
+test('discreet geometry stays 10 pixels with music, focus, transfers and completion feedback', () => {
   for (const activity of [{}, {music:true}, {focus:true}, {music:true,focus:true}, {transfer:true},
     {music:true,feedback:'track'}, {focus:true,feedback:'done'}, {music:true,focus:true,transfer:true,feedback:'done'}]) {
     const size = closedBandSize('discreet', activity);
-    assert.deepEqual(size, {width:260,band:14,radius:4,progress:0});
+    assert.deepEqual(size, {width:260,band:10,radius:4,progress:0});
     const contour = shape({...size,height:size.band},960);
-    assert.equal(contour.height,14);
-    assert.equal(contour.totalWidth,269.8);
+    assert.equal(contour.height,10);
+    assert.equal(contour.totalWidth,267);
   }
   for (const activity of [{}, {music:true}, {focus:true}, {music:true,focus:true}, {transfer:true}]) {
     const preview = closedBandSize('hover',activity);
@@ -158,11 +158,13 @@ test('quiet real spectrum samples remain visibly dynamic without animating silen
 
 function interactionFixture() {
   const source = require('node:fs').readFileSync(require.resolve('../notch.js'), 'utf8');
-  const start = source.indexOf('  function protectedInteraction('), end = source.indexOf('  function showFileChooser(', start);
+  const start = source.indexOf('  let layoutResizeClick'), end = source.indexOf('  function showFileChooser(', start);
   const timers = new Map(), changes = [];
-  let nextTimer = 0, focused = null;
+  let nextTimer = 0, focused = null, now = 1000;
   const scope = {
-    window: {clearTimeout: id => timers.delete(id), setTimeout: callback => {timers.set(++nextTimer, callback); return nextTimer;}, queueMicrotask: callback => callback()},
+    Date: {now: () => now},
+    geometry: {width: 780, height: 480},
+    window: {clearTimeout: id => timers.delete(id), setTimeout: (callback, delay) => {timers.set(++nextTimer, {callback, at: now + delay}); return nextTimer;}, queueMicrotask: callback => callback()},
     document: {hasFocus: () => true, get activeElement() {return focused;}},
     // The browser may retain :hover after Windows cuts the native window region.
     notch: {matches: () => true, contains: element => element?.inside === true, getBoundingClientRect: () => ({top: 0})},
@@ -170,16 +172,21 @@ function interactionFixture() {
   };
   require('node:vm').runInNewContext(`
     let disposed=false,state='hover',view='nook',collapseTimer=0,collapseDeferred=false,pointerInside=true,
-      keyboardNavigation=false,keyboardPointerOutside=false,activationPoint=null,naturalOpenHeight=200,
+      keyboardNavigation=false,
       fileDialogOpen=false,fileDragging=false,seekDragging=false,queueOpen=false,queueBusy=false,queueOperation='',
       welcome=null,localSendContext=null,nearby={},queueState={};
     function setState(next) {state=next;changes.push(next);}
     function update() {}
     ${source.slice(start, end)}
-    this.api={enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,toggleFocus,
+    this.api={enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,
       get state(){return state;},get pending(){return collapseTimer;},set state(value){state=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;}};
   `, scope);
-  return {api: scope.api, changes, focus: element => {focused = element;}, flush: () => {const pending = [...timers.values()]; timers.clear(); for (const callback of pending) callback();}};
+  function runDue() {
+    for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
+  }
+  return {api: scope.api, changes, focus: element => {focused = element;},
+    advance: milliseconds => {now += milliseconds; runDue();},
+    flush: () => {if (timers.size) now = Math.max(now, ...[...timers.values()].map(timer => timer.at)); runDue();}};
 }
 
 test('pointer leave collapses even when the native host leaves CSS hover stale', () => {
@@ -255,6 +262,73 @@ test('native cursor exit defers collapse during a drag and real entry cancels a 
   f.api.dragging=false;f.api.focusDeparture();assert(f.api.pending);
   f.api.nativePointer({inside:true});f.flush();assert.equal(f.api.state,'hover');
   f.api.nativePointer({inside:false});f.flush();assert.equal(f.api.state,'discreet');
+});
+
+test('a shrinking route keeps its clicked point usable briefly without keeping old dimensions', () => {
+  const f = interactionFixture(); f.api.state = 'open';
+  f.api.pointerInteraction({target: {inside: true}}); f.api.protectLayoutResize(440, 240);
+  f.api.nativePointer({inside: false, moved: false}); const timer = f.api.pending;
+  f.advance(219); assert.equal(f.api.state, 'open');
+  for (let index = 0; index < 4; index++) {
+    f.api.nativePointer({inside: false, moved: false}); f.api.protectLayoutResize(440, 240);
+    assert.equal(f.api.pending, timer, 'stationary native samples and repeated renders cannot extend the grace');
+    f.advance(100);
+  }
+  f.advance(30); assert.equal(f.api.state, 'open');
+  f.advance(1); assert.equal(f.api.state, 'discreet', 'the grace expires 650 ms after the click');
+});
+
+test('only a recent real click and a smaller destination create navigation grace', () => {
+  for (const mode of ['no-click', 'stale-click', 'moved-before-resize', 'expanded', 'invalid']) {
+    const f = interactionFixture(); f.api.state = 'open';
+    if (mode !== 'no-click') f.api.pointerInteraction({target: {inside: true}});
+    if (mode === 'stale-click') f.advance(251);
+    if (mode === 'moved-before-resize') f.api.pointerPosition({pointerType: 'mouse', movementX: 8, movementY: 0, target: {inside: true}});
+    f.api.protectLayoutResize(mode === 'expanded' ? 800 : mode === 'invalid' ? NaN : 440, mode === 'expanded' ? 500 : 240);
+    f.api.nativePointer({inside: false, moved: false}); f.advance(220);
+    assert.equal(f.api.state, 'discreet', mode + ' uses the ordinary collapse delay');
+  }
+});
+
+test('movement toward a smaller route preserves its fixed grace, and reentry cancels collapse', () => {
+  for (const movement of ['native', 'dom']) {
+    const f = interactionFixture(); f.api.state = 'open';
+    f.api.pointerInteraction({target: {inside: true}}); f.api.protectLayoutResize(334, 240);
+    f.api.nativePointer({inside: false, moved: false}); const timer = f.api.pending;
+    for (let index = 0; index < 4; index++) {
+      f.advance(100);
+      if (movement === 'native') f.api.nativePointer({inside: false, moved: true});
+      else f.api.pointerPosition({pointerType: 'mouse', movementX: -8, movementY: 0, target: {inside: false}});
+      f.api.protectLayoutResize(334, 240);
+      assert.equal(f.api.pending, timer, movement + ' movement cannot shorten or prolong the existing grace');
+    }
+    f.advance(249); assert.equal(f.api.state, 'open'); f.advance(1); assert.equal(f.api.state, 'discreet');
+    f.api.nativePointer({inside: true, moved: true}); f.api.nativePointer({inside: false, moved: true});
+    f.advance(219); assert.equal(f.api.state, 'hover'); f.advance(1); assert.equal(f.api.state, 'discreet', 'later departures use the ordinary delay');
+  }
+  const entered = interactionFixture(); entered.api.state = 'open';
+  entered.api.pointerInteraction({target: {inside: true}}); entered.api.protectLayoutResize(334, 240);
+  entered.api.nativePointer({inside: false, moved: false}); entered.advance(100);
+  entered.api.nativePointer({inside: true, moved: true}); assert.equal(entered.api.pending, 0);
+  entered.advance(650); assert.equal(entered.api.state, 'open', 'reaching the resized content cancels automatic collapse');
+  entered.api.nativePointer({inside: false, moved: true}); entered.advance(220); assert.equal(entered.api.state, 'discreet');
+});
+
+test('expiring resize grace keeps keyboard navigation and file dialogues protected', () => {
+  for (const protection of ['keyboard', 'dialog']) {
+    const f = interactionFixture(); f.api.state = 'open';
+    f.api.pointerInteraction({target: {inside: true}}); f.api.protectLayoutResize(334, 240);
+    f.api.nativePointer({inside: false, moved: false});
+    if (protection === 'dialog') f.api.dialog = true;
+    else {
+      f.focus({closest: selector => selector === '#notch-toggle,#notch-panel,#notch-menu' ? {} : null});
+      f.api.keyboardInteraction({key: 'Tab'});
+    }
+    f.advance(650); assert.equal(f.api.state, 'open', protection + ' outlives the navigation grace');
+    if (protection === 'dialog') {f.api.dialog = false; f.api.focusDeparture();}
+    else {f.focus(null); f.api.focusDeparture();}
+    f.advance(220); assert.equal(f.api.state, 'discreet', protection + ' releases normally when finished');
+  }
 });
 
 function spectrumFixture() {
