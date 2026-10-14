@@ -285,6 +285,8 @@ async fn desktop_command(
                 }) && reports.iter().any(|r| {
                     r["phase"] == "discreet"
                         && r["state"] == "discreet"
+                        && r["geometry"]["height"] == 14
+                        && r["geometry"]["radius"] == 4
                         && r["morphing"] == false
                         && r["visible"] == true
                         && r["topmost"] == true

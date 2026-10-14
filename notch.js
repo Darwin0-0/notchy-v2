@@ -1,7 +1,7 @@
 (function (window) {
   'use strict';
 
-  // The original notch's critically damped spring keeps momentum on reversals.
+  // A lightly underdamped spring keeps reversal momentum with about 1.5% rebound.
   function createSurfaceMotion() {
     const keys = ['width', 'height', 'band', 'radius', 'progress'];
     const values = {}, velocities = {}, target = {};
@@ -22,16 +22,18 @@
 
     function step(now, {snap: immediate = false} = {}) {
       if (!initialized) return null;
-      const dt = Math.max(0, Math.min(.05, (now - lastTime) / 1000));
-      lastTime = now;
+      const dt = Number.isFinite(now) ? Math.max(0, Math.min(.05, (now - lastTime) / 1000)) : 0;
+      if (Number.isFinite(now)) lastTime = now;
       if (immediate) snap();
       else if (active && dt) {
-        const omega = 34, attenuation = Math.exp(-omega * dt);
+        const omega = 34, damping = .8, decay = omega * damping;
+        const frequency = omega * Math.sqrt(1 - damping * damping);
+        const attenuation = Math.exp(-decay * dt), sine = Math.sin(frequency * dt), cosine = Math.cos(frequency * dt);
         for (const key of keys) {
           const displacement = values[key] - target[key];
-          const coupling = velocities[key] + omega * displacement;
-          values[key] = target[key] + (displacement + coupling * dt) * attenuation;
-          velocities[key] = (velocities[key] - omega * coupling * dt) * attenuation;
+          const velocity = velocities[key];
+          values[key] = target[key] + (displacement * cosine + (velocity + decay * displacement) / frequency * sine) * attenuation;
+          velocities[key] = (velocity * cosine - (decay * velocity + omega * omega * displacement) / frequency * sine) * attenuation;
         }
         active = keys.some(key => Math.abs(values[key] - target[key]) > .01 || Math.abs(velocities[key]) > .1);
         if (!active) snap();
@@ -44,9 +46,9 @@
 
   function shape({width, height, radius}, viewportWidth) {
     const round = value => Math.round(value * 1000) / 1000;
-    height = round(height);
+    height = Math.max(1, round(height));
     const shoulder = round(Math.min(24, height * .35, Math.max(0, (viewportWidth - width) / 2)));
-    radius = round(Math.min(width / 2, height / 2, radius));
+    radius = Math.max(0, Math.min(round(width) / 2, height / 2, round(radius)));
     const right = round(shoulder + width), totalWidth = round(width + shoulder * 2);
     const bottom = round(height - radius);
     const path = `M0 0 H${totalWidth} Q${right} 0 ${right} ${shoulder} V${bottom} Q${right} ${height} ${round(right - radius)} ${height} H${round(shoulder + radius)} Q${shoulder} ${height} ${shoulder} ${bottom} V${shoulder} Q${shoulder} 0 0 0 Z`;
@@ -255,7 +257,16 @@
       horizon: stale ? 'prévision précédente · 2 h' : 'prochaines 2 h', loading, status, state: loading ? 'loading' : stale ? 'stale' : available ? 'ready' : 'unavailable'};
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = {FocusModel, focusConfiguration, focusCardValues, weatherNarrative, normalizeAppearance, normalizeModules, assignModuleSlot, moduleEditorPresentation, homeModuleLayout, getModuleDefinitions, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor};
+  function closedBandSize(state, {music = false, focus = false, transfer = false, feedback = null} = {}) {
+    if (state === 'discreet') return {width: 260, band: 14, radius: 4, progress: 0};
+    let size = {width: 312, band: 36, radius: 12, progress: 0};
+    if (feedback === 'done') size = {width: 440, band: 110, radius: 18, progress: 0};
+    if (feedback === 'track') size = {width: 312, band: 44, radius: 12, progress: 0};
+    if (transfer) size = {width: 312, band: 36, radius: 12, progress: 0};
+    return size;
+  }
+
+  if (typeof module === 'object' && module.exports) module.exports = {FocusModel, focusConfiguration, focusCardValues, weatherNarrative, normalizeAppearance, normalizeModules, assignModuleSlot, moduleEditorPresentation, homeModuleLayout, getModuleDefinitions, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, closedBandSize};
   if (!window?.document) return;
 
   const document = window.document;
@@ -271,8 +282,8 @@
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   const motion = createSurfaceMotion();
   const sizes = {
-    discreet: {width: 260, band: 14, radius: 4, progress: 0},
-    hover: {width: 276, band: 40, radius: 16, progress: 0},
+    discreet: closedBandSize('discreet'),
+    hover: closedBandSize('hover'),
     open: {width: 560, band: 40, radius: 18, progress: 1},
   };
   let state = 'discreet', view = 'nook', frame = 0, disposed = false, geometry, collapseTimer = 0, collapseDeferred = false, fileDialogOpen = false;
@@ -680,12 +691,12 @@
   function musicInBand() { return isModuleEnabled('music') && music.available && (state === 'hover' || music.playing && !connectionLost); }
   function renderLiveActivities() {
     const hasMusic = musicInBand(), hasFocus = isModuleEnabled('focus') && focusIsActive(), priority = state === 'hover' && !!moduleFeedback && isModuleEnabled(moduleFeedback.id);
-    live.hidden = state === 'open' || !hasMusic || fileDragging || priority;
-    byId('focus-live').hidden = state === 'open' || !hasFocus || fileDragging || priority;
+    live.hidden = state !== 'hover' || !hasMusic || fileDragging || priority;
+    byId('focus-live').hidden = state !== 'hover' || !hasFocus || fileDragging || priority;
     strip.hidden = state === 'open' || !hasMusic || fileDragging || priority;
-    focusStrip.hidden = true;
+    focusStrip.hidden = state !== 'discreet' || !hasFocus || fileDragging;
     notch.dataset.liveCount = String(Number(hasMusic) + Number(hasFocus));
-    byId('live-activities').hidden = state === 'open' || fileDragging || priority || !(hasMusic || hasFocus);
+    byId('live-activities').hidden = state !== 'hover' || fileDragging || priority || !(hasMusic || hasFocus);
     renderModuleFeedback();
     const transferBand = localSendBand();
     renderLocalSend();
@@ -793,8 +804,14 @@
     return value;
   }
   function renderLocalSendBand() {
-    const band = localSendBand(), live = byId('localsend-live'), receive = band?.direction === 'receive';
-    live.hidden = state === 'open' || !band;
+    const band = localSendBand(), live = byId('localsend-live'), progress = byId('localsend-discreet-progress'), receive = band?.direction === 'receive';
+    live.hidden = state !== 'hover' || !band;
+    progress.hidden = state !== 'discreet' || !band || !['progress', 'complete'].includes(band.stage);
+    if (!progress.hidden) {
+      const ratio = band.stage === 'complete' ? 1 : band.progress / 100;
+      progress.style.setProperty('--localsend-progress', String(ratio));
+      progress.setAttribute('aria-valuenow', String(Math.round(ratio * 100)));
+    }
     if (!band) return;
     live.dataset.stage = band.stage;
     byId('localsend-live-icon').setAttribute('href', band.stage === 'ready' ? '#localsend-icon-ready' : band.stage === 'complete' ? '#localsend-icon-done' : '#localsend-icon-share');
@@ -1505,7 +1522,7 @@
   function position() { return musicPosition(music, connectionLost ? 0 : window.performance.now() - musicAt); }
   function clearSpectrum() { for (const bar of spectrumBars) bar.style.setProperty('--level', '0'); }
   function receiveSpectrum(values) {
-    if (disposed || document.hidden || fileDragging || !motionEnabled() || !isModuleEnabled('music') || !music.playing || connectionLost || !(state !== 'open' || builtinVisible('music'))) return;
+    if (disposed || document.hidden || fileDragging || !motionEnabled() || !isModuleEnabled('music') || !music.playing || connectionLost || !(state === 'hover' || state === 'open' && builtinVisible('music'))) return;
     const levels = spectrumLevels(values); if (!levels) return;
     const bars = state === 'open' ? playerBars : liveBars;
     bars.forEach((bar, index) => bar.style.setProperty('--level', String(levels[index])));
@@ -1604,7 +1621,7 @@
       clearSpectrum(); syncClock(); return;
     }
     if (typeof window.EventSource !== 'function') { musicError = 'La connexion au lecteur n’est pas disponible.'; renderMusic(); return; }
-    const wantsSpectrum = !fileDragging && motionEnabled() && (state !== 'open' || builtinVisible('music'));
+    const wantsSpectrum = !fileDragging && motionEnabled() && (state === 'hover' || state === 'open' && builtinVisible('music'));
     if (stream && streamSpectrum === wantsSpectrum) return;
     // Keep the old subscription until the new one opens, avoiding artwork flicker.
     retiringStream?.close(); retiringStream = stream;
@@ -1769,18 +1786,19 @@
     frame = 0;
     if (disposed) return;
     const value = motion.step(now, {snap: !motionEnabled() || document.hidden});
-    const width = Math.min(value.width, Math.max(1, window.innerWidth - 32));
+    const width = Math.max(1, Math.min(value.width, Math.max(1, window.innerWidth - 32)));
     geometry = shape({...value, width}, window.innerWidth);
-    for (const [name, number] of Object.entries({width, height: geometry.height, band: value.band, shoulder: geometry.shoulder, 'surface-width': geometry.totalWidth})) {
+    const band = Math.max(0, Math.min(value.band, geometry.height));
+    for (const [name, number] of Object.entries({width, height: geometry.height, band, shoulder: geometry.shoulder, 'surface-width': geometry.totalWidth})) {
       notch.style.setProperty('--' + name, number + 'px');
     }
     surface.setAttribute('viewBox', `0 0 ${geometry.totalWidth} ${geometry.height}`);
     contour.setAttribute('d', geometry.path);
     bandCut.setAttribute('transform', `translate(${-geometry.shoulder} 0)`);
-    panelCut.setAttribute('transform', `translate(${-geometry.shoulder} ${-value.band})`);
+    panelCut.setAttribute('transform', `translate(${-geometry.shoulder} ${-band})`);
     desktopPointer();
-    if (desktop) void desktop.sendGeometry({width: geometry.totalWidth, height: geometry.height, radius: geometry.radius, shoulder: geometry.shoulder, band: value.band, state}).then(result => { if (result?.maxHeight) desktopMaxHeight = result.maxHeight; }).catch(() => {});
-    notch.style.setProperty('--menu-opacity', String(value.progress));
+    if (desktop) void desktop.sendGeometry({width: geometry.totalWidth, height: geometry.height, radius: geometry.radius, shoulder: geometry.shoulder, band, state}).then(result => { if (result?.maxHeight) desktopMaxHeight = result.maxHeight; }).catch(() => {});
+    notch.style.setProperty('--menu-opacity', String(Math.max(0, Math.min(1, value.progress))));
     if (motion.isActive() && !document.hidden) frame = window.requestAnimationFrame(paint);
   }
 
@@ -1819,11 +1837,7 @@
       }
     }
     const hasMusic = musicInBand(), hasFocus = isModuleEnabled('focus') && focusIsActive();
-    let quiet = sizes[state];
-    if (state === 'discreet' && (hasMusic || hasFocus)) quiet = {width: hasMusic && hasFocus ? 300 : 240, band: 42, radius: 12, progress: 0};
-    if (state === 'hover' && (hasMusic || hasFocus)) quiet = {width: hasMusic && hasFocus ? 380 : hasMusic ? 360 : 276, band: hasMusic ? 64 : 42, radius: 16, progress: 0};
-    if (state === 'hover' && moduleFeedback) quiet = notch.dataset.feedback === 'done' ? {width: 440, band: 110, radius: 18, progress: 0} : notch.dataset.feedback === 'track' ? {width: 360, band: 64, radius: 16, progress: 0} : quiet;
-    if (state !== 'open' && transferBand) quiet = {width:240, band:42, radius:12, progress:0};
+    const quiet = state === 'open' ? sizes.open : closedBandSize(state, {music: hasMusic, focus: hasFocus, transfer: !!transferBand, feedback: moduleFeedback && notch.dataset.feedback});
     const definition = view === 'nook' ? moduleDefinitions[homePrimary()] : Object.values(moduleDefinitions).find(item => item.view === view);
     const directWidth = localSend ? localSend.direction === 'receive' ? 440 : 520 : view === 'files' ? 520 * scale : definition ? definition.size.width * scale : format.width;
     const size = {...quiet, ...(state === 'open' ? {width: view === 'welcome' ? 300 : getModuleEditorActive() ? Math.min(editorWidth, Math.max(1, window.innerWidth - 32)) : homeActive ? homeWidth : expandedMusic ? Math.min(Math.max(780, directWidth), Math.max(1, window.innerWidth - 80)) : directWidth, radius: appearance.radius} : {})};
