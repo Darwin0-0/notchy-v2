@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Notchy V2",
+  "version": "0.3.0",
+  "identifier": "dev.notchy.v2",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "capabilities": [
+        "notchy-window"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "../assets/icon.ico"
+    ],
+    "resources": {
+      "../native/bin/MediaBridge.exe": "native/MediaBridge.exe",
+      "../native/bin/SpectrumBridge.exe": "native/SpectrumBridge.exe",
+      "../native/bin/WeatherLocation.ps1": "native/WeatherLocation.ps1",
+      "../native/bin/NAudio.dll": "native/NAudio.dll",
+      "../native/bin/NAudio-LICENSE.txt": "native/NAudio-LICENSE.txt",
+      "../native/bin/CoverReader.dll": "native/CoverReader.dll",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../assets/manrope-OFL.txt": "licenses/manrope-OFL.txt",
+      "../assets/dancing-script-OFL.txt": "licenses/dancing-script-OFL.txt",
+      "../assets/aref-ruqaa-OFL.txt": "licenses/aref-ruqaa-OFL.txt",
+      "../native/bin/OcrBridge.exe": "native/OcrBridge.exe",
+      "../assets/LUCIDE-LICENSE.txt": "licenses/LUCIDE-LICENSE.txt"
+    }
+  }
+}

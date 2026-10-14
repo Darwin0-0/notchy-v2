@@ -1,0 +1,76 @@
+'use strict';
+const {test} = require('node:test'), assert = require('node:assert/strict');
+const fs = require('node:fs'), vm = require('node:vm');
+const source = fs.readFileSync(require('node:path').join(__dirname, '../src-tauri/src/window_bridge.js'), 'utf8');
+const key = 'notchy-minimal-modules-v1';
+function fixture({saved={},preferences={},invoker,localSendActive=false}={}) {
+  const calls=[],fetches=[],listeners=[],events=[];
+  class Storage {constructor(){this.values=new Map(Object.entries(saved));}getItem(key){return this.values.get(key)??null;}setItem(key,value){this.values.set(key,String(value));}removeItem(key){this.values.delete(key);}}
+  class EventSource {constructor(url,options){events.push({url,options});}}
+  const localStorage=new Storage();
+  const window={fetch:async(input,options)=>{fetches.push({input,options});return {ok:true};},EventSource,__TAURI__:{core:{invoke:async(command,args)=>{calls.push({command,args});return invoker?invoker(command,args):{ok:true};}},event:{listen:async(name,callback)=>{const entry={name,callback,removed:false};listeners.push(entry);return ()=>{entry.removed=true;};}}}};
+  const location=new URL('http://127.0.0.1:58252/?desktop=1');
+  vm.runInNewContext(source.replace('__NOTCHY_CONFIG__',JSON.stringify({token:'private-session',keys:[key],preferences,checking:false,localSendActive})),{window,Storage,localStorage,location,URL,Request,Headers,ArrayBuffer,Uint8Array,DataView,TextDecoder});
+  return {window,calls,fetches,listeners,events,localStorage};
+}
+test('Tauri credentials apply only to this server and replace legacy public header',async()=>{
+  const context=fixture();
+  await context.window.fetch('/api/shelf',{headers:{'X-Notchy':'1'},method:'POST',body:'file'});
+  await context.window.fetch('https://example.com/api/shelf');
+  assert.equal(context.fetches[0].options.headers.get('X-Notchy'),'private-session');
+  assert.equal(context.fetches[1].options,undefined);
+  new context.window.EventSource('/api/music/events?spectrum=1');
+  new context.window.EventSource('https://example.com/events');
+  const own=new URL(context.events[0].url);
+  assert.equal(own.searchParams.get('spectrum'),'1');assert.equal(own.searchParams.get('token'),'private-session');
+  assert.equal(new URL(context.events[1].url).searchParams.has('token'),false);
+});
+test('Migration seeds absent keys and preserves current WebView preferences',async()=>{
+  const old=JSON.stringify({enabled:['music'],slots:['music']});
+  const current=JSON.stringify({enabled:[],slots:[]});
+  const context=fixture({saved:{[key]:current},preferences:{[key]:old,unrelated:'secret'}});
+  assert.equal(context.localStorage.getItem(key),current);assert.equal(context.localStorage.getItem('unrelated'),null);assert.equal(context.calls.length,0);
+  context.localStorage.setItem(key,old);await Promise.resolve();
+  assert.equal(context.calls[0].args.value.command,'preference');assert.equal(context.calls[0].args.value.value.key,key);
+  context.localStorage.setItem('unrelated','value');assert.equal(context.calls.length,1);
+  assert.equal(fixture({preferences:{[key]:old}}).localStorage.getItem(key),old);
+});
+test('Unsubscribing before asynchronous event registration removes the listener',async()=>{
+  const context=fixture();let seen=0;
+  const remove=context.window.notchyDesktop.onResume(()=>seen++);remove();await Promise.resolve();
+  assert.equal(context.listeners[0].removed,true);
+  context.listeners[0].callback({payload:{reason:'open'}});assert.equal(seen,0);
+});
+test('Native cursor events expose only the payload and stop after asynchronous unsubscription',async()=>{
+  const context=fixture(),seen=[];
+  const remove=context.window.notchyDesktop.onPointer(value=>seen.push(value));await Promise.resolve();
+  assert.equal(context.listeners[0].name,'notchy:pointer');
+  context.listeners[0].callback({payload:{inside:false,moved:true}});assert.deepEqual(seen,[{inside:false,moved:true}]);
+  remove();assert.equal(context.listeners[0].removed,true);
+  context.listeners[0].callback({payload:{inside:true}});assert.equal(seen.length,1);
+  const second=fixture();const early=second.window.notchyDesktop.onPointer(()=>assert.fail('Disposed pointer subscription fired'));
+  early();await Promise.resolve();assert.equal(second.listeners[0].removed,true);
+  second.listeners[0].callback({payload:{inside:false}});
+});
+test('Native geometry serializes animations and coalesces to the latest frame',async()=>{
+  const replies=[];let active=0,peak=0;
+  const context=fixture({invoker:()=>new Promise(resolve=>{active++;peak=Math.max(peak,active);replies.push(value=>{active--;resolve(value);});})});
+  const first=context.window.notchyDesktop.sendGeometry({height:300,state:'open'});
+  const second=context.window.notchyDesktop.sendGeometry({height:100,state:'hover'});
+  const last=context.window.notchyDesktop.sendGeometry({height:14,state:'discreet'});
+  assert.equal(context.calls.length,1);assert.equal(first,second);assert.equal(second,last);
+  replies[0]({maxHeight:800});
+  for(let i=0;i<8;i++)await Promise.resolve();
+  assert.equal(context.calls.length,2);assert.equal(context.calls[1].args.value.value.state,'discreet');
+  replies[1]({maxHeight:800});await last;assert.equal(peak,1);
+});
+test('Startup exposes only confirmed LocalSend availability for incoming request monitoring',()=>{
+  assert.equal(fixture().window.notchyDesktop.localSendActive,false);
+  assert.equal(fixture({localSendActive:true}).window.notchyDesktop.localSendActive,true);
+  assert.equal(fixture({localSendActive:'true'}).window.notchyDesktop.localSendActive,false);
+});
+test('The opaque interface no longer exposes desktop capture',()=>{
+  const context=fixture();
+  assert.equal(typeof context.window.notchyDesktop.captureBackdrop,'undefined');
+  assert.equal(context.calls.length,0);
+});

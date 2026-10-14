@@ -1,0 +1,12 @@
+pub mod error;
+pub use error::ApiError;
+pub mod shelf;
+pub mod file_tools;
+pub mod localsend;
+pub mod native_bridge;
+pub mod clipboard;
+pub mod music;
+pub mod weather;
+pub mod spotify;
+pub mod desktop;
+pub mod server;

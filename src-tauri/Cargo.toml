@@ -1,0 +1,53 @@
+[package]
+name = "notchy-v2"
+version = "0.3.0"
+edition = "2021"
+description = "Notchy V2 — Tauri et services Rust pour Windows"
+
+[lib]
+name = "notchy"
+path = "src/lib.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.3", features = ["tray-icon", "image-png", "image-ico"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io", "rt"] }
+axum = "0.8"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tokio-rustls = "0.26"
+tower = "0.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+bytes = "1"
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.9"
+hex = "0.4"
+url = "2"
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+socket2 = "0.6"
+if-addrs = "0.15"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "tiff", "bmp"] }
+lopdf = "0.38"
+tempfile = "3"
+include_dir = "0.7"
+chrono = "0.4"
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_Security_Cryptography", "Win32_System_Threading", "Win32_System_JobObjects"] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
