@@ -104,7 +104,7 @@
   // Each module declares its content size and band behavior; the notch owns geometry.
   const moduleLayouts = {
     music: {minWidth: 300, basis: 360, maxWidth: 440, height: 176, panelWidth: 440},
-    focus: {minWidth: 320, basis: 500, maxWidth: 720, height: 264, panelWidth: 720},
+    focus: {minWidth: 320, basis: 528, maxWidth: 528, height: 340, panelWidth: 572},
     weather: {minWidth: 288, basis: 320, maxWidth: 384, height: 208, panelWidth: 424},
     shelf: {minWidth: 300, basis: 360, maxWidth: 480, height: 208, panelWidth: 560},
   };
@@ -117,14 +117,14 @@
     id, label, element, view, defaultInstalled: true, initialSlot, directOpen: ['shelf', 'weather'].includes(id),
     size: Object.freeze({width: moduleLayouts[id].panelWidth, height: moduleLayouts[id].height + 30, minWidth, minHeight, maxHeight: id === 'focus' ? 420 : 300}),
     layout: Object.freeze({...moduleLayouts[id], minHeight: moduleLayouts[id].height}),
-    editor: Object.freeze({basis: moduleLayouts[id].basis + 24, maxWidth: moduleLayouts[id].maxWidth + 24, height: moduleLayouts[id].height + 24, grow: id === 'music' ? 1.3 : 1}),
+    editor: Object.freeze({basis: moduleLayouts[id].basis + 24, maxWidth: moduleLayouts[id].maxWidth + 24, height: id === 'focus' ? 216 : moduleLayouts[id].height + 24, grow: id === 'music' ? 1.3 : 1}),
     band: Object.freeze({discreet, hover, changes: Object.freeze(changes)}),
   })])));
   function getModuleDefinitions() { return JSON.parse(JSON.stringify(Object.values(moduleDefinitions))); }
 
   function homeModuleLayout(ids, availableWidth, gap = 16, context = {}) {
     const ordered = Array.isArray(ids) ? ids.filter((id, index, list) => typeof id === 'string' && Object.hasOwn(moduleDefinitions, id) && list.indexOf(id) === index).slice(0, 4) : [];
-    const placed = ordered.filter((id, index) => id !== 'shelf' || index === 0);
+    const placed = ordered.filter((id, index) => id !== 'shelf' || index === 0 || context?.completeScenario === true);
     const width = Number.isFinite(availableWidth) ? Math.max(0, availableWidth) : 0;
     gap = Number.isFinite(gap) ? Math.max(0, Math.min(32, gap)) : 16;
     if (!context || typeof context !== 'object' || Array.isArray(context)) context = {};
@@ -136,6 +136,17 @@
         minHeight: Math.max(compact ? layout.previewHeight : layout.height, expandedHeight),
         basis: compact ? layout.previewBasis : layout.basis, maxWidth: compact ? layout.previewMaxWidth : layout.maxWidth};
     });
+    if (context.dayScenario === true && ['music', 'focus', 'weather'].every(id => items.some(item => item.id === id)) && width >= moduleLayouts.music.minWidth + moduleLayouts.focus.minWidth + gap) {
+      const columns = homeModuleLayout(['music', 'focus'], width, gap, {...context, dayScenario: false});
+      const music = items.find(item => item.id === 'music'), focus = items.find(item => item.id === 'focus'), weather = items.find(item => item.id === 'weather');
+      const rowHeights = [context.focusConfig === true ? 244 : focus.minHeight, weather.minHeight], totalWidth = columns.items[0].width + columns.items[1].width;
+      Object.assign(music, {row: 0, column: 0, rowSpan: 2, width: columns.items[0].width, height: rowHeights[0] + rowHeights[1] + gap, share: columns.items[0].width * 100 / totalWidth});
+      Object.assign(focus, {row: 0, column: 1, width: columns.items[1].width, height: rowHeights[0], minHeight: rowHeights[0], share: columns.items[1].width * 100 / totalWidth});
+      Object.assign(weather, {row: 1, column: 1, width: Math.min(weather.maxWidth, columns.items[1].width), height: rowHeights[1], share: 100});
+      return {items: [music, focus, weather], mode: 'day', columns: [music.share, focus.share], rows: 2, rowHeights, gap,
+        preferredWidth: columns.preferredWidth, contentHeight: music.height,
+        columnMinWidth: moduleLayouts.music.minWidth + moduleLayouts.focus.minWidth + gap, minWidth: Math.max(...items.map(item => item.minWidth))};
+    }
     const lines = [];
     for (const item of items) {
       let line = lines.at(-1);
@@ -156,7 +167,7 @@
       }
       const total = line.reduce((sum, item) => sum + item.width, 0);
       for (const [column, item] of line.entries()) {
-        if (item.id === 'focus') item.minHeight = context.focusConfig === true ? 244 : item.width >= 604 ? 264 : 392;
+        if (item.id === 'focus' && context.focusConfig === true) item.minHeight = 244;
         Object.assign(item, {row, column, height: item.minHeight, share: total ? item.width * 100 / total : 100});
       }
     }
@@ -198,6 +209,110 @@
     if (free >= 0 && (selecting || !filled.length)) indices.push(free);
     const widths = indices.map(index => moduleDefinitions[slots[index] || (selecting ? picked : '')]?.editor.basis || 180);
     return {slots, indices, free, height: Math.max(184, ...indices.map(index => moduleDefinitions[slots[index] || (selecting ? picked : '')]?.editor.height || 184)), width: Math.min(880, Math.max(620, widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * 12 + 46))};
+  }
+
+  const scenarioIds = Object.freeze(['focus', 'ambience', 'day', 'complete', 'minimal']);
+  const scenarioRuleDefaults = Object.freeze({work: 'focus', break: 'ambience', morning: 'day', idle: 'ambience'});
+  function normalizeScenarios(value = {}) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) value = {};
+    const rules = Object.fromEntries(Object.entries(scenarioRuleDefaults).map(([key, scenario]) => [key, {
+      enabled: value.rules?.[key]?.enabled !== false,
+      scenario: scenarioIds.includes(value.rules?.[key]?.scenario) ? value.rules[key].scenario : scenario,
+    }]));
+    const day = value.lastMorningDay;
+    const validDay = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(Date.parse(day + 'T00:00:00Z')) && new Date(day + 'T00:00:00Z').toISOString().slice(0, 10) === day;
+    return {mode: value.mode === 'manual' ? 'manual' : 'auto', rules,
+      guards: Object.fromEntries(['undo', 'manualLock', 'interacting'].map(key => [key, value.guards?.[key] !== false])),
+      selected: scenarioIds.includes(value.selected) ? value.selected : null,
+      manualUntil: Number.isSafeInteger(value.manualUntil) && value.manualUntil >= 0 && value.manualUntil <= 8640000000000000 ? value.manualUntil : 0,
+      lastMorningDay: validDay ? day : null};
+  }
+  function scenarioModulePlan(id, enabled, activity = {}) {
+    if (!scenarioIds.includes(id)) return [];
+    const available = Array.isArray(enabled) ? enabled.filter((item, index, list) => Object.hasOwn(moduleDefinitions, item) && list.indexOf(item) === index) : [];
+    const plans = {focus: ['focus', 'music'], ambience: ['music', 'weather'], day: ['music', 'focus', 'weather'], complete: ['music', 'focus', 'weather', 'shelf']};
+    if (id === 'minimal') return available.slice(0, 1);
+    return (plans[id] || []).filter(item => available.includes(item));
+  }
+  function createScenarioController({value, now = () => Date.now(), schedule = setTimeout, unschedule = clearTimeout, activity = () => ({}), enabled = () => [], interacting = () => false, save = () => {}, changed = () => {}} = {}) {
+    let preferences = normalizeScenarios(value), previousActivity = {...activity()}, pending = null, undoEntry = null, undoTimer = 0, idleTimer = 0, disposed = false;
+    let notice = {kind: 'mode'};
+    const copy = value => JSON.parse(JSON.stringify(value));
+    const busy = value => value.focusActive === true || value.musicPlaying === true || value.transferActive === true;
+    const locked = () => preferences.guards.manualLock && preferences.manualUntil > now();
+    const announce = (layout = false) => {if (!disposed) changed({preferences: copy(preferences), notice: {...notice}, layout, undo: !!undoEntry && undoEntry.until >= now()});};
+    const persist = () => save(copy(preferences));
+    function clearUndo() {if (undoTimer) unschedule(undoTimer); undoTimer = 0; undoEntry = null;}
+    function clearIdle() {if (idleTimer) unschedule(idleTimer); idleTimer = 0;}
+    function validTrigger(kind) {
+      const current = activity();
+      return kind === 'idle' ? !busy(current) : kind === 'morning' ? !current.focusActive : current.focusActive === true && (current.focusPhase === 'break' ? 'break' : 'work') === kind;
+    }
+    function apply(id, automatic = false) {
+      if (disposed || !scenarioIds.includes(id)) return false;
+      if (!scenarioModulePlan(id, enabled(), activity()).length) {notice = {kind: 'empty', scenario: id}; announce(); return false;}
+      pending = null;
+      if (automatic && preferences.selected === id) {notice = {kind: 'mode'}; announce(); return true;}
+      const prior = preferences.selected;
+      clearUndo(); preferences.selected = id;
+      if (!automatic) preferences.manualUntil = preferences.guards.manualLock ? Math.min(8640000000000000, now() + 7200000) : 0;
+      else if (preferences.manualUntil <= now()) preferences.manualUntil = 0;
+      notice = {kind: automatic ? 'automatic' : 'manual', scenario: id};
+      if (automatic && preferences.guards.undo) {
+        undoEntry = {selected: prior, until: now() + 5000};
+        undoTimer = schedule(() => {undoTimer = 0; undoEntry = null; if (notice.kind === 'automatic') notice = {kind: 'mode'}; announce();}, 5000);
+      }
+      persist(); announce(true); return true;
+    }
+    function trigger(kind) {
+      if (disposed || preferences.mode !== 'auto' || !preferences.rules[kind]?.enabled || locked() || !validTrigger(kind)) return false;
+      const id = preferences.rules[kind].scenario;
+      if (preferences.guards.interacting && interacting()) {pending = {kind, scenario: id}; notice = {kind: 'pending', scenario: id}; announce(); return false;}
+      return apply(id, true);
+    }
+    function flush() {
+      if (!pending || disposed || preferences.guards.interacting && interacting()) return false;
+      const change = pending; pending = null;
+      if (!validTrigger(change.kind)) {notice = {kind: 'mode'}; announce(); return false;}
+      return trigger(change.kind);
+    }
+    function observe() {
+      if (disposed) return;
+      const current = {...activity()}, previous = previousActivity; previousActivity = current;
+      if (pending && !validTrigger(pending.kind)) {pending = null; notice = {kind: 'mode'}; announce();}
+      if (current.focusActive && (!previous.focusActive || !previous.focusRunning && current.focusRunning || current.focusPhase !== previous.focusPhase || current.focusSession !== previous.focusSession)) trigger(current.focusPhase === 'break' ? 'break' : 'work');
+      if (busy(current)) clearIdle();
+      else if (busy(previous) && preferences.mode === 'auto' && preferences.rules.idle.enabled) {
+        clearIdle(); idleTimer = schedule(() => {idleTimer = 0; if (!disposed && !busy(activity())) trigger('idle');}, 1500);
+      }
+    }
+    function morning() {
+      if (disposed || preferences.mode !== 'auto' || !preferences.rules.morning.enabled || activity().focusActive) return false;
+      const local = new Date(now());
+      if (local.getHours() < 5 || local.getHours() >= 11) return false;
+      const day = `${String(local.getFullYear()).padStart(4, '0')}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+      if (preferences.lastMorningDay === day) return false;
+      preferences.lastMorningDay = day; persist(); return trigger('morning');
+    }
+    function configure(value) {
+      if (disposed) return false;
+      const prior = preferences.selected; preferences = normalizeScenarios(value);
+      if (!preferences.guards.manualLock) preferences.manualUntil = 0;
+      if (preferences.mode === 'manual') {pending = null; clearIdle();}
+      else if (pending && !preferences.rules[pending.kind]?.enabled) pending = null;
+      if (!preferences.rules.idle.enabled) clearIdle();
+      if (!preferences.guards.undo) clearUndo();
+      notice = {kind: 'mode'}; persist(); announce(prior !== preferences.selected); flush(); return true;
+    }
+    function undo() {
+      if (disposed || !undoEntry || undoEntry.until < now() || !preferences.guards.undo) return false;
+      preferences.selected = undoEntry.selected; pending = null; clearUndo();
+      preferences.manualUntil = preferences.guards.manualLock ? Math.min(8640000000000000, now() + 7200000) : 0;
+      notice = {kind: 'undone'}; persist(); announce(true); return true;
+    }
+    function dispose() {disposed = true; clearUndo(); clearIdle(); pending = null;}
+    return Object.freeze({configure, pick: id => apply(id), trigger, observe, morning, flush, undo, dispose,
+      getPreferences: () => copy(preferences), inspect: () => ({preferences: copy(preferences), pending: pending ? {...pending} : null, undoAvailable: !!undoEntry && undoEntry.until >= now(), undoUntil: undoEntry?.until || 0, idleScheduled: !!idleTimer, notice: {...notice}, disposed})});
   }
 
   function moduleActivitySnapshot(id, value = {}) {
@@ -282,7 +397,7 @@
     return size;
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = {FocusModel, focusConfiguration, focusCardValues, weatherNarrative, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, moduleEditorPresentation, homeModuleLayout, getModuleDefinitions, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, closedBandSize};
+  if (typeof module === 'object' && module.exports) module.exports = {FocusModel, focusConfiguration, focusCardValues, weatherNarrative, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, moduleEditorPresentation, homeModuleLayout, getModuleDefinitions, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, closedBandSize};
   if (!window?.document) return;
 
   const document = window.document;
@@ -359,6 +474,9 @@
   let shelfItems = [], shelfLoaded = false, shelfBusy = false, shelfError = '', shelfEpoch = 0, fileDragging = false, dragDepth = 0, fileDragCount = null, fileDragPreviousState = null;
   // Original module editor: four independent previews, then the integrated palette.
   const modulesPlayer = byId('modules-player'), moduleStorageKey = 'notchy-minimal-modules-v1';
+  const scenarioStorageKey = 'notchy-scenarios-v1';
+  let scenarioController = null, scenarioPreferences = normalizeScenarios();
+  try {const saved = window.localStorage.getItem(scenarioStorageKey); if (saved && saved.length <= 4096) scenarioPreferences = normalizeScenarios(JSON.parse(saved));} catch {}
   const moduleLabels = Object.fromEntries(Object.values(moduleDefinitions).map(item => [item.id, t(item.label)]));
   let queueOpen = false, queueReturnView = 'music', queueActive = false, queueBusy = false, queueTimer = 0, queueEpoch = 0, queueRetryUntil = 0, queueListSignature = '';
   let queueState = {status: 'disconnected', current: null, items: [], message: ''};
@@ -475,7 +593,15 @@
   } catch {}
   function getModules() { return {enabled: [...moduleSettings.enabled], slots: [...moduleSettings.slots]}; }
   function isModuleEnabled(id) { return moduleSettings.enabled.includes(id); }
-  function getHomeSlots() { return moduleSettings.slots.map(id => isModuleEnabled(id) ? id : null); }
+  function configuredModuleOrder() {
+    const ordered = moduleSettings.slots.filter(id => isModuleEnabled(id));
+    return [...ordered, ...moduleSettings.enabled.filter(id => !ordered.includes(id))];
+  }
+  function getHomeSlots() {
+    const selected = scenarioController?.getPreferences().selected;
+    if (selected) {const plan = scenarioModulePlan(selected, configuredModuleOrder()); return Array.from({length: 4}, (_, index) => plan[index] || null);}
+    return moduleSettings.slots.map(id => isModuleEnabled(id) ? id : null);
+  }
   function getModuleOrder() {
     const ordered = getHomeSlots().filter(Boolean);
     return [...ordered, ...moduleSettings.enabled.filter(id => !ordered.includes(id))];
@@ -497,12 +623,25 @@
       window.localStorage.setItem(moduleStorageKey, JSON.stringify(moduleSettings)); moduleMessage = t('Disposition enregistrée.');
     } catch { moduleMessage = t('Disposition appliquée pour cette fenêtre.'); }
     if (typeof modulesChanged === 'function') modulesChanged(previous);
+    if (persist && scenarioController?.getPreferences().selected) {
+      const scenario = scenarioController.getPreferences(); scenario.selected = null;
+      scenario.manualUntil = scenario.guards.manualLock ? Math.min(8640000000000000, Date.now() + 7200000) : 0;
+      scenarioController.configure(scenario);
+    }
     renderModules(); return true;
+  }
+  function revealModuleSelection() {
+    if (disposed || !moduleEditing) return;
+    const frame = modulesPlayer.querySelector(`[data-module-slot-box="${moduleSelected}"]`), scroller = byId('module-editor-frames');
+    if (!frame || frame.hidden || !scroller) return;
+    const bounds = frame.getBoundingClientRect(), viewport = scroller.getBoundingClientRect();
+    if (bounds.left < viewport.left || bounds.right > viewport.right) frame.scrollIntoView({block: 'nearest', inline: 'center', behavior: motionEnabled() ? 'smooth' : 'instant'});
   }
   function moduleEditorLayout(opening = false, closing = false) {
     notch.dataset.moduleEditing = String(moduleEditing);
     if (typeof moduleEditorLayoutChanged === 'function') moduleEditorLayoutChanged({active: moduleEditing, opening, closing, previousView: modulePreviousView, previousState: modulePreviousState});
     renderModules();
+    if (!closing) revealModuleSelection();
   }
   function openModuleEditor(event) {
     if (disposed) return false;
@@ -510,7 +649,9 @@
     modulePreviousView = view; modulePreviousState = state; moduleReturnFocus = document.activeElement;
     moduleDraft = getModules(); modulePicked = null; moduleMessage = ''; moduleEditing = true;
     const target = event?.target?.closest?.('[data-home-slot], [data-module-open]');
-    const index = target?.dataset.homeSlot ?? moduleDraft.slots.indexOf(target?.dataset.moduleOpen);
+    const moduleId = target?.dataset.moduleOpen || target?.dataset.module, storedIndex = moduleDraft.slots.indexOf(moduleId);
+    const index = Object.hasOwn(moduleDefinitions, moduleId || '') ? storedIndex >= 0 ? storedIndex : moduleDraft.slots.findIndex(id => !id || !moduleDraft.enabled.includes(id)) : target?.dataset.homeSlot;
+    if (storedIndex < 0 && Object.hasOwn(moduleDefinitions, moduleId || '') && index >= 0) modulePicked = moduleId;
     moduleSelected = Number.isInteger(Number(index)) && Number(index) >= 0 && Number(index) < 4 ? Number(index) : Math.max(0, moduleDraft.slots.findIndex(Boolean));
     moduleEditorLayout(true); modulesPlayer.querySelector(`[data-module-slot-box="${moduleSelected}"]`).focus({preventScroll: true}); return true;
   }
@@ -667,7 +808,7 @@
       if (['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); removeModuleDraft(Number(frame.dataset.moduleSlotBox)); return true; }
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
         event.preventDefault(); const frames = [...modulesPlayer.querySelectorAll('[data-module-slot-box]')].filter(item => !item.hidden), direction = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1;
-        const next = frames[(frames.indexOf(frame) + direction + frames.length) % frames.length]; moduleSelected = Number(next.dataset.moduleSlotBox); renderModules(); next.focus(); return true;
+        const next = frames[(frames.indexOf(frame) + direction + frames.length) % frames.length]; moduleSelected = Number(next.dataset.moduleSlotBox); renderModules(); next.focus({preventScroll: true}); revealModuleSelection(); return true;
       }
     }
     const button = event.target.closest?.('#module-catalog [data-module-id]');
@@ -678,7 +819,7 @@
   }
   function disposeModules() { moduleEditing = false; moduleDraft = null; modulePicked = null; modulesPlayer.hidden = true; }
 
-  const settingsPlayer = byId('settings-player');
+  const settingsPlayer = byId('settings-player'), scenariosPlayer = byId('scenarios-player');
   function renderSettings() {
     settingsPlayer.hidden = view !== 'settings' || getModuleEditorActive();
     renderAppearance();
@@ -702,15 +843,91 @@
     } else if (button.dataset.settingsCommand === 'weather') {
       weatherPickerOpen = true; selectViewButton({dataset: {view: 'weather'}}); renderWeather(); weatherCityInput.focus({preventScroll: true});
     } else if (button.dataset.settingsCommand === 'localsend') selectViewButton({dataset: {view: 'tray'}});
+    else if (button.dataset.settingsCommand === 'scenarios') selectViewButton({dataset: {view: 'scenarios'}});
   }
   function settingsNaturalPanelHeight() {
-    const style = getComputedStyle(settingsPlayer);
+    return naturalPanelHeight(settingsPlayer);
+  }
+  function naturalPanelHeight(element, width) {
+    const previousWidth = element.style.width;
+    if (Number.isFinite(width)) element.style.width = width + 'px';
+    const style = getComputedStyle(element);
     const number = value => parseFloat(value) || 0;
-    return Math.ceil([...settingsPlayer.children].filter(child => !child.hidden).reduce((height, child) => {
+    const height = Math.ceil([...element.children].filter(child => !child.hidden).reduce((height, child) => {
       const childStyle = getComputedStyle(child);
       return height + child.getBoundingClientRect().height + number(childStyle.marginTop) + number(childStyle.marginBottom);
     }, number(style.paddingTop) + number(style.paddingBottom)));
+    if (Number.isFinite(width)) element.style.width = previousWidth;
+    return height;
   }
+  function scenarioActivity() {
+    return {focusActive: focusIsActive(), focusRunning: !!focus.deadline, focusPhase: focus.pomodoro?.phase || 'work', focusSession: focus.pomodoro?.session || 1,
+      musicPlaying: music.playing && !connectionLost, transferActive: !!nearby.incoming || nearbyBusy || ['preparing', 'waiting', 'sending', 'receiving'].includes(nearby.transfer?.status)};
+  }
+  function scenarioInteracting() {
+    const focused = document.hasFocus() ? document.activeElement : null;
+    return document.hidden || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || welcome?.isActive() || state === 'open' && pointerInside ||
+      state === 'open' && (keyboardNavigation && !!focused?.closest('#notch-panel,#notch-menu') || !!focused?.closest('input,textarea,select,[contenteditable="true"]')) ||
+      state === 'open' && view === 'localsend' && ['consent', 'waiting', 'progress'].includes(localSendPresentation()?.stage);
+  }
+  function scenarioLabel(id) {return t({focus: 'Focus', ambience: 'Ambiance', day: 'Journée', complete: 'Complet', minimal: 'Minimal'}[id] || 'Scénarios');}
+  function renderScenarios() {
+    if (!scenariosPlayer || !scenarioController) return;
+    scenariosPlayer.hidden = view !== 'scenarios' || getModuleEditorActive();
+    const {preferences, notice, undoAvailable} = scenarioController.inspect(), manual = preferences.mode === 'manual';
+    for (const input of scenariosPlayer.querySelectorAll('[data-scenario-mode]')) input.checked = input.value === preferences.mode;
+    for (const input of scenariosPlayer.querySelectorAll('[data-scenario-rule-enabled]')) {input.checked = preferences.rules[input.dataset.scenarioRuleEnabled].enabled; input.disabled = manual;}
+    for (const select of scenariosPlayer.querySelectorAll('[data-scenario-rule]')) {select.value = preferences.rules[select.dataset.scenarioRule].scenario; select.disabled = manual;}
+    for (const button of scenariosPlayer.querySelectorAll('[data-scenario-option]')) {
+      const selected = preferences.rules[button.dataset.scenarioOption].scenario === button.value;
+      button.disabled = manual; button.setAttribute('aria-checked', String(selected)); button.tabIndex = selected ? 0 : -1;
+    }
+    for (const input of scenariosPlayer.querySelectorAll('[data-scenario-guard]')) input.checked = preferences.guards[input.dataset.scenarioGuard];
+    for (const button of scenariosPlayer.querySelectorAll('[data-scenario-pick]')) button.setAttribute('aria-pressed', String(button.dataset.scenarioPick === preferences.selected));
+    const label = scenarioLabel(notice.scenario);
+    const message = notice.kind === 'pending' ? t('{scenario} sera appliqué quand tu quitteras le panneau.', {scenario: label}) : notice.kind === 'empty' ? t('Aucun module disponible pour ce scénario.') :
+      notice.kind === 'undone' ? t('Disposition précédente rétablie.') : notice.kind === 'automatic' || notice.kind === 'manual' ? t('{scenario} appliqué.', {scenario: label}) + (notice.kind === 'manual' && preferences.guards.manualLock && preferences.manualUntil > Date.now() ? ' ' + t('Choix manuel conservé pendant deux heures.') : '') :
+      t(manual ? 'Les règles automatiques sont en pause.' : 'Les changements suivent ton activité.');
+    text(byId('scenario-status'), message); byId('scenario-undo').hidden = !undoAvailable;
+    const noticeElement = byId('scenario-home-notice'), home = byId('nook-layout');
+    noticeElement.hidden = !(undoAvailable && state === 'open' && view === 'nook' && !getModuleEditorActive());
+    home.style.height = noticeElement.hidden ? '' : 'calc(100% - 32px)';
+    if (!noticeElement.hidden) text(byId('scenario-home-status'), t('{scenario} appliqué.', {scenario: scenarioLabel(preferences.selected)}));
+  }
+  function scenarioChanged(change) {
+    renderScenarios();
+    if (change.layout) {renderHomeLayout(); renderMusic(); renderFocus(); renderShelf(); renderWeather(); weatherLifecycle();}
+    update();
+  }
+  function scenarioInput(event) {
+    if (disposed || !scenarioController || event.target.disabled) return;
+    const value = scenarioController.getPreferences(), target = event.target;
+    if (target.dataset.scenarioMode) value.mode = target.value;
+    else if (target.dataset.scenarioRuleEnabled) value.rules[target.dataset.scenarioRuleEnabled].enabled = target.checked;
+    else if (target.dataset.scenarioRule) value.rules[target.dataset.scenarioRule].scenario = target.value;
+    else if (target.dataset.scenarioGuard) value.guards[target.dataset.scenarioGuard] = target.checked;
+    else return;
+    scenarioController.configure(value);
+  }
+  function scenarioClick(event) {
+    const button = event.target.closest('[data-scenario-option],[data-scenario-pick],[data-scenario-command],#scenario-undo');
+    if (disposed || !scenarioController || !button || button.disabled) return;
+    if (button.dataset.scenarioOption) {
+      const select = scenariosPlayer.querySelector(`[data-scenario-rule="${button.dataset.scenarioOption}"]`);
+      select.value = button.value; select.dispatchEvent(new window.Event('change', {bubbles: true}));
+    } else if (button.dataset.scenarioPick) scenarioController.pick(button.dataset.scenarioPick);
+    else if (button.dataset.scenarioCommand === 'close') selectViewButton({dataset: {view: 'nook'}});
+    else scenarioController.undo();
+  }
+  function scenarioKey(event) {
+    const button = event.target.closest('[data-scenario-option]');
+    if (!button || button.disabled || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...button.parentElement.querySelectorAll('[data-scenario-option]')], index = buttons.indexOf(button);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) + buttons.length) % buttons.length;
+    scenarioClick({target: buttons[next]}); buttons[next].focus({preventScroll: true});
+  }
+  function scenarioFlush() {scenarioController?.flush();}
 
   function shelfGlyph(kind) {
     const paths = {document: 'M14 3H6v18h12V7zM14 3v5h5M9 12h6M9 16h6', archive: 'M5 3h14v18H5zM11 3v3h2V3M11 8h2v3h-2M11 13h2v4h-2', image: 'M3 4h18v16H3zM3 17l5-6 4 4 3-3 6 6M16 8h.01', audio: 'M9 18V5l11-2v13M9 9l11-2M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6M17 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6', video: 'M3 5h18v14H3zM9 9l6 3-6 3z', file: 'M14 3H6v18h12V7zM14 3v5h5', check: 'm4 12 5 5L20 6'};
@@ -735,6 +952,7 @@
     focusStrip.setAttribute('aria-valuenow', String(Math.round(card.progress * 100)));
     focusStrip.setAttribute('aria-valuetext', t('{phase} · {time} restantes', {phase: focusLabel(), time: time(card.seconds)}));
     observeModuleActivity('focus', focus);
+    scenarioController?.observe();
     renderLiveActivities(); renderHomeSummaries(); if (getModuleEditorActive()) renderModules();
     update();
   }
@@ -760,7 +978,7 @@
     }
   }
   function homePrimary() { return getModuleEditorActive() ? getModuleEditorSlots()[0] : getHomeSlots().find(Boolean) || null; }
-  function homeModuleContext() { return {weatherPicker: weatherPickerOpen, focusConfig: focusComponent?.inspect().configOpen}; }
+  function homeModuleContext() { const selected = scenarioController?.getPreferences().selected; return {weatherPicker: weatherPickerOpen, focusConfig: focusComponent?.inspect().configOpen, completeScenario: selected === 'complete', dayScenario: selected === 'day'}; }
   function builtinVisible(id) {
     const definition = moduleDefinitions[id], editing = getModuleEditorActive();
     if (id === 'files') return view === 'files' && !editing;
@@ -1020,6 +1238,7 @@
       if (!disposed && mutation === nearbyMutation) {
         if (!nearbyLoaded && value.transfer?.direction === 'receive' && value.transfer.status === 'complete') nearbyReceiveCompleted = value.transfer.id;
         nearbyLoaded = true; nearby = value; nearbyError = ''; renderNearby();
+        scenarioController?.observe();
         if (value.incoming && value.incoming.id !== nearbyIncomingShown && !protectedInteraction()) {
           nearbyIncomingShown = value.incoming.id; openLocalSend('receive', value.incoming);
         }
@@ -1578,6 +1797,7 @@
     const previous = fileDragPreviousState; fileDragPreviousState = null; renderFileDropPreview();
     if (restore !== false && previous && previous !== state) setState(previous); else renderMusic();
     if (restore !== false && state === 'open' && view === 'tray' && !shelfLoaded && !shelfBusy) void loadShelf();
+    scenarioController?.flush();
   }
   function fileDragEnter(event) { if (hasFiles(event)) dragDepth++; }
   function renderFileDropPreview() {
@@ -1617,7 +1837,7 @@
     for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();
     for (const item of Object.values(moduleDefinitions)) moduleLabels[item.id] = t(item.label);
     moduleMessage = '';
-    renderAppearance(); renderHomeLayout(); renderMusic(); renderMusicQueue(); renderFocus(); renderShelf(); renderFiles(); renderWeather(); renderNearby(); renderModuleFeedback(); renderModules(); renderSettings(); renderMenuSelection(); update();
+    renderAppearance(); renderHomeLayout(); renderMusic(); renderMusicQueue(); renderFocus(); renderShelf(); renderFiles(); renderWeather(); renderNearby(); renderModuleFeedback(); renderModules(); renderSettings(); renderScenarios(); renderMenuSelection(); update();
   }
   function time(value) { const seconds = Math.floor(value); return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); }
   function position() { return musicPosition(music, connectionLost ? 0 : window.performance.now() - musicAt); }
@@ -1702,6 +1922,7 @@
     music = next;
     musicAt = window.performance.now();
     musicError = ''; connectionLost = false;
+    scenarioController?.observe();
     observeModuleActivity('music', music);
     renderMusic(); update(); if (oldCopy && motionEnabled()) animateMusicTrack(oldCopy, oldArt); if (getModuleEditorActive()) renderModules(); return true;
   }
@@ -1925,9 +2146,14 @@
       const preferredWidth = preferred.items.length ? (single || preferred.preferredWidth + horizontalPadding) * scale : format.width;
       homeWidth = Math.min(Math.max(preferred.minWidth + horizontalPadding, preferredWidth), maximumWidth);
       homeLayout = homeModuleLayout(slots, Math.max(0, homeWidth - horizontalPadding), gap, context);
-      homeHeight = Math.max(164, homeLayout.contentHeight) + verticalPadding;
+      homeHeight = Math.max(164, homeLayout.contentHeight) + verticalPadding + (byId('scenario-home-notice')?.hidden === false ? 32 : 0);
       home.dataset.layout = homeLayout.mode;
+      home.dataset.scenario = homeLayout.mode === 'day' ? 'day' : '';
       home.style.setProperty('--home-gap', gap + 'px');
+      if (homeLayout.mode === 'day') {
+        home.style.setProperty('--day-left-width', homeLayout.items[0].width + 'px'); home.style.setProperty('--day-right-width', homeLayout.items[1].width + 'px');
+        home.style.setProperty('--day-first-height', homeLayout.rowHeights[0] + 'px'); home.style.setProperty('--day-second-height', homeLayout.rowHeights[1] + 'px');
+      }
       for (const item of homeLayout.items) {
         const cell = homeCells.get(item.id); if (!cell) continue;
         cell.dataset.row = String(item.row); cell.dataset.column = String(item.column);
@@ -1940,7 +2166,7 @@
     const hasMusic = musicInBand(), hasFocus = isModuleEnabled('focus') && focusIsActive();
     const quiet = state === 'open' ? sizes.open : closedBandSize(state, {music: hasMusic, focus: hasFocus, transfer: !!transferBand, feedback: moduleFeedback && notch.dataset.feedback});
     const definition = view === 'nook' ? moduleDefinitions[homePrimary()] : Object.values(moduleDefinitions).find(item => item.view === view);
-    const directWidth = localSend ? localSend.direction === 'receive' ? 440 : 520 : view === 'settings' ? 600 * scale : view === 'focus' && context.focusConfig ? 440 * scale : view === 'files' ? 520 * scale : definition ? definition.size.width * scale : format.width;
+    const directWidth = localSend ? localSend.direction === 'receive' ? 440 : 520 : view === 'settings' ? 600 * scale : view === 'scenarios' ? 900 * scale : view === 'focus' && context.focusConfig ? 440 * scale : view === 'files' ? 520 * scale : definition ? definition.size.width * scale : format.width;
     const size = {...quiet, ...(state === 'open' ? {width: fileDragging ? 360 : view === 'welcome' ? 320 : getModuleEditorActive() ? Math.min(editorWidth, Math.max(1, window.innerWidth - 32)) : homeActive ? homeWidth : expandedMusic ? Math.min(directWidth + 284 * scale, Math.max(1, window.innerWidth - 80)) : directWidth, radius: appearance.radius} : {})};
     if (state === 'open' && (view === 'welcome' || localSend)) size.band = 0;
     if (state === 'open' && fileDragging) size.band = 0;
@@ -1948,15 +2174,16 @@
     if (localSend) size.radius = 18;
     const directItem = definition ? homeModuleLayout([definition.id], directWidth, 16, context).items[0] : null;
     let contentHeight = view === 'welcome' ? 246 : definition ? Math.max(definition.size.minHeight, Math.min(Math.max(definition.size.height * scale, (directItem?.minHeight || 0) + 30), definition.size.maxHeight)) : format.height;
-    if (view === 'focus') contentHeight = context.focusConfig ? 244 : Math.min(size.width, window.innerWidth - 32) >= 604 ? 264 : 392;
+    if (view === 'focus') contentHeight = context.focusConfig ? 244 : 362;
     if (view === 'settings') contentHeight = settingsNaturalPanelHeight();
+    if (view === 'scenarios') contentHeight = naturalPanelHeight(scenariosPlayer, Math.min(directWidth, Math.max(1, window.innerWidth - 32)));
     if (view === 'files') contentHeight = ['result', 'ocr', 'preview'].includes(fileMode) ? 264 : 238;
     if (localSend) contentHeight = localSend.direction === 'send' ? 210 : localSend.stage === 'consent' ? 116 : 158;
     const shelfDetails = view === 'tray' && !!shelfSelectionItem();
     if (shelfDetails) contentHeight = Math.max(contentHeight, 288);
     if (!homeActive && state === 'open' && weatherVisible()) contentHeight = Math.max(contentHeight, Math.min(moduleDefinitions.weather.size.maxHeight, weatherNaturalPanelHeight()));
     const editorHeight = editorLayout ? editorLayout.height + (window.innerWidth <= 430 ? 134 : window.innerWidth <= 640 ? 152 : 116) : 272;
-    const desiredHeight = fileDragging ? 160 : getModuleEditorActive() ? editorHeight : homeActive ? homeHeight : view === 'settings' || shelfDetails ? contentHeight : expandedMusic && window.innerWidth <= 640 ? Math.max(370, contentHeight) : !desktop && window.innerHeight <= 430 ? Math.min(contentHeight, 180) : contentHeight;
+    const desiredHeight = fileDragging ? 160 : getModuleEditorActive() ? editorHeight : homeActive ? homeHeight : ['settings', 'scenarios'].includes(view) || shelfDetails ? contentHeight : expandedMusic && window.innerWidth <= 640 ? Math.max(370, contentHeight) : !desktop && window.innerHeight <= 430 ? Math.min(contentHeight, 180) : contentHeight;
     const maximumHeight = desktop ? desktopMaxHeight - size.band - 8 : window.innerHeight - 96;
     let panelHeight = Math.max(0, Math.min(desiredHeight, maximumHeight));
     notch.style.setProperty('--panel-height', panelHeight + 'px');
@@ -1974,6 +2201,7 @@
     if (next !== 'open' || state !== 'open') {layoutResizeClick = null; layoutResizeGraceUntil = 0;}
     if (next !== 'open' && (menu.contains(document.activeElement) || panel.contains(document.activeElement))) toggle.focus({preventScroll: true});
     state = next;
+    renderScenarios();
     notch.dataset.state = next;
     document.body.dataset.notchState = next;
     toggle.setAttribute('aria-expanded', String(next === 'open'));
@@ -1992,6 +2220,8 @@
     weatherLifecycle();
     renderModuleFeedback();
     if (next === 'open' && view === 'nook' && isModuleEnabled('shelf') && !shelfLoaded && !shelfBusy && !fileDragging) void loadShelf();
+    if (next === 'open' && view === 'nook' && !getModuleEditorActive()) scenarioController?.morning();
+    if (next !== 'open') scenarioController?.flush();
     return true;
   }
 
@@ -2008,7 +2238,7 @@
   }
   function protectedInteraction() {
     const focused = document.hasFocus() ? document.activeElement : null;
-    if (state === 'open' && view === 'settings') return true;
+    if (state === 'open' && ['settings', 'scenarios'].includes(view)) return true;
     return welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]') || keyboardNavigation && state !== 'discreet' && !!focused?.closest('#notch-toggle,#notch-panel,#notch-menu');
   }
   function scheduleCollapse(deactivated = false) {
@@ -2023,9 +2253,9 @@
       if (!collapseDeferred) setState('discreet');
     }, Math.max(220, state === 'open' ? layoutResizeGraceUntil - Date.now() : 0));
   }
-  function recheckCollapse() { if (collapseDeferred && !disposed && !pointerInside && !protectedInteraction()) scheduleCollapse(); }
+  function recheckCollapse() { scenarioController?.flush(); if (collapseDeferred && !disposed && !pointerInside && !protectedInteraction()) scheduleCollapse(); }
   function enter() { pointerInside = true; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false; if (state !== 'open') setState('hover'); }
-  function leave() { pointerInside = false; scheduleCollapse(); }
+  function leave() { pointerInside = false; scenarioController?.flush(); scheduleCollapse(); }
   function nativePointer(value) {
     const inside = value?.inside;
     if (disposed || document.hidden || typeof inside !== 'boolean') return;
@@ -2072,7 +2302,7 @@
     toggle.tabIndex = state === 'open' && view === 'localsend' ? -1 : 0;
     byId('welcome-player').hidden = view !== 'welcome';
     menu.hidden = state !== 'open' || view === 'welcome' || view === 'localsend'; menu.inert = menu.hidden;
-    panel.setAttribute('aria-label', t(Object.values(moduleDefinitions).find(item => item.view === view)?.label) || (view === 'nook' ? t('Accueil Notchy') : view === 'welcome' ? t('Bienvenue dans Notchy') : view === 'localsend' ? t('Partage LocalSend') : view === 'files' ? t('Actions de fichier') : t('Réglages')));
+    panel.setAttribute('aria-label', t(Object.values(moduleDefinitions).find(item => item.view === view)?.label) || (view === 'nook' ? t('Accueil Notchy') : view === 'welcome' ? t('Bienvenue dans Notchy') : view === 'localsend' ? t('Partage LocalSend') : view === 'files' ? t('Actions de fichier') : view === 'scenarios' ? t('Scénarios') : t('Réglages')));
     renderMenuSelection();
     renderHomeLayout();
     musicLifecycle();
@@ -2081,15 +2311,18 @@
     renderFiles(); filesLifecycle();
     renderWeather(); weatherLifecycle();
     renderSettings();
+    renderScenarios();
     renderModules(); nearbyLifecycle();
     renderModuleFeedback();
     renderLocalSend();
+    update();
+    if (state === 'open' && view === 'nook' && !getModuleEditorActive()) scenarioController?.morning();
     if (builtinVisible('shelf') && !shelfLoaded && !shelfBusy && !fileDragging) void loadShelf();
   }
   function renderMenuSelection() {
     for (const item of menuButtons) {
       const definition = Object.values(moduleDefinitions).find(entry => entry.view === item.dataset.view);
-      item.hidden = !!definition && !isModuleEnabled(definition.id) && !(definition.id === 'shelf' && view === 'tray');
+      item.hidden = item.dataset.view === 'scenarios' ? view !== 'scenarios' : !!definition && !isModuleEnabled(definition.id) && !(definition.id === 'shelf' && view === 'tray');
       const selected = item.dataset.view === view || item.dataset.view === 'nook' && view === 'music';
       item.setAttribute('aria-pressed', String(selected)); item.setAttribute('aria-current', selected ? 'page' : 'false');
     }
@@ -2145,6 +2378,11 @@
   document.addEventListener('dragend', clearFileDrag);
   settingsPlayer.addEventListener('input', appearanceInput);
   settingsPlayer.addEventListener('click', settingsCommand);
+  scenariosPlayer?.addEventListener('change', scenarioInput);
+  scenariosPlayer?.addEventListener('click', scenarioClick);
+  scenariosPlayer?.addEventListener('keydown', scenarioKey);
+  byId('scenario-home-notice')?.addEventListener('click', scenarioClick);
+  document.addEventListener('visibilitychange', scenarioFlush);
   document.addEventListener('pointerdown', outside);
   document.addEventListener('pointerdown', pointerInteraction, true);
   document.addEventListener('pointermove', pointerPosition, true);
@@ -2166,6 +2404,7 @@
   function dispose() {
     if (disposed) return;
     disposed = true;
+    scenarioController?.dispose();
     removeLanguage?.(); document.removeEventListener('change', languageChoice);
     queueEpoch++; queueOpen = queueActive = queueBusy = false; window.clearTimeout(queueTimer); queueTimer = 0;
     shelfEpoch++;
@@ -2232,6 +2471,11 @@
     document.removeEventListener('dragend', clearFileDrag);
     settingsPlayer.removeEventListener('input', appearanceInput);
     settingsPlayer.removeEventListener('click', settingsCommand);
+    scenariosPlayer?.removeEventListener('change', scenarioInput);
+    scenariosPlayer?.removeEventListener('click', scenarioClick);
+    scenariosPlayer?.removeEventListener('keydown', scenarioKey);
+    byId('scenario-home-notice')?.removeEventListener('click', scenarioClick);
+    document.removeEventListener('visibilitychange', scenarioFlush);
     document.removeEventListener('mousemove', desktopPointer);
     document.removeEventListener('pointerdown', desktopFocus);
     document.removeEventListener('pointerdown', outside);
@@ -2251,6 +2495,11 @@
     setState,
     setMusic,
     setAppearance,
+    getScenarios: () => scenarioController.getPreferences(),
+    setScenarios: value => scenarioController.configure(value),
+    selectScenario: id => scenarioController.pick(id),
+    undoScenario: () => scenarioController.undo(),
+    flushScenario: () => scenarioController.flush(),
     getModules,
     getModuleDefinitions,
     showWelcome,
@@ -2267,7 +2516,7 @@
     getModuleEditorOrder,
     getWeatherState,
     dispose,
-    inspect: () => ({state, view, geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
+    inspect: () => ({state, view, geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, scenarios: scenarioController?.inspect(), morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
     }),
   });
   window.addEventListener('pagehide', dispose, {once: true});
@@ -2280,6 +2529,10 @@
     const tile = document.createElement('span'); tile.className = 'module-tile'; tile.append(byId(moduleDefinitions[id].element).querySelector('svg').cloneNode(true));
     tile.append(byId('module-catalog').querySelector('.module-installed').cloneNode(true)); const label = document.createElement('span'); label.className = 'module-label'; label.textContent = moduleLabels[id]; button.append(tile, label); byId('module-catalog').append(button);
   }
+  scenarioController = createScenarioController({value: scenarioPreferences, activity: scenarioActivity, enabled: configuredModuleOrder, interacting: scenarioInteracting,
+    schedule: window.setTimeout.bind(window), unschedule: window.clearTimeout.bind(window), changed: scenarioChanged,
+    save: value => {try {window.localStorage.setItem(scenarioStorageKey, JSON.stringify(value));} catch {}}});
+  renderScenarios();
   renderAppearance(); renderHomeLayout(); renderModules(); renderFocus(); renderFiles(); renderWeather();
   setState('discreet');
   void readNearby();

@@ -53,23 +53,21 @@ test('closing the music queue and changing routes release the previous larger wi
   assert.equal(f.run().width, music.width, 'removing home modules also shrinks the panel');
 });
 
-test('Focus and tasks change height at the responsive boundary while configuration stays compact', () => {
+test('Focus keeps the compact reference stack at every width and releases configuration dimensions', () => {
   const f = fixture(); f.context.view = 'focus';
   const wide = f.run();
-  assert.equal(wide.width, 720); assert.equal(wide.height, 264 + wide.band);
-  f.context.window.innerWidth = 636;
-  const boundary = f.run();
-  assert.equal(boundary.width, 604); assert.equal(boundary.height, wide.height);
-  f.context.window.innerWidth = 635;
+  assert.equal(wide.width, 572); assert.equal(wide.height, 362 + wide.band);
+  f.context.window.innerWidth = 352;
   const stacked = f.run();
-  assert.equal(stacked.width, 603); assert.equal(stacked.height, 392 + stacked.band);
+  assert.equal(stacked.width, 320); assert.equal(stacked.height, wide.height);
+  f.context.window.innerWidth = 640;
   f.context.focusConfig = true;
   const configuration = f.run();
   assert.equal(configuration.width, 440); assert.equal(configuration.height, 244 + configuration.band);
   f.context.focusConfig = false; f.context.desktopMaxHeight = 320;
   assert.equal(f.run().height, 312, 'a small work area caps the natural stack height');
   f.context.window.innerWidth = 1280; f.context.desktopMaxHeight = 700;
-  assert.equal(f.run().height, wide.height, 'returning to a wide screen restores the natural wide layout');
+  assert.equal(f.run().height, wide.height, 'returning to a wide screen restores the compact reference stack');
 });
 
 test('the module editor respects the screen and a file drop temporarily uses only its own surface', () => {
@@ -116,7 +114,7 @@ test('settings height follows its content and every panel remains within the scr
 
 test('settings measures visible child content, margins and padding with either checkout line ending', () => {
   const child = (height, margins, hidden = false) => ({hidden, margins, getBoundingClientRect: () => ({height})});
-  const settingsPlayer = {children: [child(170, ['0', '18px']), child(32, ['0', '0']), child(500, ['0', '10px'], true)]};
+  const settingsPlayer = {style: {width: '360px'}, children: [child(170, ['0', '18px']), child(32, ['0', '0']), child(500, ['0', '10px'], true)]};
   const context = {settingsPlayer, getComputedStyle: node => node === settingsPlayer ? {paddingTop: '10px', paddingBottom: '18px'} : {marginTop: node.margins[0], marginBottom: node.margins[1]}};
   for (const lineEnding of ['\n', '\r\n']) {
     const checkoutSource = source.replace(/\r?\n/g, lineEnding);

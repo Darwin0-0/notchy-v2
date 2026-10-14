@@ -24,7 +24,13 @@ The current view must release dimensions it no longer needs. Closing **Up next**
 
 A secondary Shelf stays accessible through **Tray**, avoiding a duplicate summary beside the primary module. File tools remain Shelf actions; LocalSend has its own transfer flow within Tray.
 
-Tasks and Pomodoro belong to one Focus module. Its task controls, work phase, breaks and timer must fit together as one useful activity. Avoid a tiny secondary timer that loses its controls, and preserve the fading digit transitions when compacting its layout.
+Scenarios in Settings follow reference 17.3: Auto/Manual mode and four trigger rules on the left, guard switches and five layout thumbnails on the right. The form uses its natural height rather than the export's clipped canvas; narrow windows stack the columns and keep scrolling available. Presets only arrange enabled modules and preserve their width limits. Focus, Ambience, Day and Minimal keep the ordinary Shelf behaviour; an explicit Complete preset can show all four base modules in two rows. Scenario choices do not reset a task, session deadline, file operation or transfer.
+
+Day places Music in the left column, with Focus above Weather on the right when all three modules are enabled and their minimum widths fit. Narrow windows use the regular stacked layout. Minimal keeps the first configured enabled module until another scenario or module layout is chosen.
+
+Automatic changes use real activity transitions, with configurable rules for starting Focus, entering a break, the first morning opening and inactivity. A manual choice can suspend automation for two hours; an automatic change can be undone for five seconds. When interaction protection is enabled, changes wait until the user leaves the panel or finishes a protected interaction. Restore preferences as a silent baseline, and clear transient timers on disposal. Persist the morning day marker so restarting does not repeat the morning rule.
+
+Tasks and Pomodoro belong to one Focus module. The current home reference (16.1) places a 192 px timer card above a 132 px task card, with a 16 px gap. The useful content width stops at 528 px; the direct route includes its existing outer padding. The timer displays fading MM:SS digits inside a 100 px progress ring, with aligned stop, play/pause and skip controls below. Task title, count and add field share one row. Populated task rows follow reference 12.1: round checkboxes, a subtle selected background and completed titles struck through. The list scrolls within its card without enlarging the whole notch.
 
 ## Opening and dismissal
 

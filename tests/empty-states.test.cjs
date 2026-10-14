@@ -34,6 +34,7 @@ test('the file drop preview opens temporarily, restores the previous state and p
   const nodes = new Map(), uploaded = [], staged = [];
   const i18n = createI18n(null);
   const scope = {
+    scenarioController: null,
     i18n, t: i18n.t, uiMessage: i18n.message,
     dragFileCount, window: {innerWidth: 800}, notch: {contains: () => true, dataset: {}},
     byId: id => {if (!nodes.has(id)) nodes.set(id, {}); return nodes.get(id);},

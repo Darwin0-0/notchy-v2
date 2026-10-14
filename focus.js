@@ -153,33 +153,37 @@
       const card = host.querySelector('.focus-timer-card'), controls = host.querySelector('.focus-card-controls');
       const details = document.createElement('div'), heading = document.createElement('div');
       details.className = 'focus-detail-card'; heading.className = 'focus-detail-heading';
-      host.querySelector('.focus-timer-label').textContent = 'Session';
-      heading.append(host.querySelector('.focus-timer-label'), host.querySelector('.focus-phase-badge'), $('focus-configure'));
-      const cycles = document.createElement('span'), dots = document.createElement('span'), footer = document.createElement('div'), labels = document.createElement('div');
+      $('focus-configure').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>';
+      heading.append(host.querySelector('.focus-phase-badge'), $('focus-configure'));
+      const cycles = document.createElement('span'), dots = document.createElement('span');
       cycles.className = 'focus-cycle-value'; dots.className = 'focus-cycle-dots'; dots.setAttribute('aria-hidden', 'true');
       $('focus-session').before(cycles); cycles.append(dots, $('focus-session'));
       host.querySelector('.focus-stat small').textContent = 'Cycles'; $('focus-break-chip').querySelector('small').textContent = 'Pause';
+      cycles.after(host.querySelector('.focus-stat small'));
       const pause = document.createElement('span'); pause.className = 'focus-break-value';
       pause.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5ZM17 11h1.5a2.5 2.5 0 0 1 0 5H17"/></svg>';
       $('focus-break-duration').before(pause); pause.append($('focus-break-duration'));
       details.append(heading, $('focus-description'), host.querySelector('.focus-metrics'));
-      $('focus-stop').querySelector('path').setAttribute('d', 'M8 5h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3Z');
+      $('focus-stop').querySelector('path').setAttribute('d', 'M9 6h6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3Z');
       const skip = document.createElement('button'); skip.id = 'focus-skip'; skip.type = 'button'; skip.dataset.focusCommand = 'skip'; skip.setAttribute('aria-label', 'Passer à la pause');
       skip.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5.5v13l9-6.5ZM17 5.5h2.5v13H17Z"/></svg>';
       controls.prepend($('focus-stop'));
       controls.append(skip);
-      labels.className = 'focus-progress-labels'; labels.innerHTML = '<span id="focus-elapsed">0:00</span><span id="focus-total">25:00</span>';
-      footer.className = 'focus-progress-footer'; footer.append($('focus-progress'), labels);
-      card.replaceChildren($('focus-clock'), details, controls, footer);
+      const clock = $('focus-clock'), ring = $('focus-progress'), face = document.createElement('div'), side = document.createElement('div');
+      ring.className = 'focus-session-ring'; face.className = 'focus-ring-face'; side.className = 'focus-timer-side';
+      ring.innerHTML = '<svg viewBox="0 0 100 100" aria-hidden="true"><circle class="focus-session-track" cx="50" cy="50" r="42"/><circle class="focus-session-progress" cx="50" cy="50" r="42" pathLength="1" transform="rotate(-90 50 50)"/></svg><span id="focus-complete-indicator" class="focus-complete-indicator" aria-hidden="true" hidden><svg viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></svg></span>';
+      const ringLabel = document.createElement('span'); ringLabel.id = 'focus-ring-phase'; ringLabel.className = 'focus-ring-phase';
+      face.append(clock, ringLabel); ring.append(face); side.append(ring, controls);
+      card.replaceChildren(details, side);
     }
     const selectedTask = document.createElement('p'); selectedTask.id = 'focus-selected-task'; selectedTask.className = 'focus-selected-task';
     $('focus-description').before(selectedTask);
     const sessionPane = document.createElement('div'); sessionPane.className = 'focus-session-pane';
     sessionPane.append(...$('focus-active').children);
     const tasksPane = document.createElement('section'); tasksPane.className = 'focus-tasks'; tasksPane.setAttribute('aria-label', 'Tâches du Pomodoro');
-    tasksPane.innerHTML = `<header class="focus-tasks-heading"><strong>Tâches</strong><span id="focus-tasks-count"></span></header>
-      <form id="focus-task-form" class="focus-task-add"><input id="focus-task-input" type="text" maxlength="500" placeholder="Ajouter une tâche" aria-label="Nouvelle tâche" autocomplete="off"><button type="submit" aria-label="Ajouter la tâche" title="Ajouter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></form>
-      <div id="focus-task-list" class="focus-task-list" role="list"></div><p id="focus-task-empty" class="focus-task-empty">Une tâche suffit pour commencer. Choisis-la, puis lance le minuteur.</p><p id="focus-task-status" class="focus-task-status" role="status" aria-live="polite"></p>`;
+    tasksPane.innerHTML = `<header class="focus-tasks-heading"><div class="focus-tasks-title"><strong>Tâches</strong><span id="focus-tasks-count"></span></div>
+      <form id="focus-task-form" class="focus-task-add"><input id="focus-task-input" type="text" maxlength="500" placeholder="Ajouter une tâche" aria-label="Nouvelle tâche" autocomplete="off"><button type="submit" aria-label="Ajouter la tâche" title="Ajouter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></form></header>
+      <div id="focus-task-list" class="focus-task-list" role="list"></div><p id="focus-task-empty" class="focus-task-empty"><span class="focus-task-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></svg></span><span>Une tâche suffit pour commencer. Choisis-la, puis lance le minuteur.</span></p><p id="focus-task-status" class="focus-task-status" role="status" aria-live="polite"></p>`;
     $('focus-active').replaceChildren(sessionPane, tasksPane);
     const staticCopy = [];
     const words = document.createTreeWalker(host, 4);
@@ -207,14 +211,7 @@
       if (clock.dataset.value === stamp) return;
       if (clockCells.length !== value.length) {
         stopAnimations(); clockCells = [...value].map(char => {const cell = document.createElement('span'); cell.className = char === ':' ? 'focus-colon' : 'focus-digit'; const digit = document.createElement('span'); digit.textContent = char; cell.append(digit); return cell;});
-        if (splitClock) {
-          const colon = value.indexOf(':'), row = (unit, cells) => {
-            const line = document.createElement('span'), numbers = document.createElement('span'), label = document.createElement('span');
-            line.className = 'focus-time-row'; line.dataset.unit = unit; numbers.className = 'focus-time-number'; label.className = 'focus-time-label'; label.textContent = unit === 'seconds' ? 'sec' : 'min'; label.setAttribute('aria-hidden', 'true');
-            numbers.append(...cells); line.append(numbers, label); return line;
-          };
-          clock.replaceChildren(row('seconds', clockCells.slice(colon + 1)), row('minutes', clockCells.slice(0, colon + 1)));
-        } else clock.replaceChildren(...clockCells);
+        clock.replaceChildren(...clockCells);
       } else [...value].forEach((char, index) => {
         const cell = clockCells[index], digit = cell.firstElementChild;
         if (digit.textContent === char) return;
@@ -236,7 +233,7 @@
     }
     function summary() {const card = focusCardValues(model, settings, now(), t); return {...card, label: label(), running: !!model.deadline, time: time(card.seconds), configOpen};}
     function renderTasks() {
-      put('focus-selected-task', model.task || t('À ton rythme'));
+      put('focus-selected-task', model.complete ? t('Cycle terminé') : model.pomodoro?.phase === 'break' ? label() : model.task || t('À ton rythme'));
       put('focus-task-status', t(taskStatusSource));
       put('focus-tasks-count', `${model.tasks.filter(task => task.done).length}/${model.tasks.length}`);
       $('focus-task-empty').hidden = model.tasks.length > 0;
@@ -261,15 +258,16 @@
       if (disposed) return;
       const change = FocusModel.tick(model, now()); if (change.changed) save();
       const card = summary(), {active, seconds, progress} = card;
-      host.style.setProperty('--focus-progress', String(progress)); host.dataset.focusPhase = model.pomodoro?.phase || 'work';
+      host.style.setProperty('--focus-progress', String(progress)); host.dataset.focusPhase = model.pomodoro?.phase || 'work'; host.dataset.focusComplete = String(!!model.complete);
       $('focus-setup').hidden = !configOpen; $('focus-active').hidden = configOpen;
       put('focus-phase', card.badge); put('focus-description', card.description); put('focus-session', `${card.completed}/${card.total}`); put('focus-break-duration', card.pause);
       if (splitClock) {
         const dots = host.querySelector('.focus-cycle-dots');
         if (dots.children.length !== card.total) dots.replaceChildren(...Array.from({length: card.total}, () => document.createElement('i')));
         [...dots.children].forEach((dot, index) => dot.classList.toggle('completed', index < card.completed));
-        const duration = active || model.complete ? model.minutes * 60 : settings.work * 60;
-        put('focus-elapsed', time(Math.max(0, duration - seconds))); put('focus-total', time(duration));
+        put('focus-description', model.complete ? t('Prends un moment pour toi.') : card.description);
+        put('focus-ring-phase', model.complete ? card.badge : model.pomodoro?.phase === 'break' ? t('PAUSE') : t('FOCUS'));
+        $('focus-complete-indicator').hidden = !model.complete;
         $('focus-skip').disabled = !active || !model.pomodoro;
         const skipLabel = model.pomodoro?.phase === 'break' ? model.pomodoro.breakKind === 'long' ? 'Terminer le cycle' : 'Passer à la session suivante' : 'Passer à la pause';
         $('focus-skip').setAttribute('aria-label', t(skipLabel)); $('focus-skip').title = t(skipLabel);
@@ -279,8 +277,9 @@
       $('focus-active').setAttribute('aria-label', t('Minuteur Pomodoro · {phase} · {completed} cycles terminés sur {total}', {phase: card.badge, completed: card.completed, total: card.total}));
       $('focus-task-chip').hidden = !card.task; $('focus-task-chip').title = card.task; put('focus-task-count', card.task ? '01' : '');
       $('focus-start').hidden = active; $('focus-toggle').hidden = !active; $('focus-stop').disabled = !active && !model.complete;
-      $('focus-progress').firstElementChild.style.transition = motionEnabled() ? '' : 'none';
-      $('focus-progress').setAttribute('aria-valuenow', String(Math.round(progress * 100))); renderDigits(seconds);
+      ($('focus-progress').querySelector('.focus-session-progress') || $('focus-progress').firstElementChild).style.transition = usable() && visible && motionEnabled() ? '' : 'none';
+      $('focus-progress').setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+      $('focus-progress').setAttribute('aria-valuetext', t('{minutes} minutes {seconds} secondes', {minutes: Math.floor(seconds / 60), seconds: seconds % 60})); renderDigits(seconds);
       const paused = !model.deadline;
       $('focus-toggle').setAttribute('aria-label', t(paused ? 'Reprendre Focus' : 'Mettre Focus en pause')); $('focus-toggle').title = t(paused ? 'Reprendre' : 'Pause');
       $('focus-play-icon').setAttribute('d', paused ? 'M8 5v14l11-7Z' : 'M6 5h4v14H6ZM14 5h4v14h-4Z');
@@ -357,6 +356,8 @@
     function preview() {
       const card = $('focus-active').cloneNode(true); card.removeAttribute('hidden'); card.removeAttribute('id'); card.style.setProperty('--focus-progress', String(summary().progress));
       card.classList.add('focus-preview'); card.dataset.focusPresentation = splitClock ? 'split' : 'default';
+      card.dataset.focusBreak = host.dataset.focusBreak; card.dataset.focusComplete = host.dataset.focusComplete;
+      card.style.setProperty('--focus-accent', model.complete || model.pomodoro?.breakKind === 'long' ? '#bf8bff' : model.pomodoro?.phase === 'break' ? '#6fe3c4' : '#5ac8fa');
       card.querySelector('.focus-tasks')?.remove(); card.querySelector('.focus-card-controls')?.remove(); for (const element of card.querySelectorAll('button,.focus-digit-old,.focus-progress-labels,.focus-cycle-dots')) element.remove();
       for (const element of card.querySelectorAll('[id],[data-focus-command]')) {element.removeAttribute('id'); element.removeAttribute('data-focus-command');}
       return card;

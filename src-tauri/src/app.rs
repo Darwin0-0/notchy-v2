@@ -15,13 +15,35 @@ use std::{
 };
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-const KEYS: [&str; 5] = [
+const KEYS: [&str; 6] = [
     "notchy-minimal-appearance-v1",
     "notchy-minimal-modules-v1",
     "notchy-minimal-focus-v1",
     "notchy-minimal-welcome-v1",
     "notchy-language-v1",
+    "notchy-scenarios-v1",
 ];
+fn valid_scenarios(text: &str) -> bool {
+    if text.len() > 4096 { return false; }
+    let Ok(value) = serde_json::from_str::<Value>(text) else { return false; };
+    let Some(object) = value.as_object().filter(|object| object.len() == 6) else { return false; };
+    let scenario = |value: &Value| matches!(value.as_str(), Some("focus" | "ambience" | "day" | "complete" | "minimal"));
+    if !matches!(value["mode"].as_str(), Some("auto" | "manual"))
+        || !object.contains_key("selected")
+        || !(value["selected"].is_null() || scenario(&value["selected"]))
+        || !value["manualUntil"].as_u64().is_some_and(|time| time <= 9_007_199_254_740_991)
+        || !object.contains_key("lastMorningDay")
+        || !(value["lastMorningDay"].is_null() || value["lastMorningDay"].as_str().is_some_and(|day| day.len() == 10 && chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").is_ok()))
+    { return false; }
+    let Some(rules) = value["rules"].as_object().filter(|rules| rules.len() == 4) else { return false; };
+    let Some(guards) = value["guards"].as_object().filter(|guards| guards.len() == 3) else { return false; };
+    ["work", "break", "morning", "idle"].iter().all(|key| {
+        rules.get(*key).and_then(Value::as_object).is_some_and(|rule| {
+            rule.len() == 2 && rule.get("enabled").is_some_and(Value::is_boolean)
+                && rule.get("scenario").is_some_and(&scenario)
+        })
+    }) && ["undo", "manualLock", "interacting"].iter().all(|key| guards.get(*key).is_some_and(Value::is_boolean))
+}
 fn valid_language(value: &str) -> bool {
     matches!(value, "fr" | "en")
 }
@@ -58,6 +80,33 @@ mod language_tests {
             assert_eq!(restored.get("notchy-minimal-focus-v1"), Some(&focus));
             assert_eq!(restored.get("notchy-language-v1").is_some(), language != "invalid");
         }
+    }
+}
+#[cfg(test)]
+mod scenario_preference_tests {
+    use super::{valid_scenarios, KEYS};
+    use serde_json::json;
+    fn sample() -> serde_json::Value {
+        json!({"mode":"auto","rules":{
+            "work":{"enabled":true,"scenario":"focus"}, "break":{"enabled":true,"scenario":"ambience"},
+            "morning":{"enabled":true,"scenario":"day"}, "idle":{"enabled":true,"scenario":"ambience"}},
+            "guards":{"undo":true,"manualLock":true,"interacting":true},
+            "selected":null,"manualUntil":0,"lastMorningDay":null})
+    }
+    #[test]
+    fn scenario_preferences_accept_only_known_choices_and_typed_guards() {
+        assert!(KEYS.contains(&"notchy-scenarios-v1"));
+        let mut value = sample(); assert!(valid_scenarios(&value.to_string()));
+        value["mode"] = json!("manual"); value["selected"] = json!("complete");
+        value["manualUntil"] = json!(1_792_000_000_000u64); value["lastMorningDay"] = json!("2026-10-14");
+        assert!(valid_scenarios(&value.to_string()));
+        for (key, invalid) in [("mode",json!("unknown")),("selected",json!("calendar")),("manualUntil",json!(-1)),("lastMorningDay",json!("2026-02-30"))] {
+            let mut broken = sample(); broken[key] = invalid; assert!(!valid_scenarios(&broken.to_string()));
+        }
+        let mut broken = sample(); broken["guards"]["interacting"] = json!("true"); assert!(!valid_scenarios(&broken.to_string()));
+        let mut broken = sample(); broken["rules"]["work"]["scenario"] = json!("unknown"); assert!(!valid_scenarios(&broken.to_string()));
+        let mut broken = sample(); broken.as_object_mut().unwrap().remove("selected"); broken["extra"] = json!(null); assert!(!valid_scenarios(&broken.to_string()));
+        assert!(!valid_scenarios(&" ".repeat(4097))); assert!(!valid_scenarios("null"));
     }
 }
 struct DesktopState {
@@ -138,6 +187,8 @@ async fn preference(state: &DesktopState, value: Value) -> Result<Value, ApiErro
                     text == "done"
                 } else if key == "notchy-language-v1" {
                     valid_language(text)
+                } else if key == "notchy-scenarios-v1" {
+                    valid_scenarios(text)
                 } else {
                     serde_json::from_str::<Value>(text).is_ok()
                 }
@@ -387,7 +438,7 @@ pub fn run() {
         let native=packaged;
         let preferences_file=data.join(".desktop-profile/tauri-preferences.json");
         let preferences:BTreeMap<String,String>=match std::fs::read(&preferences_file){Ok(bytes)=>{if bytes.len()>1024*1024{return Err("Préférences trop volumineuses.".into());}serde_json::from_slice(&bytes)?},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>BTreeMap::new(),Err(error)=>return Err(error.into())};
-        let preferences=preferences.into_iter().filter(|(key,value)|KEYS.contains(&key.as_str())&&value.len()<=262144&&(key!="notchy-language-v1"||valid_language(value))).collect::<BTreeMap<_,_>>();
+        let preferences=preferences.into_iter().filter(|(key,value)|KEYS.contains(&key.as_str())&&value.len()<=262144&&(key!="notchy-language-v1"||valid_language(value))&&(key!="notchy-scenarios-v1"||valid_scenarios(value))).collect::<BTreeMap<_,_>>();
         let labels=tray_labels(preferences.get("notchy-language-v1").map(String::as_str).unwrap_or("fr"));
         let services=Arc::new(tauri::async_runtime::block_on(Services::new(data.clone(),native.clone()))?);
         if !checking&&std::env::args().any(|argument|argument=="--localsend"){

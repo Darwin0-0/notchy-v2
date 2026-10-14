@@ -28,6 +28,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 
 - **Music within reach.** Artwork, playback controls, track progress and a spectrum that responds to real audio. Add **Up next** with the optional Spotify connection.
 - **One place for tasks and Pomodoro.** Keep your next task beside your session, work in focused intervals, and take a short or long break when it is time.
+- **A panel for each moment.** Choose Focus, Ambience, Day, Complete or Minimal from Scenarios in Settings. Optional rules follow your work and breaks; manual choices and ongoing interactions stay protected.
 - **Weather you can read at a glance.** A short forecast for your current location or a city you choose.
 - **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
 - **LocalSend in Tray.** Accept incoming files, send to nearby devices, and follow the transfer without leaving the notch.

@@ -165,6 +165,7 @@ function interactionFixture() {
   let nextTimer = 0, focused = null, now = 1000;
   const scope = {
     Date: {now: () => now},
+    scenarioController: null,
     geometry: {width: 780, height: 480},
     window: {clearTimeout: id => timers.delete(id), setTimeout: (callback, delay) => {timers.set(++nextTimer, {callback, at: now + delay}); return nextTimer;}, queueMicrotask: callback => callback()},
     document: {hasFocus: () => true, get activeElement() {return focused;}},

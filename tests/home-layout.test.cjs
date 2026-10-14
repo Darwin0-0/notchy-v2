@@ -107,13 +107,13 @@ test('only deliberate configuration views change the affected module height', ()
   assert.deepEqual(contentOnly, normal, 'clock ticks and text length are not layout inputs');
 });
 
-test('Focus allocates a wide side-by-side task layout or a taller readable stack at its boundary', () => {
-  for (const [width, height] of [[320, 392], [603, 392], [604, 264], [720, 264]]) {
+test('Focus keeps the reference stack compact rather than stretching on a wider screen', () => {
+  for (const width of [320, 400, 528, 604, 720, 2000]) {
     const result = homeModuleLayout(['focus'], width);
-    assert.equal(result.items[0].width, width); assert.equal(result.items[0].height, height);
+    assert.equal(result.items[0].width, Math.min(width, 528)); assert.equal(result.items[0].height, 340);
     checkRequirements(result, width);
     const configuration = homeModuleLayout(['focus'], width, 16, {focusConfig: true});
-    assert.equal(configuration.items[0].height, 244); assert.equal(configuration.items[0].width, width);
+    assert.equal(configuration.items[0].height, 244); assert.equal(configuration.items[0].width, Math.min(width, 528));
     checkRequirements(configuration, width);
   }
 });
