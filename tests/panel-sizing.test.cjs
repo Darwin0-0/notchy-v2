@@ -114,14 +114,17 @@ test('settings height follows its content and every panel remains within the scr
   const closed = f.run(); assert.equal(closed.width, 260); assert.equal(closed.height, 10);
 });
 
-test('settings measures only visible child content with its margins and outer padding', () => {
+test('settings measures visible child content, margins and padding with either checkout line ending', () => {
   const child = (height, margins, hidden = false) => ({hidden, margins, getBoundingClientRect: () => ({height})});
   const settingsPlayer = {children: [child(170, ['0', '18px']), child(32, ['0', '0']), child(500, ['0', '10px'], true)]};
   const context = {settingsPlayer, getComputedStyle: node => node === settingsPlayer ? {paddingTop: '10px', paddingBottom: '18px'} : {marginTop: node.margins[0], marginBottom: node.margins[1]}};
-  const begin = source.indexOf('  function settingsNaturalPanelHeight() {'), end = source.indexOf('\n\n  function shelfGlyph', begin);
-  assert(begin > 0 && end > begin);
-  vm.runInNewContext(`${source.slice(begin, end)}this.measure = settingsNaturalPanelHeight;`, context);
-  assert.equal(context.measure(), 248);
+  for (const lineEnding of ['\n', '\r\n']) {
+    const checkoutSource = source.replace(/\r?\n/g, lineEnding);
+    const begin = checkoutSource.indexOf('  function settingsNaturalPanelHeight() {'), end = checkoutSource.indexOf('  function shelfGlyph', begin);
+    assert(begin > 0 && end > begin);
+    vm.runInNewContext(`${checkoutSource.slice(begin, end)}this.measure = settingsNaturalPanelHeight;`, context);
+    assert.equal(context.measure(), 248);
+  }
 });
 
 test('entering settings recalculates dimensions after its form becomes visible', () => {

@@ -42,17 +42,26 @@ From the repository root:
 ```powershell
 node --test tests/*.test.cjs
 $notchyPreviousTauriConfig = $env:TAURI_CONFIG
+$notchyPreviousTemp = $env:TEMP
+$notchyPreviousTmp = $env:TMP
+$notchyTestTemp = (Get-Item -LiteralPath ([IO.Path]::GetTempPath())).FullName
 try {
   $env:TAURI_CONFIG = '{"bundle":{"resources":null}}'
+  $env:TEMP = $notchyTestTemp
+  $env:TMP = $notchyTestTemp
   cargo test --locked --manifest-path src-tauri/Cargo.toml --no-default-features --lib --bins -- --test-threads=1
 } finally {
   $env:TAURI_CONFIG = $notchyPreviousTauriConfig
+  $env:TEMP = $notchyPreviousTemp
+  $env:TMP = $notchyPreviousTmp
 }
 ```
 
 JavaScript tests cover interaction, module sizing, persisted state, Pomodoro phases, media feedback and the Tauri bridge. Rust tests cover local services and their validation. Automated tests complement visual checks on Windows, real audio playback and transfers between devices. Record what you actually ran rather than assuming another contributor’s results apply to your changes.
 
 The Rust checks temporarily set `TAURI_CONFIG` to `{"bundle":{"resources":null}}`, then restore your previous environment value. GitHub Actions uses the same resource override, so these checks do not need the separately compiled Windows media bridges or create an application package. They also cover language preference validation in the application entry point. `Build-Notchy.ps1` builds the bridges and retains the normal bundle resources. A green test job does not replace checking the complete Windows application.
+
+The check command also expands the Windows temporary directory to its full path and restores `TEMP`/`TMP` afterward. GitHub Actions does the same for its runner directory. Windows short aliases such as `RUNNER~1` can otherwise fail private-storage path validation; the storage protections remain enabled during tests.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the file map and review expectations, and [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) for sizing and interaction contracts.
 

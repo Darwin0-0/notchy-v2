@@ -28,4 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Use full Windows temporary paths
+        shell: pwsh
+        run: |
+          $notchyTestTemp = (Get-Item -LiteralPath $env:RUNNER_TEMP).FullName
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value @("TEMP=$notchyTestTemp", "TMP=$notchyTestTemp")
+          Write-Host "Rust test temporary directory: $notchyTestTemp"
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --no-default-features --lib --bins
