@@ -32,8 +32,6 @@
       "../native/bin/CoverReader.dll": "native/CoverReader.dll",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../assets/manrope-OFL.txt": "licenses/manrope-OFL.txt",
-      "../assets/dancing-script-OFL.txt": "licenses/dancing-script-OFL.txt",
-      "../assets/aref-ruqaa-OFL.txt": "licenses/aref-ruqaa-OFL.txt",
       "../native/bin/OcrBridge.exe": "native/OcrBridge.exe",
       "../assets/LUCIDE-LICENSE.txt": "licenses/LUCIDE-LICENSE.txt"
     }

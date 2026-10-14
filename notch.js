@@ -104,18 +104,18 @@
   // Each module declares its content size and band behavior; the notch owns geometry.
   const moduleLayouts = {
     music: {minWidth: 300, basis: 360, maxWidth: 440, height: 176, panelWidth: 440},
-    focus: {minWidth: 252, basis: 280, maxWidth: 336, height: 184, panelWidth: 400},
+    focus: {minWidth: 320, basis: 500, maxWidth: 720, height: 264, panelWidth: 720},
     weather: {minWidth: 288, basis: 320, maxWidth: 384, height: 208, panelWidth: 424},
     shelf: {minWidth: 300, basis: 360, maxWidth: 480, height: 208, panelWidth: 560},
   };
   const moduleDefinitions = Object.freeze(Object.fromEntries([
     ['music', 'Musique', 'music-player', 'music', 160, 154, 'progress', 'spectrum', ['track', 'pause', 'resume'], 0],
-    ['focus', 'Focus', 'focus-player', 'focus', 180, 160, 'progress', 'ring', ['start', 'stop', 'pause', 'resume', 'phase', 'complete'], 1],
+    ['focus', 'Focus & tâches', 'focus-player', 'focus', 320, 244, 'progress', 'ring', ['start', 'stop', 'pause', 'resume', 'phase', 'complete'], 1],
     ['shelf', 'Étagère', 'shelf-player', 'tray', 160, 148, 'none', 'none', ['sent', 'received', 'complete', 'kept'], null],
     ['weather', 'Météo', 'weather-player', 'weather', 168, 164, 'none', 'none', [], 2],
   ].map(([id, label, element, view, minWidth, minHeight, discreet, hover, changes, initialSlot]) => [id, Object.freeze({
     id, label, element, view, defaultInstalled: true, initialSlot, directOpen: ['shelf', 'weather'].includes(id),
-    size: Object.freeze({width: moduleLayouts[id].panelWidth, height: moduleLayouts[id].height + 30, minWidth, minHeight, maxHeight: 300}),
+    size: Object.freeze({width: moduleLayouts[id].panelWidth, height: moduleLayouts[id].height + 30, minWidth, minHeight, maxHeight: id === 'focus' ? 420 : 300}),
     layout: Object.freeze({...moduleLayouts[id], minHeight: moduleLayouts[id].height}),
     editor: Object.freeze({basis: moduleLayouts[id].basis + 24, maxWidth: moduleLayouts[id].maxWidth + 24, height: moduleLayouts[id].height + 24, grow: id === 'music' ? 1.3 : 1}),
     band: Object.freeze({discreet, hover, changes: Object.freeze(changes)}),
@@ -131,7 +131,7 @@
     const items = placed.map(id => {
       const definition = moduleDefinitions[id], compact = false;
       const layout = definition.layout;
-      const expandedHeight = id === 'weather' && context.weatherPicker === true ? 248 : id === 'focus' && context.focusConfig === true ? 224 : 0;
+      const expandedHeight = id === 'weather' && context.weatherPicker === true ? 248 : 0;
       return {id, compact, minWidth: compact ? layout.previewMinWidth : layout.minWidth,
         minHeight: Math.max(compact ? layout.previewHeight : layout.height, expandedHeight),
         basis: compact ? layout.previewBasis : layout.basis, maxWidth: compact ? layout.previewMaxWidth : layout.maxWidth};
@@ -155,7 +155,10 @@
         surplus -= allocated;
       }
       const total = line.reduce((sum, item) => sum + item.width, 0);
-      for (const [column, item] of line.entries()) Object.assign(item, {row, column, height: item.minHeight, share: total ? item.width * 100 / total : 100});
+      for (const [column, item] of line.entries()) {
+        if (item.id === 'focus') item.minHeight = context.focusConfig === true ? 244 : item.width >= 604 ? 264 : 392;
+        Object.assign(item, {row, column, height: item.minHeight, share: total ? item.width * 100 / total : 100});
+      }
     }
     const rowHeights = lines.map(line => Math.max(...line.map(item => item.height)));
     return {items, mode: items.length <= 1 ? 'single' : lines.length === 1 ? 'columns' : lines.every(line => line.length === 1) ? 'stacked' : 'wrapped',
@@ -257,6 +260,19 @@
       horizon: stale ? 'prévision précédente · 2 h' : 'prochaines 2 h', loading, status, state: loading ? 'loading' : stale ? 'stale' : available ? 'ready' : 'unavailable'};
   }
 
+  function dragFileCount(dataTransfer) {
+    const items = Array.from(dataTransfer?.items || []), count = items.filter(item => item.kind === 'file').length;
+    return count || (dataTransfer?.files?.length > 0 ? dataTransfer.files.length : null);
+  }
+
+  function localSendFailureCopy(value) {
+    const error = typeof value.error === 'string' ? value.error.trim().slice(0, 300) : '';
+    const progress = Math.max(0, Math.min(100, Number(value.progress) || 0));
+    if (value.stage === 'rejected') return {title: 'Demande refusée', detail: (value.alias || 'L’appareil') + ' a refusé le partage.', help: 'Tu peux demander un nouvel envoi.'};
+    if (value.stage === 'cancelled') return {title: 'Transfert annulé', detail: 'Le transfert a été arrêté.', help: ''};
+    return {title: progress > 0 ? 'Transfert interrompu à ' + Math.round(progress) + ' %' : 'Transfert impossible', detail: error || 'Vérifie que les appareils utilisent le même réseau Wi-Fi.', help: value.direction === 'receive' ? 'Relance l’envoi depuis l’appareil expéditeur.' : 'Réessayer démarre un nouvel envoi depuis le début.'};
+  }
+
   function closedBandSize(state, {music = false, focus = false, transfer = false, feedback = null} = {}) {
     if (state === 'discreet') return {width: 260, band: 10, radius: 4, progress: 0};
     let size = {width: 312, band: 36, radius: 12, progress: 0};
@@ -266,10 +282,16 @@
     return size;
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = {FocusModel, focusConfiguration, focusCardValues, weatherNarrative, normalizeAppearance, normalizeModules, assignModuleSlot, moduleEditorPresentation, homeModuleLayout, getModuleDefinitions, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, closedBandSize};
+  if (typeof module === 'object' && module.exports) module.exports = {FocusModel, focusConfiguration, focusCardValues, weatherNarrative, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, moduleEditorPresentation, homeModuleLayout, getModuleDefinitions, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, closedBandSize};
   if (!window?.document) return;
 
   const document = window.document;
+  const i18n = window.NotchyI18n;
+  const t = (value, variables) => i18n.t(value, variables);
+  const uiMessage = value => i18n.message(value);
+  const renderStaticTranslations = i18n.bind(document);
+  renderStaticTranslations();
+  let removeLanguage = null;
   const notch = document.getElementById('notch');
   const toggle = document.getElementById('notch-toggle');
   const panel = document.getElementById('notch-panel');
@@ -301,7 +323,7 @@
     document.body.dataset.motion = String(motionEnabled());
     document.body.dataset.appearanceFormat = appearance.format;
     byId('appearance-format').value = appearance.format; byId('appearance-radius').value = appearance.radius;
-    byId('appearance-radius-value').value = appearance.radius; byId('appearance-motion').checked = appearance.motion;
+    byId('appearance-radius-value').value = appearance.radius <= 15 ? t('Léger') : appearance.radius >= 21 ? t('Doux') : t('Équilibré'); byId('appearance-motion').checked = appearance.motion;
   }
   function setAppearance(value, persist = true) {
     if (disposed) return false;
@@ -334,10 +356,10 @@
   let seekPreview = null, seekTrack = null, seekDragging = false;
   const shelfPlayer = byId('shelf-player'), shelfInput = byId('shelf-input'), shelfList = byId('shelf-list');
   const selectedFiles = new Set();
-  let shelfItems = [], shelfLoaded = false, shelfBusy = false, shelfError = '', shelfEpoch = 0, fileDragging = false, dragDepth = 0;
+  let shelfItems = [], shelfLoaded = false, shelfBusy = false, shelfError = '', shelfEpoch = 0, fileDragging = false, dragDepth = 0, fileDragCount = null, fileDragPreviousState = null;
   // Original module editor: four independent previews, then the integrated palette.
   const modulesPlayer = byId('modules-player'), moduleStorageKey = 'notchy-minimal-modules-v1';
-  const moduleLabels = Object.fromEntries(Object.values(moduleDefinitions).map(item => [item.id, item.label]));
+  const moduleLabels = Object.fromEntries(Object.values(moduleDefinitions).map(item => [item.id, t(item.label)]));
   let queueOpen = false, queueReturnView = 'music', queueActive = false, queueBusy = false, queueTimer = 0, queueEpoch = 0, queueRetryUntil = 0, queueListSignature = '';
   let queueState = {status: 'disconnected', current: null, items: [], message: ''};
   let queueNotice = '', queueOperation = '';
@@ -366,7 +388,7 @@
     moduleFeedbackAnimations.add(animation); animation.finished.then(() => moduleFeedbackAnimations.delete(animation), () => moduleFeedbackAnimations.delete(animation));
   }
   function renderModuleFeedback() {
-    const feedback = moduleFeedback && isModuleEnabled(moduleFeedback.id) ? moduleFeedback : null;
+    const feedback = moduleFeedback && isModuleEnabled(moduleFeedback.id) ? localizedFeedback(moduleFeedback) : null;
     const closed = byId('module-feedback-live'), opened = byId('module-feedback-open');
     closed.hidden = !feedback || state !== 'hover' || fileDragging;
     opened.hidden = !feedback || state !== 'open' || fileDragging;
@@ -377,17 +399,17 @@
     if (!feedback) return;
     for (const id of ['module-feedback-title', 'module-feedback-open-title']) text(byId(id), feedback.title);
     text(byId('module-feedback-detail'), feedback.detail);
-    text(byId('module-feedback-label'), done ? feedback.id === 'focus' ? 'SESSION TERMINÉE' : 'C’EST PRÊT' : feedback.id === 'music' ? 'EN LECTURE' : 'FOCUS');
+    text(byId('module-feedback-label'), done ? feedback.id === 'focus' ? t('SESSION TERMINÉE') : t('C’EST PRÊT') : feedback.id === 'music' ? t('EN LECTURE') : 'FOCUS');
     if (done && feedback.id === 'focus') {
-      text(byId('module-feedback-title'), focus.task?.trim() || (feedback.kind === 'complete' ? 'Cycle terminé' : 'Un moment pour souffler'));
-      text(byId('module-feedback-detail'), focus.pomodoro?.phase === 'break' && !focus.complete ? 'La pause a commencé' : 'Travail et pauses terminés');
+      text(byId('module-feedback-title'), focus.task?.trim() || (feedback.kind === 'complete' ? t('Cycle terminé') : t('Un moment pour souffler')));
+      text(byId('module-feedback-detail'), focus.pomodoro?.phase === 'break' && !focus.complete ? t('La pause a commencé') : t('Travail et pauses terminés'));
     } else if (feedback.id === 'music') { text(byId('module-feedback-title'), music.title || feedback.title); text(byId('module-feedback-detail'), music.artist || music.source); }
     const cycles = byId('module-feedback-cycles'); cycles.hidden = !done || feedback.id !== 'focus';
     if (!cycles.hidden) {
-      const card = focusCardValues(focus, focusSettings), signature = card.completed + '/' + card.total;
-      if (cycles.dataset.value !== signature) { cycles.dataset.value = signature; cycles.replaceChildren(...Array.from({length: card.total}, (_, index) => { const pip = document.createElement('i'); pip.className = index < card.completed ? 'completed' : ''; return pip; })); const label = document.createElement('small'); label.textContent = `${card.completed} sur ${card.total}`; cycles.append(label); }
+      const card = focusCardValues(focus, focusSettings), signature = card.completed + '/' + card.total + '/' + i18n.locale();
+      if (cycles.dataset.value !== signature) { cycles.dataset.value = signature; cycles.replaceChildren(...Array.from({length: card.total}, (_, index) => { const pip = document.createElement('i'); pip.className = index < card.completed ? 'completed' : ''; return pip; })); const label = document.createElement('small'); label.textContent = t('{completed} sur {total}', {completed: card.completed, total: card.total}); cycles.append(label); }
     }
-    text(actions.querySelector('[data-feedback-command="open"]'), feedback.id === 'focus' ? focus.complete ? 'Voir Focus' : 'Voir la pause' : 'Voir le résultat');
+    text(actions.querySelector('[data-feedback-command="open"]'), feedback.id === 'focus' ? focus.complete ? t('Voir Focus') : t('Voir la pause') : t('Voir le résultat'));
     actions.querySelector('[data-feedback-command="skip"]').hidden = feedback.id !== 'focus' || !focusIsActive() || focus.pomodoro?.phase !== 'break';
     notch.style.setProperty('--module-feedback-color', feedback.id === 'music' ? notch.style.getPropertyValue('--spectrum-color') || '#ffffff' : ['files', 'shelf'].includes(feedback.id) ? '#76d6aa' : feedback.kind === 'phase' && focus.pomodoro?.phase === 'break' ? '#62e7ad' : '#78cecc');
     if (closed.dataset.sequence !== String(feedback.sequence)) {
@@ -404,6 +426,10 @@
     moduleFeedback = null;
     if (render && !disposed) { renderModuleFeedback(); renderLiveActivities(); update(); }
   }
+  function localizedFeedback(value) {
+    const detail = value.id === 'focus' ? value.detail.startsWith('Session ') ? t('Session {session} sur {total}', {session: focus.pomodoro?.session || 1, total: focus.pomodoro?.total || 4}) : t(value.detail) : value.detail;
+    return {...value, title: t(value.title), detail};
+  }
   function notifyModuleChange(event) {
     if (event?.id === 'files') event = {...event, id: 'shelf'};
     const definition = moduleDefinitions[event?.id];
@@ -411,7 +437,8 @@
     const restoreQuiet = state === 'discreet' || moduleFeedback?.restoreQuiet === true;
     clearModuleFeedback(false);
     moduleFeedback = {...event, sequence: ++moduleFeedbackSequence, restoreQuiet};
-    text(byId('module-feedback-announcer'), `${definition.label} · ${event.title} · ${event.detail}`);
+    const copy = localizedFeedback(event);
+    text(byId('module-feedback-announcer'), `${t(definition.label)} · ${copy.title} · ${copy.detail}`);
     if (state === 'discreet' && !protectedInteraction()) setState('hover');
     renderLiveActivities(); renderModuleFeedback();
     update();
@@ -465,10 +492,10 @@
   function setModules(value, persist = true) {
     if (disposed) return false;
     const previous = getModules(); moduleSettings = normalizeModules(value); moduleDraft = moduleEditing ? getModules() : null;
-    moduleMessage = 'Disposition appliquée.';
+    moduleMessage = t('Disposition appliquée.');
     if (persist) try {
-      window.localStorage.setItem(moduleStorageKey, JSON.stringify(moduleSettings)); moduleMessage = 'Disposition enregistrée.';
-    } catch { moduleMessage = 'Disposition appliquée pour cette fenêtre.'; }
+      window.localStorage.setItem(moduleStorageKey, JSON.stringify(moduleSettings)); moduleMessage = t('Disposition enregistrée.');
+    } catch { moduleMessage = t('Disposition appliquée pour cette fenêtre.'); }
     if (typeof modulesChanged === 'function') modulesChanged(previous);
     renderModules(); return true;
   }
@@ -490,7 +517,7 @@
   function closeModuleEditor(commit = false) {
     if (!moduleEditing) return false;
     const value = moduleDraft; moduleEditing = false; moduleDraft = null; modulePicked = null;
-    if (commit) setModules(value); else moduleMessage = 'Changements annulés.';
+    if (commit) setModules(value); else moduleMessage = t('Changements annulés.');
     moduleEditorLayout(false, true);
     if (moduleReturnFocus?.isConnected && moduleReturnFocus.tabIndex >= 0 && !moduleReturnFocus.closest('[hidden],[inert]')) moduleReturnFocus.focus({preventScroll: true});
     else if (state === 'open') menu.querySelector('[data-view="nook"]').focus({preventScroll: true});
@@ -509,15 +536,15 @@
     host.replaceChildren();
     if (compact) {
       const icon = make('span', 'module-preview-compact-icon'), copy = make('div', 'module-preview-compact-copy');
-      let title = id ? moduleLabels[id] : 'Ajouter', detail = 'Libre';
+      let title = id ? moduleLabels[id] : t('Ajouter'), detail = t('Libre');
       if (id) icon.append(glyph(id)); else icon.textContent = '+';
       if (id === 'music') {
-        title = music.available ? music.title || 'Musique' : 'Musique'; detail = music.available ? music.artist || music.source : 'Aucun morceau en cours';
+        title = music.available ? music.title || t('Musique') : t('Musique'); detail = music.available ? music.artist || music.source : t('Aucun morceau en cours');
         if (music.cover) { const image = make('img'); image.src = music.cover; image.alt = ''; icon.replaceChildren(image); }
         if (music.available) providerBadge(icon);
-      } else if (id === 'focus') { const value = focusCardValues(focus, focusSettings); title = time(value.seconds); detail = focusIsActive() ? focusLabel() : focus.complete ? 'Cycle terminé' : 'Focus · Prêt à commencer'; }
-      else if (id === 'shelf') detail = shelfLoaded ? `${shelfItems.length} fichier${shelfItems.length === 1 ? '' : 's'}` : 'Chargement…';
-      else if (id === 'weather') { const value = weatherNarrative(getWeatherState()); title = Number.isFinite(weather.temperature) ? `${value.temperature} · ${value.city}` : 'Météo'; detail = weather.condition || 'Choisir une ville'; }
+      } else if (id === 'focus') { const value = focusCardValues(focus, focusSettings); title = time(value.seconds); detail = focusIsActive() ? focusLabel() : focus.complete ? t('Cycle terminé') : t('Focus · Prêt à commencer'); }
+      else if (id === 'shelf') detail = shelfLoaded ? localSendCount(shelfItems.length) : t('Chargement…');
+      else if (id === 'weather') { const value = localizedWeatherNarrative(getWeatherState()); title = Number.isFinite(weather.temperature) ? `${value.temperature} · ${value.city}` : t('Météo'); detail = weather.condition || t('Choisir une ville'); }
       const name = make('strong', '', title), subtitle = make('small', '', detail); name.title = title; subtitle.title = detail;
       copy.append(name, subtitle); host.append(icon, copy); return;
     }
@@ -526,7 +553,7 @@
       if (music.cover) { const img = make('img'); img.src = music.cover; img.alt = ''; art.append(img); } else art.append(glyph('music'));
       providerBadge(art);
       const spectrum = byId('music-player-spectrum').cloneNode(true); spectrum.removeAttribute('id');
-      copy.append(make('strong', '', music.title || 'Musique'), make('small', '', music.artist || '')); top.append(art, copy, spectrum); host.append(top);
+      copy.append(make('strong', '', music.title || t('Musique')), make('small', '', music.artist || '')); top.append(art, copy, spectrum); host.append(top);
       const elapsed = position(), timeline = make('div', 'module-preview-music-timeline'), bar = make('span', 'module-preview-progress'), fill = make('i');
       fill.style.width = (music.duration > 0 ? Math.min(1, Math.max(0, elapsed / music.duration)) * 100 : 0) + '%'; bar.append(fill);
       timeline.append(make('small', '', time(elapsed)), bar, make('small', '', music.duration > 0 ? '−' + time(Math.max(0, music.duration - elapsed)) : '—:—')); host.append(timeline);
@@ -535,18 +562,18 @@
       host.append(controls); return;
     }
     if (id === 'weather') {
-      const next = weatherNarrative(getWeatherState()), row = pairs => { const line = make('p', 'module-preview-weather-line'); for (const [value, emphasized] of pairs) line.append(make(emphasized ? 'strong' : 'span', '', value)); return line; };
+      const next = localizedWeatherNarrative(getWeatherState()), row = pairs => { const line = make('p', 'module-preview-weather-line'); for (const [value, emphasized] of pairs) line.append(make(emphasized ? 'strong' : 'span', '', value)); return line; };
       const current = row([[next.temperature, true], [next.when, false]]); current.classList.add('module-preview-weather-current');
       const forecast = row([[next.rain, true], [next.rainQualifier, false]]); forecast.setAttribute('aria-label', next.forecastDescription);
-      host.append(current, row([['à', false], [next.city, true]]), row([['ressenti', false], [next.feelsLike, true]]), forecast, make('small', 'module-preview-weather-horizon', next.horizon));
+      host.append(current, row([[t('à'), false], [next.city, true]]), row([[t('ressenti'), false], [next.feelsLike, true]]), forecast, make('small', 'module-preview-weather-horizon', next.horizon));
       return;
     }
     if (id === 'focus') { host.append(focusComponent.preview()); return; }
     const empty = make('div', 'module-preview-empty');
-    if (!id) { empty.append(make('span', 'module-preview-add', '+'), make('strong', '', 'Ajouter un module'), make('small', '', 'Choisis une icône ci-dessous')); host.append(empty); return; }
+    if (!id) { empty.append(make('span', 'module-preview-add', '+'), make('strong', '', t('Ajouter un module')), make('small', '', t('Choisis une icône ci-dessous'))); host.append(empty); return; }
     empty.append(glyph(id));
-    if (id === 'shelf') empty.append(make('strong', '', 'Tray'), make('small', '', shelfItems.length ? `${shelfItems.length} fichier${shelfItems.length > 1 ? 's' : ''}` : ''));
-    else empty.append(make('strong', '', id === 'music' ? 'Musique' : 'Météo'), make('small', '', id === 'music' ? 'Aucun morceau en cours' : 'Choisir une ville'));
+    if (id === 'shelf') empty.append(make('strong', '', 'Tray'), make('small', '', shelfItems.length ? localSendCount(shelfItems.length) : ''));
+    else empty.append(make('strong', '', id === 'music' ? t('Musique') : t('Météo')), make('small', '', id === 'music' ? t('Aucun morceau en cours') : t('Choisir une ville')));
     host.append(empty);
   }
   function renderModules() {
@@ -568,8 +595,8 @@
       const preferred = moduleDefinitions[id || modulePicked]?.editor || {basis: 180, maxWidth: 260, height: 156, grow: 1};
       for (const [name, value] of Object.entries(preferred)) frame.style.setProperty(`--slot-${name}`, name === 'grow' ? String(value) : `${value}px`);
       frame.querySelector('.module-slot-caption').textContent = String(index + 1);
-      frame.setAttribute('aria-label', `Emplacement ${index + 1} · ${index === primary ? 'affichage principal' : 'accès rapide'} · ${id ? moduleLabels[id] : 'ajouter un module'}`);
-      remove.hidden = !id; remove.setAttribute('aria-label', `Retirer ${moduleLabels[id] || 'le module'} de cet emplacement`);
+      frame.setAttribute('aria-label', t('Emplacement {position} · {kind} · {module}', {position: index + 1, kind: index === primary ? t('affichage principal') : t('accès rapide'), module: id ? moduleLabels[id] : t('ajouter un module')}));
+      remove.hidden = !id; remove.setAttribute('aria-label', t('Retirer {module} de cet emplacement', {module: moduleLabels[id] || t('le module')}));
       const preview = frame.querySelector('.module-preview'), previewKey = `${id || ''}/${index === primary}`;
       if (!frame.hidden) modulePreview(preview, id, false); else preview.replaceChildren();
       if (preview.dataset.key && preview.dataset.key !== previewKey) animateModuleChange(preview);
@@ -580,22 +607,22 @@
     for (const button of modulesPlayer.querySelectorAll('#module-catalog [data-module-id]')) {
       const id = button.dataset.moduleId, installed = slots.includes(id);
       button.title = moduleLabels[id];
-      button.setAttribute('aria-pressed', String(modulePicked === id)); button.setAttribute('aria-label', `${moduleLabels[id]}${installed ? ' · placé' : ''} · choisir un emplacement`);
+      button.setAttribute('aria-pressed', String(modulePicked === id)); button.setAttribute('aria-label', t('{module} · choisir un emplacement', {module: moduleLabels[id] + (installed ? t(' · placé') : '')}));
       button.querySelector('.module-installed').hidden = !installed;
     }
     byId('modules-status').textContent = moduleMessage;
-    byId('module-editor-hint').textContent = moduleMessage || 'Choisis un module, puis son emplacement.';
+    byId('module-editor-hint').textContent = moduleMessage || t('Choisis un module, puis son emplacement.');
   }
   function placeModuleDraft(index, id) {
     if (!moduleDraft || !Object.hasOwn(moduleLabels, id)) return;
     if (!moduleDraft.enabled.includes(id)) moduleDraft.enabled.push(id);
     moduleDraft = assignModuleSlot(moduleDraft, index, id); moduleSelected = index; modulePicked = null;
-    moduleMessage = `${moduleLabels[id]} placé.`; moduleEditorLayout();
+    moduleMessage = t('{module} placé.', {module: moduleLabels[id]}); moduleEditorLayout();
   }
   function removeModuleDraft(index) {
     const id = moduleDraft?.slots[index]; if (!id) return;
     moduleDraft.slots[index] = null; moduleDraft.enabled = moduleDraft.enabled.filter(item => item !== id); moduleSelected = index; modulePicked = null;
-    moduleMessage = `${moduleLabels[id]} retiré.`; moduleEditorLayout();
+    moduleMessage = t('{module} retiré.', {module: moduleLabels[id]}); moduleEditorLayout();
   }
   function moduleCommand(event) {
     if (disposed || !moduleEditing || !moduleDraft) return;
@@ -605,7 +632,7 @@
     if (button?.dataset.moduleCommand === 'remove') { removeModuleDraft(Number(button.closest('[data-module-slot-box]').dataset.moduleSlotBox)); return; }
     if (button?.dataset.moduleCommand === 'pick' && Object.hasOwn(moduleLabels, button.dataset.moduleId)) {
       modulePicked = button.dataset.moduleId; const existing = moduleDraft.slots.indexOf(modulePicked); if (existing >= 0) moduleSelected = existing;
-      moduleMessage = `${moduleLabels[modulePicked]} sélectionné. Choisis un emplacement.`; moduleEditorLayout(); return;
+      moduleMessage = t('{module} sélectionné. Choisis un emplacement.', {module: moduleLabels[modulePicked]}); moduleEditorLayout(); return;
     }
     const frame = event.target.closest('[data-module-slot-box]'); if (!frame) return;
     moduleSelected = Number(frame.dataset.moduleSlotBox);
@@ -631,7 +658,7 @@
     if (!moduleEditing || disposed) return false;
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopImmediatePropagation();
-      if (modulePicked) { modulePicked = null; moduleMessage = 'Choix annulé.'; moduleEditorLayout(); } else closeModuleEditor(false);
+      if (modulePicked) { modulePicked = null; moduleMessage = t('Choix annulé.'); moduleEditorLayout(); } else closeModuleEditor(false);
       return true;
     }
     const frame = event.target.closest?.('[data-module-slot-box]');
@@ -655,7 +682,26 @@
   function renderSettings() {
     settingsPlayer.hidden = view !== 'settings' || getModuleEditorActive();
     renderAppearance();
+    renderSettingsConnections();
     if (view === 'settings') update();
+  }
+  function renderSettingsConnections() {
+    if (view !== 'settings') return;
+    const focusSummary = focusComponent.summary();
+    byId('settings-focus').disabled = !isModuleEnabled('focus');
+    text(byId('settings-focus-detail'), !isModuleEnabled('focus') ? t('À ajouter depuis l’accueil') : focusSummary.active ? focusLabel() + t(' en cours') : t('Tâches et durée des sessions'));
+    text(byId('settings-weather-detail'), weather.selectedCity?.name || weather.city || t('Choisir une ville'));
+    text(byId('settings-localsend-detail'), nearby.available ? t('Prêt à partager à proximité') : t('Ouvrir le partage'));
+  }
+  function settingsCommand(event) {
+    const button = event.target.closest('[data-settings-command]');
+    if (disposed || !button || button.disabled || !settingsPlayer.contains(button)) return;
+    if (button.dataset.settingsCommand === 'close') { setState('discreet'); return; }
+    if (button.dataset.settingsCommand === 'focus') {
+      selectViewButton({dataset: {view: 'focus'}}); focusComponent.command('configure'); update();
+    } else if (button.dataset.settingsCommand === 'weather') {
+      weatherPickerOpen = true; selectViewButton({dataset: {view: 'weather'}}); renderWeather(); weatherCityInput.focus({preventScroll: true});
+    } else if (button.dataset.settingsCommand === 'localsend') selectViewButton({dataset: {view: 'tray'}});
   }
   function settingsNaturalPanelHeight() {
     const style = getComputedStyle(settingsPlayer);
@@ -679,7 +725,7 @@
   focus = focusComponent.getState(); focusSettings = focusComponent.getSettings();
   moduleActivityStates.set('focus', moduleActivitySnapshot('focus', focus));
   function focusIsActive() { return !focus.pomodoro?.finished && (focus.sessionActive || !!focus.deadline); }
-  function focusLabel() { return focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind === 'long' ? 'Pause longue' : 'Pause courte' : 'Concentration'; }
+  function focusLabel() { return focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind === 'long' ? t('Pause longue') : t('Pause courte') : t('Concentration'); }
   function syncFocus(value) {
     if (disposed) return;
     focus = value.state; focusSettings = value.settings;
@@ -687,7 +733,7 @@
     notch.style.setProperty('--focus-progress', String(card.progress)); notch.dataset.focusPhase = focus.pomodoro?.phase || 'work';
     text(byId('focus-live-time'), time(card.seconds));
     focusStrip.setAttribute('aria-valuenow', String(Math.round(card.progress * 100)));
-    focusStrip.setAttribute('aria-valuetext', focusLabel() + ' · ' + time(card.seconds) + ' restantes');
+    focusStrip.setAttribute('aria-valuetext', t('{phase} · {time} restantes', {phase: focusLabel(), time: time(card.seconds)}));
     observeModuleActivity('focus', focus);
     renderLiveActivities(); renderHomeSummaries(); if (getModuleEditorActive()) renderModules();
     update();
@@ -760,8 +806,8 @@
       const id = button.dataset.moduleOpen;
       if (!id) continue;
       if (id === 'weather') { renderWeatherSummary(button); continue; }
-      text(button.querySelector('strong'), id === 'music' ? music.available ? music.title : 'Aucun morceau' : id === 'focus' ? focusIsActive() ? time(FocusModel.remaining(focus)) : focus.complete ? 'Terminé' : `${focusSettings.work}:00` : !shelfLoaded ? 'Fichiers gardés' : `${shelfItems.length} fichier${shelfItems.length === 1 ? '' : 's'}`);
-      text(button.querySelector('small'), id === 'music' ? music.artist || 'Ouvrir le lecteur' : id === 'focus' ? focusIsActive() ? focusLabel() : focus.complete ? 'Cycle terminé' : 'Prêt à commencer' : 'Ouvrir l’Étagère');
+      text(button.querySelector('strong'), id === 'music' ? music.available ? music.title : t('Aucun morceau') : id === 'focus' ? focusIsActive() ? time(FocusModel.remaining(focus)) : focus.complete ? t('Terminé') : `${focusSettings.work}:00` : !shelfLoaded ? t('Fichiers gardés') : localSendCount(shelfItems.length));
+      text(button.querySelector('small'), id === 'music' ? music.artist || t('Ouvrir le lecteur') : id === 'focus' ? focusIsActive() ? focusLabel() : focus.complete ? t('Cycle terminé') : t('Prêt à commencer') : t('Ouvrir l’Étagère'));
     }
   }
   function openBuiltin(event) {
@@ -801,8 +847,13 @@
     const bytes = transfer?.totalBytes || context.totalBytes;
     return {stage, direction: context.direction, files, count, bytes, transfer, alias: incoming?.alias || transfer?.alias || context.alias || '', progress: Math.max(0, Math.min(100, Number(transfer?.progress) || 0)), error: context.error || nearby.error || transfer?.error || ''};
   }
-  function localSendSize(bytes) { return new Intl.NumberFormat('fr-FR', {maximumFractionDigits: 1}).format(Math.max(0, Number(bytes) || 0) / 1048576) + ' Mo'; }
-  function localSendCount(count) { return count + ' fichier' + (count === 1 ? '' : 's'); }
+  function localSendSize(bytes) { return new Intl.NumberFormat(i18n.locale() === 'en' ? 'en-US' : 'fr-FR', {maximumFractionDigits: 1}).format(Math.max(0, Number(bytes) || 0) / 1048576) + ' ' + t('Mo'); }
+  function localSendCount(count) { return t(count === 1 ? '{count} fichier' : '{count} fichiers', {count}); }
+  function localSendCompletion(count, receive) {return t(receive ? count === 1 ? '{count} fichier reçu' : '{count} fichiers reçus' : count === 1 ? '{count} fichier envoyé' : '{count} fichiers envoyés', {count});}
+  function localizedLocalSendFailure(value) {
+    const copy = localSendFailureCopy(value);
+    return {...copy, title: !['rejected', 'cancelled'].includes(value.stage) && value.progress > 0 ? t('Transfert interrompu à {percent} %', {percent: Math.round(value.progress)}) : t(copy.title), detail: value.stage === 'rejected' ? t('{device} a refusé le partage.', {device: value.alias || t('L’appareil')}) : uiMessage(copy.detail), help: t(copy.help)};
+  }
   function localSendBand() {
     const value = localSendPresentation();
     if (!nearbyLoaded || fileDragging) return null;
@@ -823,8 +874,8 @@
     if (!band) return;
     live.dataset.stage = band.stage;
     byId('localsend-live-icon').setAttribute('href', band.stage === 'ready' ? '#localsend-icon-ready' : band.stage === 'complete' ? '#localsend-icon-done' : '#localsend-icon-share');
-    text(byId('localsend-live-title'), band.stage === 'ready' ? 'Prêt à recevoir' : band.stage === 'consent' ? 'Demande de partage' : band.stage === 'complete' ? localSendCount(band.count) + (receive ? band.count === 1 ? ' reçu' : ' reçus' : band.count === 1 ? ' envoyé' : ' envoyés') : band.stage === 'discovery' ? 'Partage local' : receive ? 'Réception' : 'Envoi');
-    text(byId('localsend-live-meta'), band.stage === 'progress' ? Math.round(band.progress) + ' %' : band.stage === 'discovery' ? nearby.peers.length + ' appareil' + (nearby.peers.length === 1 ? '' : 's') : band.stage === 'complete' && receive ? 'Étagère' : 'LocalSend');
+    text(byId('localsend-live-title'), band.stage === 'ready' ? t('Prêt à recevoir') : band.stage === 'consent' ? t('Demande de partage') : band.stage === 'complete' ? localSendCompletion(band.count, receive) : band.stage === 'discovery' ? t('Partage local') : receive ? t('Réception') : t('Envoi'));
+    text(byId('localsend-live-meta'), band.stage === 'progress' ? Math.round(band.progress) + ' %' : band.stage === 'discovery' ? t(nearby.peers.length === 1 ? '{count} appareil' : '{count} appareils', {count: nearby.peers.length}) : band.stage === 'complete' && receive ? t('Étagère') : 'LocalSend');
   }
   function renderLocalSend() {
     const host = byId('localsend-player'), value = localSendPresentation();
@@ -835,7 +886,7 @@
     if (!value) return;
     host.dataset.stage = value.stage; host.dataset.direction = value.direction;
     const receive = value.direction === 'receive', success = value.stage === 'complete', terminal = ['complete','error','cancelled','rejected'].includes(value.stage);
-    const title = value.stage === 'discovery' ? 'Envoyer à…' : value.stage === 'waiting' ? value.transfer?.status !== 'waiting' ? 'Préparation de l’envoi' : 'Demande envoyée' : value.stage === 'progress' ? receive ? 'Réception de ' + value.alias : 'Envoi en cours' : success ? 'Terminé' : 'Transfert interrompu';
+    const title = value.stage === 'discovery' ? t('Envoyer à…') : value.stage === 'waiting' ? value.transfer?.status !== 'waiting' ? t('Préparation de l’envoi') : t('Demande envoyée') : value.stage === 'progress' ? receive ? t('Réception de {device}', {device: value.alias}) : t('Envoi en cours') : success ? t('Terminé') : t('Transfert interrompu');
     text(byId('localsend-title'), title); text(byId('localsend-summary'), localSendCount(value.count) + ' · ' + localSendSize(value.bytes));
     byId('localsend-consent').hidden = value.stage !== 'consent';
     byId('localsend-discovery').hidden = value.stage !== 'discovery';
@@ -847,23 +898,28 @@
     byId('localsend-file-chips').hidden = !success || !receive;
     byId('localsend-shelf').hidden = !success || !receive;
     byId('localsend-retry').hidden = receive;
-    byId('localsend-retry').disabled = nearbyBusy || !nearby.peers?.some(peer => peer.id === localSendContext.peerId) || !localSendContext.files.length;
+    const peerAvailable = nearby.peers?.some(peer => peer.id === localSendContext.peerId);
+    byId('localsend-retry').dataset.localsendCommand = peerAvailable ? 'retry' : 'discover';
+    text(byId('localsend-retry'), peerAvailable ? value.stage === 'rejected' || success ? t('Renvoyer') : t('Réessayer') : t('Rechercher'));
+    byId('localsend-retry').disabled = nearbyBusy || !localSendContext.files.length;
     byId('localsend-close').hidden = ['consent','waiting','progress'].includes(value.stage);
-    byId('localsend-close').setAttribute('aria-label', value.stage === 'progress' || value.stage === 'waiting' ? 'Revenir au panneau, le transfert continue' : 'Fermer le partage');
+    byId('localsend-close').setAttribute('aria-label', value.stage === 'progress' || value.stage === 'waiting' ? t('Revenir au panneau, le transfert continue') : t('Fermer le partage'));
     byId('localsend-cancel').disabled = !value.transfer || !['preparing','waiting','sending','receiving'].includes(value.transfer.status);
-    byId('localsend-cancel').setAttribute('aria-label', receive ? 'Annuler la réception' : 'Annuler l’envoi');
+    byId('localsend-cancel').setAttribute('aria-label', receive ? t('Annuler la réception') : t('Annuler l’envoi'));
     byId('localsend-from-icon').setAttribute('href', receive ? '#localsend-icon-phone' : '#localsend-icon-pc');
     byId('localsend-to-icon').setAttribute('href', receive ? '#localsend-icon-pc' : '#localsend-icon-phone');
-    text(byId('localsend-waiting-title'), value.transfer?.status === 'waiting' ? 'En attente d’acceptation' : 'Préparation des fichiers');
-    text(byId('localsend-waiting-detail'), value.transfer?.status === 'waiting' && value.alias ? value.alias + ' doit accepter la demande' : 'Connexion à l’appareil sélectionné…');
+    text(byId('localsend-waiting-title'), value.transfer?.status === 'waiting' ? t('En attente d’acceptation') : t('Préparation des fichiers'));
+    text(byId('localsend-waiting-detail'), value.transfer?.status === 'waiting' && value.alias ? t('{device} doit accepter la demande', {device: value.alias}) : t('Connexion à l’appareil sélectionné…'));
     text(byId('localsend-file-label'), localSendCount(value.count)); text(byId('localsend-peer-label'), value.alias);
     host.style.setProperty('--localsend-progress', String(value.progress / 100));
     byId('localsend-progress-bar').setAttribute('aria-valuenow', String(Math.round(value.progress)));
     text(byId('localsend-percent'), Math.round(value.progress) + ' %');
     text(byId('localsend-bytes'), localSendSize(value.transfer?.transferredBytes || 0) + ' / ' + localSendSize(value.bytes));
-    text(byId('localsend-result-title'), success ? receive ? 'Reçu' : 'Envoyé' : value.stage === 'cancelled' ? 'Annulé' : value.stage === 'rejected' ? 'Refusé' : 'Transfert impossible');
-    text(byId('localsend-result-detail'), success ? localSendCount(value.count) + ' · ' + localSendSize(value.bytes) + (receive ? ' · Étagère' : ' vers ' + value.alias) : value.error || (value.stage === 'rejected' ? 'L’appareil a refusé la demande.' : 'Le transfert n’a pas été terminé.'));
-    text(byId('localsend-result-actions').querySelector('[data-localsend-command="close"]'), receive ? 'Fermer' : 'Terminé');
+    const failure = success ? null : localizedLocalSendFailure(value);
+    text(byId('localsend-result-title'), success ? receive ? t('Reçu') : t('Envoyé') : failure.title);
+    text(byId('localsend-result-detail'), success ? localSendCount(value.count) + ' · ' + localSendSize(value.bytes) + (receive ? t(' · Étagère') : t(' vers ') + value.alias) : failure.detail);
+    text(byId('localsend-result-help'), failure?.help || ''); byId('localsend-result-help').hidden = !failure?.help;
+    text(byId('localsend-result-actions').querySelector('[data-localsend-command="close"]'), receive ? t('Fermer') : t('Terminé'));
     const chips = byId('localsend-file-chips'), chipKey = JSON.stringify(value.files.map(file => file.name));
     if (chips.dataset.files !== chipKey) {
       chips.replaceChildren(...value.files.slice(0, 3).map(file => {
@@ -874,10 +930,10 @@
       if (value.files.length > 3) {const more = document.createElement('span'); more.className = 'localsend-file-chip'; more.textContent = '+' + (value.files.length - 3); chips.append(more);}
       chips.dataset.files = chipKey;
     }
-    const peers = nearby.peers || [], devices = byId('localsend-devices'), peerKey = JSON.stringify(peers.map(peer => [peer.id,peer.alias,peer.deviceType]));
+    const peers = nearby.peers || [], devices = byId('localsend-devices'), peerKey = JSON.stringify([i18n.locale(), peers.map(peer => [peer.id,peer.alias,peer.deviceType])]);
     if (devices.dataset.peers !== peerKey) {
       devices.replaceChildren(...peers.map(peer => {
-        const button = document.createElement('button'); button.type = 'button'; button.className = 'localsend-peer'; button.dataset.localsendPeer = peer.id; button.setAttribute('aria-label', 'Envoyer à ' + peer.alias);
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'localsend-peer'; button.dataset.localsendPeer = peer.id; button.setAttribute('aria-label', t('Envoyer à {device}', {device: peer.alias}));
         const bubble = document.createElement('span'); bubble.className = 'localsend-device';
         const svg = document.createElementNS('http://www.w3.org/2000/svg','svg'); svg.setAttribute('viewBox','0 0 24 24'); svg.setAttribute('aria-hidden','true');
         const use = document.createElementNS('http://www.w3.org/2000/svg','use'); use.setAttribute('href', peer.deviceType === 'mobile' ? '#localsend-icon-phone' : '#localsend-icon-laptop'); svg.append(use); bubble.append(svg);
@@ -885,8 +941,9 @@
       })); devices.dataset.peers = peerKey;
     }
     for (const button of devices.children) button.disabled = nearbyBusy || !value.files.length;
+    devices.hidden = !peers.length; byId('localsend-discovery-help').hidden = !!peers.length || nearbyBusy;
     byId('localsend-discover').disabled = nearbyBusy;
-    text(byId('localsend-discovery-label'), nearbyBusy ? 'Recherche d’appareils à proximité…' : peers.length ? 'Choisis un appareil à proximité' : nearby.available ? 'Aucun appareil pour le moment' : 'Lancer la recherche sur le réseau local');
+    text(byId('localsend-discovery-label'), nearbyBusy ? t('Recherche d’appareils à proximité…') : peers.length ? t('Choisis un appareil à proximité') : nearby.available ? t('Aucun appareil pour le moment') : t('Lancer la recherche sur le réseau local'));
     host.dataset.scanning = String(nearby.available || nearbyBusy);
   }
   function openLocalSend(direction, files, source = 'shelf') {
@@ -912,7 +969,7 @@
     if (command === 'close') {closeLocalSend(); return;}
     if (command === 'shelf') {closeLocalSend(true); return;}
     if (command === 'cancel') {const transfer = localSendPresentation()?.transfer; if (transfer) await nearbyRequest({command:'cancel',id:transfer.id}); return;}
-    if (command === 'discover') {localSendContext.error=''; await nearbyRequest({command:'discover'}); return;}
+    if (command === 'discover') {localSendContext.error=''; localSendContext.requested=false; localSendContext.previousId=nearby.transfer?.id || ''; await nearbyRequest({command:'discover'}); return;}
     if (!peer && command !== 'retry' || nearbyBusy) return;
     const context = localSendContext, peerId = peer?.dataset.localsendPeer || context.peerId;
     if (!nearby.peers?.some(item => item.id === peerId)) return;
@@ -937,19 +994,19 @@
     const incoming = nearby.incoming;
     byId('shelf-incoming').hidden = !incoming; host.hidden = !!incoming; byId('shelf-nearby').querySelector('.shelf-nearby-hint').hidden = !!incoming;
     if (incoming) {
-      text(byId('shelf-incoming-sender'), incoming.alias || 'Appareil LocalSend');
+      text(byId('shelf-incoming-sender'), incoming.alias || t('Appareil LocalSend'));
       const files = incoming.files || [], size = localSendSize(incoming.totalBytes);
-      text(byId('shelf-incoming-files'), 'veut envoyer ' + localSendCount(files.length) + ' · ' + size);
+      text(byId('shelf-incoming-files'), t('veut envoyer ') + localSendCount(files.length) + ' · ' + size);
       byId('shelf-incoming-files').title = files.map(file => file.name).join('\n');
     }
     for (const id of ['shelf-incoming-accept', 'shelf-incoming-reject']) byId(id).disabled = nearbyBusy || !incoming;
     const transfer = nearby.transfer, ongoing = transfer && ['preparing', 'waiting', 'sending', 'receiving'].includes(transfer.status);
     const receiving = transfer?.direction === 'receive';
     shelfPlayer.dataset.incoming = String(!!incoming || receiving && ongoing);
-    text(byId('shelf-nearby-status'), nearbyError || nearby.error || (incoming ? 'Proposition de réception' : ongoing ? `${receiving ? 'Réception' : 'Envoi'} · ${Math.round(transfer.progress || 0)} %` : transfer?.status === 'complete' ? receiving ? 'Fichiers reçus dans l’Étagère' : 'Envoi terminé' : transfer?.status === 'cancelled' ? 'Transfert annulé' : transfer?.error || (nearby.status === 'starting' ? 'Recherche…' : nearby.available ? peers.length ? 'Choisis un appareil' : 'Prêt à recevoir · aucun appareil pour le moment' : 'Ouvre LocalSend sur ton appareil, puis recherche.')));
-    const toggle = byId('shelf-nearby-toggle'); toggle.disabled = nearbyBusy; toggle.setAttribute('aria-label', nearby.available ? 'Arrêter la recherche LocalSend' : 'Rechercher des appareils LocalSend'); toggle.setAttribute('aria-pressed', String(!!nearby.available));
+    textUI(byId('shelf-nearby-status'), nearbyError || nearby.error || (incoming ? t('Proposition de réception') : ongoing ? `${receiving ? t('Réception') : t('Envoi')} · ${Math.round(transfer.progress || 0)} %` : transfer?.status === 'complete' ? receiving ? t('Fichiers reçus dans l’Étagère') : t('Envoi terminé') : transfer?.status === 'cancelled' ? t('Transfert annulé') : transfer?.error || (nearby.status === 'starting' ? t('Recherche…') : nearby.available ? peers.length ? t('Choisis un appareil') : t('Prêt à recevoir · aucun appareil pour le moment') : t('Ouvre LocalSend sur ton appareil, puis recherche.'))));
+    const toggle = byId('shelf-nearby-toggle'); toggle.disabled = nearbyBusy; toggle.setAttribute('aria-label', nearby.available ? t('Arrêter la recherche LocalSend') : t('Rechercher des appareils LocalSend')); toggle.setAttribute('aria-pressed', String(!!nearby.available));
     byId('shelf-transfer-cancel').hidden = !ongoing;
-    text(byId('shelf-transfer-cancel'), receiving ? 'Annuler la réception' : 'Annuler l’envoi');
+    text(byId('shelf-transfer-cancel'), receiving ? t('Annuler la réception') : t('Annuler l’envoi'));
     byId('shelf-share').disabled = shelfBusy || nearbyBusy || !selectedFiles.size;
     renderLocalSend();
   }
@@ -959,7 +1016,7 @@
     const mutation = nearbyMutation;
     try {
       const response = await window.fetch('/api/nearby'), value = await response.json();
-      if (!response.ok) throw new Error(value.error || 'Partage indisponible.');
+      if (!response.ok) throw new Error(value.error || t('Partage indisponible.'));
       if (!disposed && mutation === nearbyMutation) {
         if (!nearbyLoaded && value.transfer?.direction === 'receive' && value.transfer.status === 'complete') nearbyReceiveCompleted = value.transfer.id;
         nearbyLoaded = true; nearby = value; nearbyError = ''; renderNearby();
@@ -968,11 +1025,11 @@
         }
         if (value.transfer?.direction === 'receive' && value.transfer.status === 'complete' && value.transfer.id !== nearbyReceiveCompleted) {
           nearbyReceiveCompleted = value.transfer.id; shelfLoaded = false; if (builtinVisible('shelf')) void loadShelf();
-          notifyModuleChange({id: 'shelf', kind: 'received', title: value.transfer.fileCount > 1 ? 'Fichiers reçus' : 'Fichier reçu', detail: value.transfer.alias || 'Dans l’Étagère'});
+          notifyModuleChange({id: 'shelf', kind: 'received', title: value.transfer.fileCount > 1 ? t('Fichiers reçus') : t('Fichier reçu'), detail: value.transfer.alias || t('Dans l’Étagère')});
         }
         renderLiveActivities(); update();
       }
-    } catch (error) { if (!disposed) { nearbyError = error.message || 'Partage indisponible.'; renderNearby(); } }
+    } catch (error) { if (!disposed) { nearbyError = error.message || t('Partage indisponible.'); renderNearby(); } }
     finally { nearbyReading = false; if (!nearbyTimer && nearby.available && !disposed && !document.hidden) nearbyLifecycle(); }
   }
   function nearbyLifecycle() {
@@ -996,9 +1053,9 @@
       const response = await window.fetch('/api/nearby', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Notchy': '1'}, body: JSON.stringify(value)}), data = await response.json();
       if (disposed || mutation !== nearbyMutation) return;
       nearby = data;
-      if (!response.ok || data.error) throw new Error(data.error || data.transfer?.error || 'Cette action est indisponible.');
-      if (value.command === 'share' && data.transfer?.status === 'complete') notifyModuleChange({id: value.source === 'files' ? 'files' : 'shelf', kind: 'sent', title: value.ids.length > 1 ? 'Fichiers envoyés' : 'Fichier envoyé', detail: data.transfer.alias || 'Transfert terminé'});
-    } catch (error) { if (!disposed && mutation === nearbyMutation) {nearbyError = error.message || 'Partage indisponible.'; if(localSendContext) localSendContext.error=nearbyError;} }
+      if (!response.ok || data.error) throw new Error(data.error || data.transfer?.error || t('Cette action est indisponible.'));
+      if (value.command === 'share' && data.transfer?.status === 'complete') notifyModuleChange({id: value.source === 'files' ? 'files' : 'shelf', kind: 'sent', title: value.ids.length > 1 ? t('Fichiers envoyés') : t('Fichier envoyé'), detail: data.transfer.alias || t('Transfert terminé')});
+    } catch (error) { if (!disposed && mutation === nearbyMutation) {nearbyError = error.message || t('Partage indisponible.'); if(localSendContext) localSendContext.error=nearbyError;} }
     finally { if (!disposed && mutation === nearbyMutation) { nearbyBusy = false; renderNearby(); renderLiveActivities(); update(); nearbyLifecycle(); } }
   }
 
@@ -1015,7 +1072,7 @@
   }
   async function fileRequest(url, options) {
     const response = await window.fetch(url, options), result = await response.json();
-    if (!response.ok || result.ok === false) throw new Error(result.error || 'Cette action est indisponible.');
+    if (!response.ok || result.ok === false) throw new Error(result.error || t('Cette action est indisponible.'));
     return result;
   }
   const filePost = (url, value) => fileRequest(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Notchy': '1'}, body: JSON.stringify(value)});
@@ -1031,11 +1088,11 @@
     byId('file-content').dataset.mode = fileMode;
     if (state === 'open' && !filePlayer.hidden && !getModuleEditorActive()) update();
     byId('file-empty').hidden = !!item; byId('file-content').hidden = !item;
-    text(byId('file-status'), fileError || (fileBusy && !item ? 'Préparation du fichier…' : fileBusy && fileMode === 'peers' ? 'Envoi du fichier…' : item && !item.toolsAvailable && (item.image || item.pdf) ? 'LocalSend reste disponible. OCR et conversion : 25 Mo maximum.' : ''));
+    textUI(byId('file-status'), fileError || (fileBusy && !item ? t('Préparation du fichier…') : fileBusy && fileMode === 'peers' ? t('Envoi du fichier…') : item && !item.toolsAvailable && (item.image || item.pdf) ? t('LocalSend reste disponible. OCR et conversion : 25 Mo maximum.') : ''));
     byId('file-empty').querySelector('button').disabled = fileBusy;
     if (!item) return;
     text(byId('file-name'), item.name); byId('file-name').title = item.name;
-    text(byId('file-meta'), `${item.size >= 1048576 ? (item.size / 1048576).toFixed(1) + ' Mo' : Math.ceil(item.size / 1024) + ' Ko'}${fileItems.length > 1 ? ` · ${fileIndex + 1}/${fileItems.length}` : ''}${item.source === 'shelf' ? ' · gardé' : ''}`);
+    text(byId('file-meta'), `${item.size >= 1048576 ? (item.size / 1048576).toFixed(1) + ' ' + t('Mo') : Math.ceil(item.size / 1024) + ' ' + t('Ko')}${fileItems.length > 1 ? ` · ${fileIndex + 1}/${fileItems.length}` : ''}${item.source === 'shelf' ? t(' · gardé') : ''}`);
     const image = byId('file-preview');
     byId('file-switcher').hidden = fileItems.length < 2;
     if (item.preview && image.getAttribute('src') !== item.preview) { image.src = item.preview; image.hidden = false; }
@@ -1044,7 +1101,7 @@
     byId('file-actions').hidden = fileMode !== 'actions';
     byId('file-preview-panel').hidden = fileMode !== 'preview';
     const largePreview = byId('file-image-preview');
-    largePreview.onerror = () => { if (!disposed && fileMode === 'preview') { fileMode = 'actions'; fileError = 'L’aperçu de cette image est indisponible.'; renderFiles(); } };
+    largePreview.onerror = () => { if (!disposed && fileMode === 'preview') { fileMode = 'actions'; fileError = t('L’aperçu de cette image est indisponible.'); renderFiles(); } };
     if (fileMode === 'preview' && item.preview) { if (largePreview.getAttribute('src') !== item.preview) largePreview.src = item.preview; largePreview.alt = item.name; }
     else largePreview.removeAttribute('src');
     byId('file-formats').hidden = fileMode !== 'formats'; byId('file-processing').hidden = fileMode !== 'processing';
@@ -1052,19 +1109,19 @@
     for (const button of filePlayer.querySelectorAll('[data-file-command], [data-file-format]')) {
       const command = button.dataset.fileCommand;
       button.disabled = command === 'cancel' ? !running : command === 'cancel-send' ? !activeFileTransfer() : fileBusy || running && command !== 'clear';
-      if (command === 'ocr') { button.disabled ||= !(item.image || item.pdf) || !item.toolsAvailable; button.title = !item.toolsAvailable ? 'OCR : 25 Mo maximum. Le partage LocalSend reste disponible.' : ''; }
-      if (command === 'formats') { button.disabled ||= !item.image || !item.toolsAvailable; button.title = !item.toolsAvailable ? 'Conversion : 25 Mo maximum. Le partage LocalSend reste disponible.' : ''; }
+      if (command === 'ocr') { button.disabled ||= !(item.image || item.pdf) || !item.toolsAvailable; button.title = !item.toolsAvailable ? t('OCR : 25 Mo maximum. Le partage LocalSend reste disponible.') : ''; }
+      if (command === 'formats') { button.disabled ||= !item.image || !item.toolsAvailable; button.title = !item.toolsAvailable ? t('Conversion : 25 Mo maximum. Le partage LocalSend reste disponible.') : ''; }
       if (command === 'keep') button.disabled ||= item.source === 'shelf';
     }
-    text(byId('file-processing-label'), fileJob.progress?.label || (fileJob.command === 'ocr' ? fileJob.stage === 'pdf-text' ? 'Lecture du PDF…' : 'Reconnaissance du texte…' : 'Conversion…'));
+    textUI(byId('file-processing-label'), fileJob.progress?.label || (fileJob.command === 'ocr' ? fileJob.stage === 'pdf-text' ? t('Lecture du PDF…') : t('Reconnaissance du texte…') : t('Conversion…')));
     if (fileMode === 'ocr' && byId('file-text').dataset.job !== fileJob.jobId) {
       byId('file-text').value = typeof fileJob.text === 'string' ? fileJob.text : ''; byId('file-text').dataset.job = fileJob.jobId; byId('file-text').readOnly = true;
     }
     if (fileMode === 'complete' && fileJob.result) {
-      text(byId('file-complete-name'), fileJob.result.name || 'Fichier prêt');
+      text(byId('file-complete-name'), fileJob.result.name || t('Fichier prêt'));
       const link = byId('file-download'); link.hidden = !/^\/api\/shelf\/[a-f0-9]{32}$/.test(fileJob.result.download || '');
       if (!link.hidden) { link.href = fileJob.result.download; link.download = fileJob.result.name; }
-      if (fileJob.result.rasterEmbedded) text(byId('file-status'), 'Le SVG contient l’image ; il ne s’agit pas d’une vectorisation.');
+      if (fileJob.result.rasterEmbedded) textUI(byId('file-status'), t('Le SVG contient l’image ; il ne s’agit pas d’une vectorisation.'));
     }
     byId('file-send-cancel').hidden = !activeFileTransfer();
     if (fileMode === 'peers') renderFilePeers();
@@ -1077,7 +1134,7 @@
       host.replaceChildren(...peers.filter(peer => typeof peer.id === 'string' && typeof peer.alias === 'string').map(peer => { const button = document.createElement('button'); button.type = 'button'; button.dataset.filePeer = peer.id; button.textContent = peer.alias.slice(0, 120); button.disabled = fileBusy; return button; }));
     }
     for (const button of host.children) button.disabled = fileBusy;
-    if (!peers.length) text(byId('file-status'), fileError || nearby.error || 'Ouvre LocalSend sur ton appareil, puis recherche.');
+    if (!peers.length) textUI(byId('file-status'), fileError || nearby.error || t('Ouvre LocalSend sur ton appareil, puis recherche.'));
   }
   async function pollFileJob() {
     window.clearTimeout(filePoll); filePoll = 0;
@@ -1089,8 +1146,8 @@
       const previous = fileJob.status; fileJob = job; observeModuleActivity('files', job);
       if (job.status === 'complete' && previous !== 'complete') {
         fileMode = job.command === 'ocr' ? 'ocr' : 'complete'; fileError = ''; shelfLoaded = false; renderHomeSummaries();
-      } else if (job.status === 'error') { fileMode = 'actions'; fileError = job.error || 'Le traitement a échoué.'; }
-      else if (job.status === 'cancelled') { fileMode = 'actions'; fileError = 'Traitement annulé.'; }
+      } else if (job.status === 'error') { fileMode = 'actions'; fileError = job.error || t('Le traitement a échoué.'); }
+      else if (job.status === 'cancelled') { fileMode = 'actions'; fileError = t('Traitement annulé.'); }
       renderFiles();
       if (job.status === 'running') filePoll = window.setTimeout(pollFileJob, 500);
     } catch (error) { if (!disposed && epoch === fileEpoch) { fileError = error.message; renderFiles(); if (fileJob.status === 'running') filePoll = window.setTimeout(pollFileJob, 1000); } }
@@ -1102,7 +1159,7 @@
   }
   async function stageFiles(files) {
     if (disposed || fileBusy || !files.length) return;
-    if (files.length > 20) { fileError = '20 fichiers maximum à la fois.'; selectViewButton({dataset: {view: 'files'}}); setState('open'); renderFiles(); return; }
+    if (files.length > 20) { fileError = t('20 fichiers maximum à la fois.'); selectViewButton({dataset: {view: 'files'}}); setState('open'); renderFiles(); return; }
     fileBusy = true; fileError = ''; selectViewButton({dataset: {view: 'files'}}); setState('open'); renderFiles();
     const added = [], epoch = ++fileEpoch;
     try {
@@ -1131,23 +1188,23 @@
     try {
       if (command === 'copy') {
         const value = byId('file-text').value;
-        if (desktop) { const result = await desktop.copyText(value); if (!result?.ok) throw new Error('Le texte ne peut pas être copié.'); }
+        if (desktop) { const result = await desktop.copyText(value); if (!result?.ok) throw new Error(t('Le texte ne peut pas être copié.')); }
         else await window.navigator.clipboard.writeText(value);
-        fileError = 'Texte copié.';
+        fileError = t('Texte copié.');
       } else if (command === 'keep') {
         const value = await filePost('/api/files/keep', {id: item.id});
-        fileItems[fileIndex] = acceptedFile(value.item, 'shelf'); setShelf(value); fileError = 'Gardé dans l’Étagère.';
-        notifyModuleChange({id: 'files', kind: 'kept', title: 'Fichier gardé', detail: item.name});
+        fileItems[fileIndex] = acceptedFile(value.item, 'shelf'); setShelf(value); fileError = t('Gardé dans l’Étagère.');
+        notifyModuleChange({id: 'files', kind: 'kept', title: t('Fichier gardé'), detail: item.name});
         try { await fileRequest('/api/files/input/' + item.id, {method: 'DELETE', headers: {'X-Notchy': '1'}}); } catch {}
       } else if (command === 'clear') {
         if (fileJob.status === 'running') await filePost('/api/files/tool/cancel', {jobId: fileJob.jobId});
         if (item.source === 'files') await fileRequest('/api/files/input/' + item.id, {method: 'DELETE', headers: {'X-Notchy': '1'}});
         fileEpoch++; fileItems.splice(fileIndex, 1); fileIndex = Math.max(0, fileIndex - 1); fileMode = 'actions'; fileJob = {status: 'idle'};
       } else if (command === 'cancel') {
-        fileJob = await filePost('/api/files/tool/cancel', {jobId: fileJob.jobId}); fileMode = 'actions'; fileError = 'Traitement annulé.';
+        fileJob = await filePost('/api/files/tool/cancel', {jobId: fileJob.jobId}); fileMode = 'actions'; fileError = t('Traitement annulé.');
       } else if (command === 'cancel-send') {
         const transfer = activeFileTransfer(); if (!transfer) return;
-        nearby = await filePost('/api/nearby', {command: 'cancel', id: transfer.id}); fileError = 'Envoi annulé.'; renderNearby();
+        nearby = await filePost('/api/nearby', {command: 'cancel', id: transfer.id}); fileError = t('Envoi annulé.'); renderNearby();
       } else if (command === 'save') {
         const value = await filePost('/api/files/tool/save', {jobId: fileJob.jobId, text: byId('file-text').value});
         fileJob.result = value.result || value.item && {id: value.item.id, name: value.item.name, download: '/api/shelf/' + value.item.id};
@@ -1158,8 +1215,8 @@
       } else if (button.dataset.filePeer) {
         fileSendPreviousTransferId = nearby.transfer?.id || ''; fileSending = true; renderFiles(); void filePeersPoll();
         const value = {command: 'share', peerId: button.dataset.filePeer, ids: [item.id]}; if (item.source === 'files') value.source = 'files';
-        nearby = await filePost('/api/nearby', value); if (nearby.transfer?.error) throw new Error(nearby.transfer.error); fileError = nearby.transfer?.status === 'cancelled' ? 'Envoi annulé.' : nearby.transfer?.status === 'complete' ? 'Fichier envoyé.' : 'Envoi en cours…'; renderNearby();
-        if (nearby.transfer?.status === 'complete') notifyModuleChange({id: 'files', kind: 'sent', title: 'Fichier envoyé', detail: item.name});
+        nearby = await filePost('/api/nearby', value); if (nearby.transfer?.error) throw new Error(nearby.transfer.error); fileError = nearby.transfer?.status === 'cancelled' ? t('Envoi annulé.') : nearby.transfer?.status === 'complete' ? t('Fichier envoyé.') : t('Envoi en cours…'); renderNearby();
+        if (nearby.transfer?.status === 'complete') notifyModuleChange({id: 'files', kind: 'sent', title: t('Fichier envoyé'), detail: item.name});
       } else if (command === 'ocr' || button.dataset.fileFormat) {
         fileJob = await filePost('/api/files/tool', {id: item.id, command: command === 'ocr' ? 'ocr' : 'convert', ...(button.dataset.fileFormat ? {format: button.dataset.fileFormat} : {})});
         moduleActivityStates.set('files', moduleActivitySnapshot('files', {...fileJob, status: 'running'}));
@@ -1168,7 +1225,7 @@
         fileMode = 'processing'; void pollFileJob();
         }
       }
-    } catch (error) { if (!disposed) fileError = error.message || 'Cette action a échoué.'; }
+    } catch (error) { if (!disposed) fileError = error.message || t('Cette action a échoué.'); }
     finally { if (!disposed) { if (button.dataset.filePeer) { fileSending = false; fileSendPreviousTransferId = ''; } fileBusy = fileSending; renderFiles(); } }
   }
   async function filePeersPoll() {
@@ -1199,12 +1256,12 @@
       const nativeAction = command === 'reveal' ? desktop?.revealShelfItem : desktop?.openShelfItem;
       if (typeof nativeAction === 'function') {
         shelfBusy = true; shelfError = ''; syncShelfSelection();
-        try { const result = await nativeAction(item.id); if (!result?.ok) throw new Error(result?.error || 'Le fichier ne peut pas être ouvert.'); if (!disposed) shelfError = command === 'reveal' ? 'Copie affichée dans son dossier Windows.' : 'Copie ouverte dans Windows.'; }
-        catch (error) { if (!disposed) shelfError = error.message || 'Le fichier ne peut pas être ouvert.'; }
-        finally { if (!disposed) { shelfBusy = false; text(byId('shelf-status'), shelfError); syncShelfSelection(); } }
+        try { const result = await nativeAction(item.id); if (!result?.ok) throw new Error(result?.error || t('Le fichier ne peut pas être ouvert.')); if (!disposed) shelfError = command === 'reveal' ? t('Copie affichée dans son dossier Windows.') : t('Copie ouverte dans Windows.'); }
+        catch (error) { if (!disposed) shelfError = error.message || t('Le fichier ne peut pas être ouvert.'); }
+        finally { if (!disposed) { shelfBusy = false; textUI(byId('shelf-status'), shelfError); syncShelfSelection(); } }
       } else if (command === 'reveal') return;
       else if (file.preview) selectShelfFile(item, 'preview');
-      else { downloadShelfFiles([item]); shelfError = 'Copie téléchargée. Ouvre-la depuis tes téléchargements.'; text(byId('shelf-status'), shelfError); }
+      else { downloadShelfFiles([item]); shelfError = t('Copie téléchargée. Ouvre-la depuis tes téléchargements.'); textUI(byId('shelf-status'), shelfError); }
       return;
     }
     if (command === 'preview') { if (file.preview) selectShelfFile(item, 'preview'); return; }
@@ -1217,21 +1274,21 @@
     const all = shelfItems.length > 0 && selectedFiles.size === shelfItems.length;
     const selectAll = byId('shelf-select-all');
     selectAll.disabled = shelfBusy || !shelfItems.length;
-    selectAll.setAttribute('aria-pressed', String(all)); selectAll.setAttribute('aria-label', all ? 'Tout désélectionner' : 'Tout sélectionner');
-    text(byId('shelf-selection'), selectedFiles.size ? `${selectedFiles.size} sélectionné${selectedFiles.size === 1 ? '' : 's'}` : 'Aucun fichier sélectionné');
+    selectAll.setAttribute('aria-pressed', String(all)); selectAll.setAttribute('aria-label', all ? t('Tout désélectionner') : t('Tout sélectionner'));
+    text(byId('shelf-selection'), selectedFiles.size ? t(selectedFiles.size === 1 ? '{count} sélectionné' : '{count} sélectionnés', {count: selectedFiles.size}) : t('Aucun fichier sélectionné'));
     byId('shelf-download').disabled = shelfBusy || !selectedFiles.size; byId('shelf-remove').disabled = shelfBusy || !selectedFiles.size;
     byId('shelf-share').disabled = shelfBusy || nearbyBusy || !selectedFiles.size;
     const item = shelfSelectionItem(), file = item ? acceptedFile(item, 'shelf') : null, locked = shelfBusy || fileBusy || fileJob.status === 'running';
     shelfPlayer.dataset.singleSelection = String(!!item);
     byId('shelf-contextual').hidden = !item;
     byId('shelf-open').disabled = shelfBusy || !item;
-    text(byId('shelf-open'), file && !file.image && !file.pdf ? 'Ouvrir le fichier' : 'Ouvrir');
-    byId('shelf-open').title = typeof desktop?.openShelfItem === 'function' ? 'Ouvrir dans l’application par défaut' : file?.preview ? 'Afficher l’aperçu' : 'Télécharger une copie pour l’ouvrir';
+    text(byId('shelf-open'), file && !file.image && !file.pdf ? t('Ouvrir le fichier') : t('Ouvrir'));
+    byId('shelf-open').title = typeof desktop?.openShelfItem === 'function' ? t('Ouvrir dans l’application par défaut') : file?.preview ? t('Afficher l’aperçu') : t('Télécharger une copie pour l’ouvrir');
     byId('shelf-reveal').hidden = !item || typeof desktop?.revealShelfItem !== 'function'; byId('shelf-reveal').disabled = shelfBusy || !item;
     byId('shelf-preview').hidden = !file?.image; byId('shelf-preview').disabled = locked || !file?.preview;
-    byId('shelf-preview').title = file?.preview ? 'Afficher l’image' : 'Aperçu indisponible pour ce format';
-    byId('shelf-ocr').hidden = !(file?.image || file?.pdf); byId('shelf-ocr').disabled = locked || !(file?.image || file?.pdf) || !file?.toolsAvailable; byId('shelf-ocr').title = file && !file.toolsAvailable ? 'OCR : 25 Mo maximum. Le partage LocalSend reste disponible.' : '';
-    byId('shelf-convert').hidden = !file?.image; byId('shelf-convert').disabled = locked || !file?.image || !file?.toolsAvailable; byId('shelf-convert').title = file && !file.toolsAvailable ? 'Conversion : 25 Mo maximum. Le partage LocalSend reste disponible.' : '';
+    byId('shelf-preview').title = file?.preview ? t('Afficher l’image') : t('Aperçu indisponible pour ce format');
+    byId('shelf-ocr').hidden = !(file?.image || file?.pdf); byId('shelf-ocr').disabled = locked || !(file?.image || file?.pdf) || !file?.toolsAvailable; byId('shelf-ocr').title = file && !file.toolsAvailable ? t('OCR : 25 Mo maximum. Le partage LocalSend reste disponible.') : '';
+    byId('shelf-convert').hidden = !file?.image; byId('shelf-convert').disabled = locked || !file?.image || !file?.toolsAvailable; byId('shelf-convert').title = file && !file.toolsAvailable ? t('Conversion : 25 Mo maximum. Le partage LocalSend reste disponible.') : '';
     if (state === 'open' && view === 'tray' && !getModuleEditorActive()) update();
   }
 
@@ -1241,22 +1298,32 @@
   let weatherLoaded = false, weatherBusy = false, weatherSearchBusy = false, weatherPickerOpen = false, weatherAutomatic = false, weatherActive = false;
   let weatherError = '', weatherMessage = '', weatherLocations = [], weatherTimer = 0, weatherEpoch = 0, weatherSearchEpoch = 0, weatherController = null, weatherSearchController = null;
   function getWeatherState() { return JSON.parse(JSON.stringify({...weather, busy: weatherBusy, searchBusy: weatherSearchBusy})); }
+  function localizedWeatherNarrative(snapshot) {
+    const value = weatherNarrative(snapshot);
+    const next = {...value};
+    for (const name of ['when', 'rain', 'rainQualifier', 'horizon', 'status']) next[name] = uiMessage(value[name]);
+    if (!(snapshot.displayName || snapshot.city || snapshot.selectedCity?.name) || snapshot.mode === 'local' && snapshot.displayName === 'Position actuelle') next.city = t(value.city);
+    if (value.status === `Mise à jour indisponible — dernières données pour ${value.city}.`) next.status = t('Mise à jour indisponible — dernières données pour {city}.', {city: value.city});
+    const previous = 'Prévision précédente · ';
+    next.forecastDescription = value.forecastDescription.startsWith(previous) ? t(previous) + t(value.forecastDescription.slice(previous.length).replace('sur deux heures', 'dans les deux prochaines heures')).replace(t('dans les deux prochaines heures'), t('sur deux heures')) : t(value.forecastDescription);
+    return next;
+  }
   function isWeatherBusy() { return weatherBusy || weatherSearchBusy; }
   function getWeatherSummary() {
-    const next = weatherNarrative({...weather, busy: weatherBusy});
-    return {title: next.temperature + ' ' + next.when, detail: 'à ' + next.city, narrative: next};
+    const next = localizedWeatherNarrative({...weather, busy: weatherBusy});
+    return {title: next.temperature + ' ' + next.when, detail: t('à ') + next.city, narrative: next};
   }
   function renderWeatherSummary(button) {
-    const next = weatherNarrative({...weather, busy: weatherBusy}), key = JSON.stringify(next);
+    const next = localizedWeatherNarrative({...weather, busy: weatherBusy}), key = JSON.stringify(next);
     if (button.dataset.weatherNarrative === key) return;
-    button.dataset.weatherNarrative = key; button.classList.add('home-weather-summary'); button.setAttribute('aria-label', 'Météo · ' + next.city);
+    button.dataset.weatherNarrative = key; button.classList.add('home-weather-summary'); button.setAttribute('aria-label', t('Météo · {city}', {city: next.city}));
     const row = pairs => {
       const line = document.createElement('p'); line.className = 'weather-summary-line';
       for (const [value, emphasized] of pairs) { const word = document.createElement(emphasized ? 'strong' : 'span'); word.textContent = value; line.append(word); }
       return line;
     };
-    const current = row([[next.temperature, true], [next.when, false]]), place = row([['à', false], [next.city, true]]);
-    const feels = row([['ressenti', false], [next.feelsLike, true]]), forecast = row([[next.rain, true], [next.rainQualifier, false]]);
+    const current = row([[next.temperature, true], [next.when, false]]), place = row([[t('à'), false], [next.city, true]]);
+    const feels = row([[t('ressenti'), false], [next.feelsLike, true]]), forecast = row([[next.rain, true], [next.rainQualifier, false]]);
     if (next.rainIcon) { const icon = byId('weather-rain-icon').cloneNode(true); icon.removeAttribute('id'); icon.removeAttribute('hidden'); icon.classList.add('weather-summary-icon'); forecast.prepend(icon); }
     const horizon = document.createElement('small'); horizon.textContent = '· 2 h'; forecast.append(horizon); forecast.setAttribute('aria-label', next.forecastDescription);
     button.replaceChildren(current, place, feels, forecast);
@@ -1280,28 +1347,34 @@
   function renderWeather() {
     if (disposed) return;
     weatherPlayer.hidden = !builtinVisible('weather');
-    const next = weatherNarrative({...weather, busy: weatherBusy, error: weather.error || (!weatherPickerOpen ? weatherError : '')});
+    const next = localizedWeatherNarrative({...weather, busy: weatherBusy, error: weather.error || (!weatherPickerOpen ? weatherError : '')});
+    const unavailable = !Number.isFinite(weather.temperature) && !!(weather.error || weatherError);
+    byId('weather-main').dataset.empty = String(unavailable); byId('weather-empty').hidden = !unavailable;
+    text(byId('weather-empty-title'), weatherBusy ? t('Actualisation de la météo…') : t('Météo indisponible'));
+    textUI(byId('weather-empty-detail'), weatherBusy ? t('Connexion au service météo.') : weather.error || weatherError || t('Vérifie ta connexion ou choisis une ville.'));
     text(byId('weather-city'), next.city);
-    byId('weather-city-button').title = 'Changer de ville'; byId('weather-city-button').setAttribute('aria-label', 'Changer de ville · ' + next.city);
+    byId('weather-city-button').title = t('Changer de ville'); byId('weather-city-button').setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city}));
     byId('weather-city-button').setAttribute('aria-expanded', String(weatherPickerOpen));
     const picker = byId('weather-picker'), returnFocus = !picker.hidden && !weatherPickerOpen && picker.contains(document.activeElement);
     byId('weather-main').hidden = weatherPickerOpen; byId('weather-picker').hidden = !weatherPickerOpen;
     if (returnFocus && !weatherPlayer.hidden && state === 'open') byId('weather-city-button').focus({preventScroll: true});
     text(byId('weather-temperature'), next.temperature); text(byId('weather-feels'), next.feelsLike); text(byId('weather-now'), next.when);
-    text(byId('weather-condition'), typeof weather.condition === 'string' && weather.condition ? weather.condition.toLocaleLowerCase('fr-FR') : 'conditions indisponibles');
-    text(byId('weather-heading-label'), next.city + ' · ' + (weather.isDay === false ? 'CE SOIR' : 'AUJOURD’HUI'));
-    const day = Number.isFinite(weather.max) ? ` Aujourd’hui, jusqu’à ${Math.round(weather.max)}°` : '';
-    text(byId('weather-day-detail'), day + (Number.isFinite(weather.rainRisk) ? `${day ? ', avec' : ' Avec'} ${Math.round(Math.max(0, Math.min(100, weather.rainRisk)))} % de risque de précipitations.` : day ? '.' : ''));
+    text(byId('weather-condition'), typeof weather.condition === 'string' && weather.condition ? t(weather.condition).toLocaleLowerCase(i18n.locale() === 'en' ? 'en-GB' : 'fr-FR') : t('conditions indisponibles'));
+    text(byId('weather-heading-label'), next.city + ' · ' + (weather.isDay === false ? t('CE SOIR') : t('AUJOURD’HUI')));
+    const day = Number.isFinite(weather.max) ? t(' Aujourd’hui, jusqu’à {temperature}°', {temperature: Math.round(weather.max)}) : '';
+    text(byId('weather-day-detail'), day + (Number.isFinite(weather.rainRisk) ? t(day ? ', avec {risk} % de risque de précipitations.' : ' Avec {risk} % de risque de précipitations.', {risk: Math.round(Math.max(0, Math.min(100, weather.rainRisk)))}) : day ? '.' : ''));
     const conditionPaths = {moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z', sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5', cloud: 'M6 18h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10Z'};
     byId('weather-condition-icon').querySelector('path').setAttribute('d', conditionPaths[weather.icon] || conditionPaths.cloud);
     const hours = Array.isArray(weather.hours) ? weather.hours.filter(hour => Number.isFinite(hour?.temperature) && typeof hour.time === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(hour.time)).slice(0, 3) : [];
-    const hourSignature = JSON.stringify(hours.map(hour => [hour.time, hour.temperature]));
-    if (byId('weather-hours').dataset.value !== hourSignature) { byId('weather-hours').dataset.value = hourSignature; byId('weather-hours').replaceChildren(...hours.map(hour => { const chip = document.createElement('span'), label = document.createElement('span'), temperature = document.createElement('strong'); label.textContent = hour.time.slice(11, 13) + ' h'; temperature.textContent = Math.round(hour.temperature) + '°'; chip.append(label, temperature); return chip; })); }
+    const hourSignature = JSON.stringify([i18n.locale(), hours.map(hour => [hour.time, hour.temperature])]);
+    if (byId('weather-hours').dataset.value !== hourSignature) { byId('weather-hours').dataset.value = hourSignature; byId('weather-hours').replaceChildren(...hours.map(hour => { const chip = document.createElement('span'), label = document.createElement('span'), temperature = document.createElement('strong'); label.textContent = i18n.locale() === 'en' ? new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit'}).format(new Date(hour.time)) : hour.time.slice(11, 13) + ' h'; temperature.textContent = Math.round(hour.temperature) + '°'; chip.append(label, temperature); return chip; })); }
     byId('weather-hours').hidden = !hours.length;
     text(byId('weather-rain'), next.rain); text(byId('weather-rain-label'), next.rainQualifier); text(byId('weather-horizon'), next.horizon);
-    byId('weather-rain-icon').toggleAttribute('hidden', !next.rainIcon); byId('weather-rain-icon').dataset.kind = next.rain === 'pluie' ? 'rain' : 'precipitation';
+    byId('weather-rain-icon').toggleAttribute('hidden', !next.rainIcon); byId('weather-rain-icon').dataset.kind = next.rain === t('pluie') ? 'rain' : 'precipitation';
     byId('weather-forecast').setAttribute('aria-label', next.forecastDescription); byId('weather-main').dataset.state = next.state; byId('weather-main').setAttribute('aria-busy', String(next.loading));
-    text(byId('weather-status'), weatherBusy || weatherSearchBusy ? weatherMessage : weatherError || next.status);
+    const fetchedAt = Number.isFinite(weather.fetchedAt) && weather.fetchedAt > 0 && weather.fetchedAt <= Date.now() ? new Intl.DateTimeFormat(i18n.locale() === 'en' ? 'en-GB' : 'fr-FR', {hour: '2-digit', minute: '2-digit'}).format(new Date(weather.fetchedAt)) : '';
+    const lastUpdate = next.state === 'stale' && fetchedAt ? t(' · Dernière mise à jour : ') + fetchedAt : '';
+    text(byId('weather-status'), unavailable && !weatherPickerOpen ? '' : uiMessage(weatherBusy || weatherSearchBusy ? weatherMessage : weatherError || next.status) + lastUpdate);
     for (const button of weatherPlayer.querySelectorAll('[data-weather-command="locate"],[data-weather-command="refresh"]')) button.disabled = weatherBusy;
     weatherPlayer.querySelector('button[data-weather-command="search"]').disabled = weatherSearchBusy;
     if (typeof renderHomeSummaries === 'function') renderHomeSummaries();
@@ -1309,24 +1382,24 @@
   }
   async function weatherRequest(url, options, signal) {
     const response = await window.fetch(url, {...options, signal, cache: 'no-store'}), value = await response.json();
-    if (!response.ok) throw new Error(typeof value.error === 'string' ? value.error : 'La météo est indisponible.');
+    if (!response.ok) throw new Error(typeof value.error === 'string' ? value.error : t('La météo est indisponible.'));
     return value;
   }
   async function loadWeather(command = null, location = null) {
     if (!weatherVisible()) return;
     weatherController?.abort(); const epoch = ++weatherEpoch, controller = new AbortController(); weatherController = controller;
     if (command === 'local') desktop?.setDialogOpen?.(true);
-    weatherBusy = true; weatherError = ''; weatherMessage = command === 'local' ? 'Recherche de la position actuelle…' : 'Actualisation de la météo…'; renderWeather();
+    weatherBusy = true; weatherError = ''; weatherMessage = command === 'local' ? t('Recherche de la position actuelle…') : t('Actualisation de la météo…'); renderWeather();
     try {
       const value = await weatherRequest('/api/weather', command ? {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Notchy': '1'}, body: JSON.stringify({command, ...(location ? {location} : {})})} : {}, controller.signal);
       if (disposed || epoch !== weatherEpoch || document.hidden) return;
-      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('La météo est indisponible.');
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(t('La météo est indisponible.'));
       weather = {...value, temperature: Number.isFinite(value.temperature) ? value.temperature : null, feelsLike: Number.isFinite(value.feelsLike) ? value.feelsLike : null}; weatherLoaded = true;
-      if (!Number.isFinite(weather.temperature)) weatherPickerOpen = true;
+      if (!Number.isFinite(weather.temperature)) weatherPickerOpen = !weather.error && weather.status !== 'error';
       else if (command === 'select' || document.activeElement !== weatherCityInput) weatherPickerOpen = false;
     } catch (error) {
       if (epoch !== weatherEpoch || error.name === 'AbortError' || disposed) return;
-      weatherError = error.message || 'La météo est indisponible.'; if (!Number.isFinite(weather.temperature)) weatherPickerOpen = true;
+      weatherError = error.message || t('La météo est indisponible.'); if (!Number.isFinite(weather.temperature)) weatherPickerOpen = false;
     } finally {
       if (command === 'local') desktop?.setDialogOpen?.(false);
       if (epoch === weatherEpoch && !disposed) { weatherBusy = false; weatherController = null; renderWeather(); }
@@ -1338,9 +1411,9 @@
   }
   async function searchWeatherCity() {
     if (!weatherVisible() || weatherSearchBusy) return;
-    const query = weatherCityInput.value.trim(); if (query.length < 2) { weatherError = 'Saisis au moins deux lettres.'; renderWeather(); return; }
+    const query = weatherCityInput.value.trim(); if (query.length < 2) { weatherError = t('Saisis au moins deux lettres.'); renderWeather(); return; }
     weatherSearchController?.abort(); const epoch = ++weatherSearchEpoch, controller = new AbortController(); weatherSearchController = controller;
-    weatherSearchBusy = true; weatherError = ''; weatherMessage = 'Recherche des villes…'; renderWeather();
+    weatherSearchBusy = true; weatherError = ''; weatherMessage = t('Recherche des villes…'); renderWeather();
     try {
       const value = await weatherRequest('/api/weather/search?q=' + encodeURIComponent(query), {}, controller.signal);
       if (disposed || epoch !== weatherSearchEpoch || document.hidden) return;
@@ -1350,8 +1423,8 @@
         const button = document.createElement('button'), label = document.createElement('span'), detail = document.createElement('small');
         button.type = 'button'; button.dataset.weatherCommand = 'choose'; button.dataset.weatherResult = String(index); label.textContent = location.name; detail.textContent = [location.region, location.country].filter(Boolean).join(' · '); button.append(label, detail); return button;
       }));
-      if (!weatherLocations.length) weatherError = 'Aucune ville trouvée.';
-    } catch (error) { if (epoch === weatherSearchEpoch && error.name !== 'AbortError' && !disposed) weatherError = error.message || 'La recherche est indisponible.'; }
+      if (!weatherLocations.length) weatherError = t('Aucune ville trouvée.');
+    } catch (error) { if (epoch === weatherSearchEpoch && error.name !== 'AbortError' && !disposed) weatherError = error.message || t('La recherche est indisponible.'); }
     finally { if (epoch === weatherSearchEpoch && !disposed) { weatherSearchBusy = false; weatherSearchController = null; renderWeather(); } }
   }
   function weatherCommand(event) {
@@ -1392,7 +1465,7 @@
       const card = document.createElement('div'); card.className = 'shelf-item'; card.dataset.shelfId = item.id; card.dataset.kind = item.kind;
       card.addEventListener('contextmenu', event => event.stopPropagation());
       const button = document.createElement('button'); button.type = 'button'; button.dataset.shelfCommand = 'select'; button.disabled = shelfBusy;
-      button.setAttribute('aria-pressed', String(selectedFiles.has(item.id))); button.setAttribute('aria-label', 'Sélectionner ' + item.name);
+      button.setAttribute('aria-pressed', String(selectedFiles.has(item.id))); button.setAttribute('aria-label', t('Sélectionner {file}', {file: item.name}));
       const preview = document.createElement('span'); preview.className = 'shelf-preview';
       const icon = document.createElement('span'); icon.className = 'shelf-file-icon'; icon.setAttribute('aria-hidden', 'true');
       const extension = document.createElement('span'); extension.textContent = item.name.match(/\.([a-z0-9]{1,8})$/i)?.[1] || 'FILE';
@@ -1400,20 +1473,20 @@
       if (item.thumbnail) { const image = document.createElement('img'); image.src = item.thumbnail; image.alt = ''; image.loading = 'lazy'; image.addEventListener('error', () => image.remove(), {once: true}); preview.append(image); }
       const check = document.createElement('span'); check.className = 'shelf-check'; check.setAttribute('aria-hidden', 'true'); check.append(shelfGlyph('check')); preview.append(check);
       const name = document.createElement('span'); name.className = 'shelf-item-name'; name.textContent = item.name; name.title = item.name;
-      const size = document.createElement('span'); size.className = 'shelf-item-size'; size.textContent = item.size >= 1048576 ? (item.size / 1048576).toFixed(1) + ' Mo' : Math.ceil(item.size / 1024) + ' Ko';
+      const size = document.createElement('span'); size.className = 'shelf-item-size'; size.textContent = item.size >= 1048576 ? (item.size / 1048576).toFixed(1) + ' ' + t('Mo') : Math.ceil(item.size / 1024) + ' ' + t('Ko');
       button.append(preview, name, size); card.append(button); shelfList.append(card);
     }
     byId('shelf-drop').hidden = shelfItems.length > 0;
     shelfList.hidden = shelfItems.length === 0;
-    text(byId('shelf-count'), `${shelfItems.length} fichier${shelfItems.length === 1 ? '' : 's'}`);
-    text(byId('shelf-status'), shelfError);
+    text(byId('shelf-count'), localSendCount(shelfItems.length));
+    textUI(byId('shelf-status'), shelfError);
     byId('shelf-add').disabled = shelfBusy || shelfItems.length >= 20;
     byId('shelf-drop').disabled = shelfBusy || shelfItems.length >= 20;
     syncShelfSelection();
   }
 
   function setShelf(value) {
-    if (!value || !Array.isArray(value.items)) throw new Error('L’Étagère ne répond pas correctement.');
+    if (!value || !Array.isArray(value.items)) throw new Error(t('L’Étagère ne répond pas correctement.'));
     shelfItems = value.items.slice(0, 20).filter(item => item && /^[a-f0-9]{32}$/.test(item.id) && typeof item.name === 'string' && Number.isSafeInteger(item.size) && item.size >= 0).map(item => ({
       id: item.id, name: item.name.slice(0, 260), size: item.size,
       kind: ['document', 'image', 'archive', 'audio', 'video'].includes(item.kind) ? item.kind : 'file',
@@ -1426,7 +1499,7 @@
   async function shelfRequest(url, options) {
     const response = await window.fetch(url, options);
     const value = await response.json();
-    if (!response.ok || value.error) throw new Error(value.error || 'Cette action est indisponible.');
+    if (!response.ok || value.error) throw new Error(value.error || t('Cette action est indisponible.'));
     return value;
   }
 
@@ -1442,7 +1515,7 @@
   async function uploadFiles(files) {
     if (disposed || shelfBusy || !files.length) return;
     if (files.length + shelfItems.length > 20) {
-      shelfError = '20 fichiers maximum dans l’Étagère.'; renderShelf(); return;
+      shelfError = t('20 fichiers maximum dans l’Étagère.'); renderShelf(); return;
     }
     const epoch = ++shelfEpoch;
     shelfBusy = true; shelfError = '';
@@ -1451,7 +1524,7 @@
     try {
       for (let index = 0; index < files.length; index++) {
         const file = files[index];
-        text(byId('shelf-status'), `Ajout ${index + 1} sur ${files.length}…`);
+        textUI(byId('shelf-status'), t('Ajout {current} sur {total}…', {current: index + 1, total: files.length}));
         const value = await shelfRequest('/api/shelf?name=' + encodeURIComponent(file.name), {method: 'POST', headers: {'Content-Type': 'application/octet-stream', 'X-Notchy': '1'}, body: file});
         if (disposed || epoch !== shelfEpoch) return;
         setShelf(value);
@@ -1501,19 +1574,27 @@
   function clearFileDrag(restore = true) {
     dragDepth = 0;
     if (!fileDragging) return;
-    fileDragging = false; notch.dataset.fileDrag = 'false';
-    if (state === 'hover') setState('discreet'); else renderMusic();
+    fileDragging = false; notch.dataset.fileDrag = 'false'; fileDragCount = null;
+    const previous = fileDragPreviousState; fileDragPreviousState = null; renderFileDropPreview();
+    if (restore !== false && previous && previous !== state) setState(previous); else renderMusic();
     if (restore !== false && state === 'open' && view === 'tray' && !shelfLoaded && !shelfBusy) void loadShelf();
   }
   function fileDragEnter(event) { if (hasFiles(event)) dragDepth++; }
+  function renderFileDropPreview() {
+    byId('shelf-drag-preview').hidden = !fileDragging;
+    if (!fileDragging) return;
+    text(byId('shelf-drag-title'), fileDragCount ? t(fileDragCount === 1 ? 'Déposer {count} fichier' : 'Déposer {count} fichiers', {count: fileDragCount}) : t('Déposer des fichiers'));
+    text(byId('shelf-drag-detail'), view === 'tray' ? t('Relâche pour les garder dans l’Étagère.') : t('Relâche pour garder, convertir ou partager.'));
+  }
   function fileDragOver(event) {
     if (!hasFiles(event)) return;
     event.preventDefault();
     if (!nearNotch(event)) { event.dataTransfer.dropEffect = 'none'; clearFileDrag(); return; }
     event.dataTransfer.dropEffect = 'copy';
-    fileDragging = true; notch.dataset.fileDrag = 'true';
-    if (state !== 'open') setState('hover');
-    else { renderLiveActivities(); if (getModuleEditorActive()) closeModuleEditor(false); }
+    if (!fileDragging) fileDragPreviousState = state;
+    fileDragging = true; fileDragCount = dragFileCount(event.dataTransfer); notch.dataset.fileDrag = 'true'; renderFileDropPreview();
+    if (getModuleEditorActive()) closeModuleEditor(false);
+    if (state !== 'open') setState('open'); else { renderLiveActivities(); update(); }
   }
   function fileDragLeave(event) { if (hasFiles(event)) { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) clearFileDrag(); } }
   function fileDrop(event) {
@@ -1521,11 +1602,23 @@
     event.preventDefault();
     if (!nearNotch(event)) { clearFileDrag(); return; }
     const files = [...event.dataTransfer.files];
-    const toShelf = state === 'open' && builtinVisible('shelf') && !!event.target.closest('#shelf-player');
+    const toShelf = state === 'open' && view === 'tray' && builtinVisible('shelf');
     clearFileDrag(false); if (toShelf) void uploadFiles(files); else void stageFiles(files);
   }
 
   function text(element, value) { if (element.textContent !== value) element.textContent = value; }
+  function textUI(element, value) {text(element, uiMessage(value));}
+  function languageChoice(event) {
+    if (event.target.matches('[data-language-choice]')) i18n.setLocale(event.target.value);
+  }
+  function renderLanguage() {
+    if (disposed) return;
+    renderStaticTranslations();
+    for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();
+    for (const item of Object.values(moduleDefinitions)) moduleLabels[item.id] = t(item.label);
+    moduleMessage = '';
+    renderAppearance(); renderHomeLayout(); renderMusic(); renderMusicQueue(); renderFocus(); renderShelf(); renderFiles(); renderWeather(); renderNearby(); renderModuleFeedback(); renderModules(); renderSettings(); renderMenuSelection(); update();
+  }
   function time(value) { const seconds = Math.floor(value); return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); }
   function position() { return musicPosition(music, connectionLost ? 0 : window.performance.now() - musicAt); }
   function clearSpectrum() { for (const bar of spectrumBars) bar.style.setProperty('--level', '0'); }
@@ -1547,11 +1640,11 @@
     musicSeek.disabled = commandBusy || connectionLost || !music.canSeek;
     musicSeek.max = String(music.duration || 100);
     musicSeek.value = String(Math.floor(current));
-    musicSeek.setAttribute('aria-valuetext', `${time(current)} sur ${time(music.duration)}`);
-    musicSeek.title = music.canSeek ? 'Avancer ou reculer dans le morceau' : 'Le lecteur Windows ne permet pas de déplacer la lecture';
+    musicSeek.setAttribute('aria-valuetext', t('{current} sur {total}', {current: time(current), total: time(music.duration)}));
+    musicSeek.title = music.canSeek ? t('Avancer ou reculer dans le morceau') : t('Le lecteur Windows ne permet pas de déplacer la lecture');
     strip.setAttribute('aria-valuemax', String(music.duration || 100));
     strip.setAttribute('aria-valuenow', String(music.duration ? Math.floor(current) : 0));
-    strip.setAttribute('aria-valuetext', `${time(current)} sur ${time(music.duration)}`);
+    strip.setAttribute('aria-valuetext', t('{current} sur {total}', {current: time(current), total: time(music.duration)}));
   }
 
   function syncClock() {
@@ -1571,13 +1664,13 @@
     byId('music-content').hidden = !music.available;
     notch.dataset.playing = String(music.playing && !connectionLost);
     for (const badge of notch.querySelectorAll('.music-provider-badge')) badge.hidden = !music.available || !/spotify/i.test(music.source || 'Spotify');
-    text(byId('music-title'), music.title || 'Titre inconnu');
-    text(byId('music-live-title'), music.title || 'Musique');
+    text(byId('music-title'), music.title || t('Titre inconnu'));
+    text(byId('music-live-title'), music.title || t('Musique'));
     text(byId('music-live-artist'), music.artist || music.source);
-    text(byId('music-artist'), music.artist || 'Artiste inconnu');
+    text(byId('music-artist'), music.artist || t('Artiste inconnu'));
     text(byId('music-source'), music.source || 'Spotify');
-    const description = music.available ? `${music.title || 'Musique'} · ${music.artist || 'lecteur musical'}` : 'Ouvrir l’encoche';
-    toggle.setAttribute('aria-label', state === 'open' ? 'Encoche ouverte' : description + (music.available ? ' · ouvrir le lecteur' : ''));
+    const description = music.available ? `${music.title || t('Musique')} · ${music.artist || t('lecteur musical')}` : t('Ouvrir l’encoche');
+    toggle.setAttribute('aria-label', state === 'open' ? t('Encoche ouverte') : description + (music.available ? t(' · ouvrir le lecteur') : ''));
     for (const image of coverImages) {
       image.hidden = !music.cover || image.getAttribute('src') === music.cover && image.complete && image.naturalWidth === 0;
       image.nextElementSibling.toggleAttribute('hidden', !image.hidden);
@@ -1586,16 +1679,16 @@
     }
     if (spectrumArtwork !== music.cover) { spectrumArtwork = music.cover; spectrumAnalyzed = ''; notch.style.setProperty('--spectrum-color', '#ffffff'); coverLoaded({target: coverImages[0]}); }
     const paused = !music.playing || connectionLost;
-    byId('music-toggle').setAttribute('aria-label', paused ? 'Lire' : 'Mettre en pause');
+    byId('music-toggle').setAttribute('aria-label', paused ? t('Lire') : t('Mettre en pause'));
     byId('music-play-icon').setAttribute('d', paused ? 'M8 5v14l11-7Z' : 'M6 5h4v14H6ZM14 5h4v14h-4Z');
     for (const button of commands) {
       const command = button.dataset.musicCommand;
       const capability = {toggle: 'canToggle', next: 'canNext', previous: 'canPrevious', shuffle: 'canShuffle', repeat: 'canRepeat'}[command];
       button.disabled = commandBusy || command !== 'open' && (connectionLost || !music.available || !music[capability]);
       if (command === 'shuffle') button.setAttribute('aria-pressed', String(music.shuffle === true));
-      if (command === 'repeat') { button.setAttribute('aria-pressed', String(music.repeat === 'list' || music.repeat === 'track')); button.dataset.repeat = music.repeat || 'none'; button.setAttribute('aria-label', music.repeat === 'track' ? 'Répéter ce morceau · passer sans répétition' : music.repeat === 'list' ? 'Répéter la liste · passer à un seul morceau' : 'Activer la répétition de la liste'); }
+      if (command === 'repeat') { button.setAttribute('aria-pressed', String(music.repeat === 'list' || music.repeat === 'track')); button.dataset.repeat = music.repeat || 'none'; button.setAttribute('aria-label', music.repeat === 'track' ? t('Répéter ce morceau · passer sans répétition') : music.repeat === 'list' ? t('Répéter la liste · passer à un seul morceau') : t('Activer la répétition de la liste')); }
     }
-    text(byId('music-status'), musicError || music.error || '');
+    textUI(byId('music-status'), musicError || music.error || '');
     if (paused || !motionEnabled() || state === 'open' && !builtinVisible('music')) clearSpectrum();
     renderTime(); syncClock(); renderHomeSummaries();
   }
@@ -1628,14 +1721,14 @@
       stream?.close(); retiringStream?.close(); stream = null; retiringStream = null;
       clearSpectrum(); syncClock(); return;
     }
-    if (typeof window.EventSource !== 'function') { musicError = 'La connexion au lecteur n’est pas disponible.'; renderMusic(); return; }
+    if (typeof window.EventSource !== 'function') { musicError = t('La connexion au lecteur n’est pas disponible.'); renderMusic(); return; }
     const wantsSpectrum = !fileDragging && motionEnabled() && (state === 'hover' || state === 'open' && builtinVisible('music'));
     if (stream && streamSpectrum === wantsSpectrum) return;
     // Keep the old subscription until the new one opens, avoiding artwork flicker.
     retiringStream?.close(); retiringStream = stream;
     let current;
     try { current = new window.EventSource('/api/music/events?spectrum=' + (wantsSpectrum ? '1' : '0')); }
-    catch { retiringStream?.close(); retiringStream = null; stream = null; musicError = 'Connexion musicale indisponible.'; renderMusic(); return; }
+    catch { retiringStream?.close(); retiringStream = null; stream = null; musicError = t('Connexion musicale indisponible.'); renderMusic(); return; }
     stream = current; streamSpectrum = wantsSpectrum;
     current.addEventListener('open', () => { if (stream === current) { retiringStream?.close(); retiringStream = null; } });
     current.addEventListener('music', event => { if (stream === current) try { setMusic(JSON.parse(event.data)); } catch {} });
@@ -1643,7 +1736,7 @@
     current.addEventListener('error', () => {
       if (disposed || stream !== current || document.hidden) return;
       music.position = position(); musicAt = window.performance.now(); connectionLost = true;
-      musicError = 'Connexion au lecteur en cours…'; clearSpectrum(); renderMusic(); update();
+      musicError = t('Connexion au lecteur en cours…'); clearSpectrum(); renderMusic(); update();
     });
   }
 
@@ -1660,9 +1753,9 @@
       const data = await response.json();
       if (disposed) return;
       if (value.command === 'seek' && (music.title !== value.title || music.artist !== value.artist)) return;
-      if (!response.ok || data.error) throw new Error(data.error || 'Le lecteur n’a pas pu effectuer cette action.');
+      if (!response.ok || data.error) throw new Error(data.error || t('Le lecteur n’a pas pu effectuer cette action.'));
       if (Object.hasOwn(data, 'available')) setMusic(data);
-    } catch (error) { if (!disposed) musicError = error.message || 'Le lecteur ne répond pas.'; }
+    } catch (error) { if (!disposed) musicError = error.message || t('Le lecteur ne répond pas.'); }
     finally { if (!disposed) { commandBusy = false; seekPreview = null; seekTrack = null; renderMusic(); recheckCollapse(); } }
   }
   function previewMusicSeek() {
@@ -1671,7 +1764,7 @@
     seekPreview = Math.min(music.duration, Math.max(0, Number(musicSeek.value))); renderTime();
   }
   async function commitMusicSeek() {
-    if (seekTrack && (seekTrack.title !== music.title || seekTrack.artist !== music.artist)) { seekPreview = null; seekTrack = null; musicError = 'Le morceau a changé. Choisis sa nouvelle position.'; renderMusic(); return; }
+    if (seekTrack && (seekTrack.title !== music.title || seekTrack.artist !== music.artist)) { seekPreview = null; seekTrack = null; musicError = t('Le morceau a changé. Choisis sa nouvelle position.'); renderMusic(); return; }
     if (disposed || musicSeek.disabled || seekPreview === null || !seekTrack || state !== 'open' || !builtinVisible('music')) { seekPreview = null; seekTrack = null; renderTime(); return; }
     await performMusicCommand({command: 'seek', position: seekPreview, ...seekTrack});
   }
@@ -1700,28 +1793,28 @@
   function renderMusicQueue() {
     const host = byId('music-queue'); host.hidden = !queueOpen || view !== 'music' || moduleEditing;
     player.dataset.queueOpen = String(!host.hidden);
-    const button = byId('music-queue-toggle'); button.setAttribute('aria-expanded', String(queueOpen)); button.setAttribute('aria-label', queueOpen ? 'Fermer À suivre' : 'Afficher À suivre');
+    const button = byId('music-queue-toggle'); button.setAttribute('aria-expanded', String(queueOpen)); button.setAttribute('aria-label', queueOpen ? t('Fermer À suivre') : t('Afficher À suivre'));
     if (host.hidden) return;
-    const messages = {disconnected: 'Connecte Spotify pour afficher sa file.', connecting: 'Autorise la connexion dans ton navigateur.', connected: 'La file est prête à être actualisée.', ok: 'La file est vide.', unauthorized: 'Reconnecte Spotify pour restaurer la session.', forbidden: 'Spotify refuse cet accès pour ce compte.', limited: 'Spotify demande une pause avant de réessayer.', offline: 'Spotify est momentanément indisponible.', unavailable: 'La file Spotify est indisponible.', error: 'Impossible de lire la file pour le moment.', cancelled: 'Lecture annulée.', invalid: 'Commande indisponible.'};
-    text(byId('music-queue-status'), queueBusy ? queueOperation === 'play-track' ? 'Lecture demandée à Spotify…' : 'Chargement de la file…' : queueNotice || queueState.message || messages[queueState.status]);
+    const messages = {disconnected: t('Connecte Spotify pour afficher sa file.'), connecting: t('Autorise la connexion dans ton navigateur.'), connected: t('La file est prête à être actualisée.'), ok: t('La file est vide.'), unauthorized: t('Reconnecte Spotify pour restaurer la session.'), forbidden: t('Spotify refuse cet accès pour ce compte.'), limited: t('Spotify demande une pause avant de réessayer.'), offline: t('Spotify est momentanément indisponible.'), unavailable: t('La file Spotify est indisponible.'), error: t('Impossible de lire la file pour le moment.'), cancelled: t('Lecture annulée.'), invalid: t('Commande indisponible.')};
+    textUI(byId('music-queue-status'), queueBusy ? queueOperation === 'play-track' ? t('Lecture demandée à Spotify…') : t('Chargement de la file…') : queueNotice || queueState.message || messages[queueState.status]);
     byId('music-queue-status').hidden = !queueBusy && !queueNotice && queueState.status === 'ok' && !!queueState.items.length;
     byId('music-queue-refresh').disabled = queueBusy || queueState.status === 'connecting' || Date.now() < queueRetryUntil;
     const needsPlayback = !queueState.canPlay && ['ok','connected','scope-required'].includes(queueState.status);
     byId('music-queue-connect').hidden = !needsPlayback && !['disconnected','unauthorized','forbidden','error'].includes(queueState.status);
-    text(byId('music-queue-connect'), needsPlayback ? 'Autoriser la lecture Spotify' : 'Connecter Spotify');
+    text(byId('music-queue-connect'), needsPlayback ? t('Autoriser la lecture Spotify') : t('Connecter Spotify'));
     byId('music-queue-connect').disabled = queueBusy;
     byId('music-queue-disconnect').hidden = !['connected','ok','limited','forbidden','offline'].includes(queueState.status);
     byId('music-queue-disconnect').disabled = queueBusy;
-    const list = byId('music-queue-items'), signature = JSON.stringify([queueState.items, queueState.canPlay]);
+    const list = byId('music-queue-items'), signature = JSON.stringify([i18n.locale(), queueState.items, queueState.canPlay]);
     if (queueListSignature !== signature) {
     const nodes = queueState.items.map(item => {
       const row = document.createElement('li'), itemView = document.createElement(item.uri ? 'button' : 'div'); itemView.className = 'music-queue-item';
-      if (item.uri) { itemView.type = 'button'; itemView.dataset.musicQueueCommand = 'play-track'; itemView.dataset.uri = item.uri; itemView.setAttribute('aria-label', `Lire ${item.name} · ${item.artists.join(' · ')}`); itemView.title = 'Lire sur l’appareil Spotify actif · remplace le contexte de lecture'; }
+      if (item.uri) { itemView.type = 'button'; itemView.dataset.musicQueueCommand = 'play-track'; itemView.dataset.uri = item.uri; itemView.setAttribute('aria-label', t('Lire {track} · {artists}', {track: item.name, artists: item.artists.join(' · ')})); itemView.title = t('Lire sur l’appareil Spotify actif · remplace le contexte de lecture'); }
       const art = document.createElement('span'); art.className = 'music-queue-art';
       const placeholder = () => { const glyph = player.querySelector('.cover-placeholder').cloneNode(true); glyph.removeAttribute('hidden'); return glyph; };
       if (item.artwork) { const image = document.createElement('img'); image.src = item.artwork; image.alt = ''; image.addEventListener('error', () => image.replaceWith(placeholder()), {once: true}); art.append(image); } else art.append(placeholder());
       const copy = document.createElement('span'); copy.className = 'music-queue-copy'; const title = document.createElement('strong'), artist = document.createElement('small');
-      title.textContent = item.name || 'Titre indisponible'; title.title = title.textContent; artist.textContent = item.artists.join(' · ') || (item.type === 'episode' ? 'Épisode' : 'Artiste inconnu'); artist.title = artist.textContent;
+      title.textContent = item.name || t('Titre indisponible'); title.title = title.textContent; artist.textContent = item.artists.join(' · ') || (item.type === 'episode' ? t('Épisode') : t('Artiste inconnu')); artist.title = artist.textContent;
       copy.append(title, artist); itemView.append(art, copy); row.append(itemView); return row;
     });
     list.replaceChildren(...nodes); queueListSignature = signature;
@@ -1740,12 +1833,12 @@
     if (!queueVisible() || queueBusy || Date.now() < queueRetryUntil) return;
     const ticket = ++queueEpoch; queueBusy = true; renderMusicQueue();
     try {
-      let value = desktop?.musicQueue ? await desktop.musicQueue(refresh ? 'queue' : 'status') : {status: 'unavailable', message: 'Ouvre cette vue dans l’application Windows pour connecter Spotify.'};
+      let value = desktop?.musicQueue ? await desktop.musicQueue(refresh ? 'queue' : 'status') : {status: 'unavailable', message: t('Ouvre cette vue dans l’application Windows pour connecter Spotify.')};
       if (disposed || ticket !== queueEpoch || !queueVisible()) return;
       if (!refresh && ['connected','ok'].includes(value?.status)) value = await desktop.musicQueue('queue');
       if (disposed || ticket !== queueEpoch || !queueVisible()) return;
       queueState = queueSnapshot(value); if (queueState.retryAfter) queueRetryUntil = Date.now() + queueState.retryAfter * 1000;
-    } catch { if (ticket === queueEpoch) queueState = {status: 'error', current: null, items: [], message: 'La file Spotify est indisponible. Réessaie.'}; }
+    } catch { if (ticket === queueEpoch) queueState = {status: 'error', current: null, items: [], message: t('La file Spotify est indisponible. Réessaie.')}; }
     finally { if (ticket === queueEpoch) { queueBusy = false; renderMusicQueue(); scheduleMusicQueue(); } }
   }
   function closeMusicQueue(restore = true, focus = true) {
@@ -1780,12 +1873,12 @@
       let value = await desktop.musicQueue(command === 'play-track' ? {command, uri} : command);
       if (disposed || ticket !== queueEpoch || !queueVisible()) return;
       if (command === 'play-track') {
-        queueNotice = queueText(value?.message, 600) || (value?.status === 'accepted' ? 'Lecture demandée à Spotify sur l’appareil actif.' : 'Spotify n’a pas pu lancer ce titre.');
+        queueNotice = queueText(value?.message, 600) || (value?.status === 'accepted' ? t('Lecture demandée à Spotify sur l’appareil actif.') : t('Spotify n’a pas pu lancer ce titre.'));
         if (value?.status === 'accepted') value = await desktop.musicQueue('queue');
       }
       if (!disposed && ticket === queueEpoch && queueVisible()) { queueRetryUntil = value?.retryAfter ? Date.now() + Math.min(300, value.retryAfter) * 1000 : 0; queueState = queueSnapshot(value); }
     }
-    catch { if (ticket === queueEpoch) queueState = {status: 'error', current: null, items: [], message: 'La connexion Spotify est indisponible.'}; }
+    catch { if (ticket === queueEpoch) queueState = {status: 'error', current: null, items: [], message: t('La connexion Spotify est indisponible.')}; }
     finally { if (ticket === queueEpoch) { queueBusy = false; queueOperation = ''; renderMusicQueue(); scheduleMusicQueue(); recheckCollapse(); } }
   }
 
@@ -1847,12 +1940,15 @@
     const hasMusic = musicInBand(), hasFocus = isModuleEnabled('focus') && focusIsActive();
     const quiet = state === 'open' ? sizes.open : closedBandSize(state, {music: hasMusic, focus: hasFocus, transfer: !!transferBand, feedback: moduleFeedback && notch.dataset.feedback});
     const definition = view === 'nook' ? moduleDefinitions[homePrimary()] : Object.values(moduleDefinitions).find(item => item.view === view);
-    const directWidth = localSend ? localSend.direction === 'receive' ? 440 : 520 : view === 'settings' ? 360 * scale : view === 'files' ? 520 * scale : definition ? definition.size.width * scale : format.width;
-    const size = {...quiet, ...(state === 'open' ? {width: view === 'welcome' ? 300 : getModuleEditorActive() ? Math.min(editorWidth, Math.max(1, window.innerWidth - 32)) : homeActive ? homeWidth : expandedMusic ? Math.min(directWidth + 284 * scale, Math.max(1, window.innerWidth - 80)) : directWidth, radius: appearance.radius} : {})};
+    const directWidth = localSend ? localSend.direction === 'receive' ? 440 : 520 : view === 'settings' ? 600 * scale : view === 'focus' && context.focusConfig ? 440 * scale : view === 'files' ? 520 * scale : definition ? definition.size.width * scale : format.width;
+    const size = {...quiet, ...(state === 'open' ? {width: fileDragging ? 360 : view === 'welcome' ? 320 : getModuleEditorActive() ? Math.min(editorWidth, Math.max(1, window.innerWidth - 32)) : homeActive ? homeWidth : expandedMusic ? Math.min(directWidth + 284 * scale, Math.max(1, window.innerWidth - 80)) : directWidth, radius: appearance.radius} : {})};
     if (state === 'open' && (view === 'welcome' || localSend)) size.band = 0;
+    if (state === 'open' && fileDragging) size.band = 0;
+    menu.hidden = state !== 'open' || view === 'welcome' || view === 'localsend' || fileDragging; menu.inert = menu.hidden;
     if (localSend) size.radius = 18;
     const directItem = definition ? homeModuleLayout([definition.id], directWidth, 16, context).items[0] : null;
-    let contentHeight = view === 'welcome' ? 196 : definition ? Math.max(definition.size.minHeight, Math.min(Math.max(definition.size.height * scale, (directItem?.minHeight || 0) + 30), definition.size.maxHeight)) : format.height;
+    let contentHeight = view === 'welcome' ? 246 : definition ? Math.max(definition.size.minHeight, Math.min(Math.max(definition.size.height * scale, (directItem?.minHeight || 0) + 30), definition.size.maxHeight)) : format.height;
+    if (view === 'focus') contentHeight = context.focusConfig ? 244 : Math.min(size.width, window.innerWidth - 32) >= 604 ? 264 : 392;
     if (view === 'settings') contentHeight = settingsNaturalPanelHeight();
     if (view === 'files') contentHeight = ['result', 'ocr', 'preview'].includes(fileMode) ? 264 : 238;
     if (localSend) contentHeight = localSend.direction === 'send' ? 210 : localSend.stage === 'consent' ? 116 : 158;
@@ -1860,7 +1956,7 @@
     if (shelfDetails) contentHeight = Math.max(contentHeight, 288);
     if (!homeActive && state === 'open' && weatherVisible()) contentHeight = Math.max(contentHeight, Math.min(moduleDefinitions.weather.size.maxHeight, weatherNaturalPanelHeight()));
     const editorHeight = editorLayout ? editorLayout.height + (window.innerWidth <= 430 ? 134 : window.innerWidth <= 640 ? 152 : 116) : 272;
-    const desiredHeight = getModuleEditorActive() ? editorHeight : homeActive ? homeHeight : view === 'settings' || shelfDetails ? contentHeight : expandedMusic && window.innerWidth <= 640 ? Math.max(370, contentHeight) : !desktop && window.innerHeight <= 430 ? Math.min(contentHeight, 180) : contentHeight;
+    const desiredHeight = fileDragging ? 160 : getModuleEditorActive() ? editorHeight : homeActive ? homeHeight : view === 'settings' || shelfDetails ? contentHeight : expandedMusic && window.innerWidth <= 640 ? Math.max(370, contentHeight) : !desktop && window.innerHeight <= 430 ? Math.min(contentHeight, 180) : contentHeight;
     const maximumHeight = desktop ? desktopMaxHeight - size.band - 8 : window.innerHeight - 96;
     let panelHeight = Math.max(0, Math.min(desiredHeight, maximumHeight));
     notch.style.setProperty('--panel-height', panelHeight + 'px');
@@ -1882,7 +1978,7 @@
     document.body.dataset.notchState = next;
     toggle.setAttribute('aria-expanded', String(next === 'open'));
     toggle.tabIndex = next === 'open' && view === 'localsend' ? -1 : 0;
-    toggle.setAttribute('aria-label', next === 'open' ? 'Réduire l’encoche' : 'Ouvrir l’encoche');
+    toggle.setAttribute('aria-label', next === 'open' ? t('Réduire l’encoche') : t('Ouvrir l’encoche'));
     panel.setAttribute('aria-hidden', String(next !== 'open'));
     panel.inert = next !== 'open';
     menu.hidden = next !== 'open' || view === 'welcome' || view === 'localsend';
@@ -1912,6 +2008,7 @@
   }
   function protectedInteraction() {
     const focused = document.hasFocus() ? document.activeElement : null;
+    if (state === 'open' && view === 'settings') return true;
     return welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]') || keyboardNavigation && state !== 'discreet' && !!focused?.closest('#notch-toggle,#notch-panel,#notch-menu');
   }
   function scheduleCollapse(deactivated = false) {
@@ -1975,7 +2072,7 @@
     toggle.tabIndex = state === 'open' && view === 'localsend' ? -1 : 0;
     byId('welcome-player').hidden = view !== 'welcome';
     menu.hidden = state !== 'open' || view === 'welcome' || view === 'localsend'; menu.inert = menu.hidden;
-    panel.setAttribute('aria-label', Object.values(moduleDefinitions).find(item => item.view === view)?.label || (view === 'nook' ? 'Accueil Notchy' : view === 'welcome' ? 'Bienvenue dans Notchy' : view === 'localsend' ? 'Partage LocalSend' : view === 'files' ? 'Actions de fichier' : 'Réglages'));
+    panel.setAttribute('aria-label', t(Object.values(moduleDefinitions).find(item => item.view === view)?.label) || (view === 'nook' ? t('Accueil Notchy') : view === 'welcome' ? t('Bienvenue dans Notchy') : view === 'localsend' ? t('Partage LocalSend') : view === 'files' ? t('Actions de fichier') : t('Réglages')));
     renderMenuSelection();
     renderHomeLayout();
     musicLifecycle();
@@ -2047,6 +2144,7 @@
   document.addEventListener('drop', fileDrop);
   document.addEventListener('dragend', clearFileDrag);
   settingsPlayer.addEventListener('input', appearanceInput);
+  settingsPlayer.addEventListener('click', settingsCommand);
   document.addEventListener('pointerdown', outside);
   document.addEventListener('pointerdown', pointerInteraction, true);
   document.addEventListener('pointermove', pointerPosition, true);
@@ -2068,6 +2166,7 @@
   function dispose() {
     if (disposed) return;
     disposed = true;
+    removeLanguage?.(); document.removeEventListener('change', languageChoice);
     queueEpoch++; queueOpen = queueActive = queueBusy = false; window.clearTimeout(queueTimer); queueTimer = 0;
     shelfEpoch++;
     fileEpoch++;
@@ -2132,6 +2231,7 @@
     document.removeEventListener('drop', fileDrop);
     document.removeEventListener('dragend', clearFileDrag);
     settingsPlayer.removeEventListener('input', appearanceInput);
+    settingsPlayer.removeEventListener('click', settingsCommand);
     document.removeEventListener('mousemove', desktopPointer);
     document.removeEventListener('pointerdown', desktopFocus);
     document.removeEventListener('pointerdown', outside);
@@ -2146,6 +2246,8 @@
   }
 
   window.notchy = Object.freeze({
+    setLanguage: i18n.setLocale,
+    getLanguage: i18n.locale,
     setState,
     setMusic,
     setAppearance,
@@ -2170,6 +2272,9 @@
   });
   window.addEventListener('pagehide', dispose, {once: true});
   welcome = window.NotchyWelcome.create({host: byId('welcome-player'), start: () => finishWelcome(), tutorialFinish: () => finishWelcome(), motion: motionEnabled});
+  document.addEventListener('change', languageChoice);
+  removeLanguage = i18n.onChange(renderLanguage);
+  for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();
   for (const id of Object.keys(moduleDefinitions).filter(id => !byId('module-catalog').querySelector(`[data-module-id="${id}"]`))) {
     const button = document.createElement('button'); button.type = 'button'; button.dataset.moduleCommand = 'pick'; button.dataset.moduleId = id; button.draggable = true;
     const tile = document.createElement('span'); tile.className = 'module-tile'; tile.append(byId(moduleDefinitions[id].element).querySelector('svg').cloneNode(true));

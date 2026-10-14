@@ -21,3 +21,23 @@ test('paused card freezes and exposes only a real stored task',()=>{
  const model=FocusModel.restore({minutes:25,remaining:723,sessionActive:true,task:'Relire le document',pomodoro:{work:25,rest:5,longRest:15,total:4,session:1,phase:'work'}},10000);
  const card=focusCardValues(model,focusConfiguration(),90000000);assert.equal(card.badge,'EN PAUSE');assert.equal(card.seconds,723);assert.equal(card.task,'Relire le document');assert.equal(card.completed,0);
 });
+
+test('localized Focus presentation preserves user task titles and the paused cycle',()=>{
+ const model=FocusModel.restore({minutes:25,remaining:723,sessionActive:true,task:'Relire le document',pomodoro:{work:25,rest:5,longRest:15,total:4,session:1,phase:'work'}},10000);
+ const before=JSON.stringify(model);
+ const words={'EN PAUSE':'PAUSED','Reprends quand tu es prêt.':'Resume when you are ready.','Pause courte':'Short break'};
+ const card=focusCardValues(model,focusConfiguration(),10000,source=>words[source]||source);
+ assert.equal(card.badge,'PAUSED');assert.equal(card.description,'Resume when you are ready.');assert.equal(card.pauseLabel,'Short break');
+ assert.equal(card.task,'Relire le document');assert.equal(card.seconds,723);assert.equal(JSON.stringify(model),before);
+ assert.equal(focusCardValues(model,focusConfiguration(),10000).badge,'EN PAUSE');
+});
+
+test('localized break and completion copy uses the current real phase',()=>{
+ const model=FocusModel.restore({minutes:15,remaining:900,deadline:910000,sessionActive:true,pomodoro:{work:25,rest:5,longRest:15,total:4,session:4,phase:'break',breakKind:'long'}},10000);
+ const words={'PAUSE LONGUE':'LONG BREAK','Lève-toi et éloigne-toi de l’écran un moment.':'Stand up and step away from your screen for a moment.','Pause longue':'Long break','TERMINÉ':'DONE','Cycle terminé. Prends un moment pour toi.':'Cycle complete. Take a moment for yourself.'};
+ const translate=source=>words[source]||source;
+ let card=focusCardValues(model,focusConfiguration(),10000,translate);
+ assert.equal(card.badge,'LONG BREAK');assert.equal(card.pauseLabel,'Long break');assert.equal(card.description,words['Lève-toi et éloigne-toi de l’écran un moment.']);
+ FocusModel.tick(model,910000);card=focusCardValues(model,focusConfiguration(),910000,translate);
+ assert.equal(card.badge,'DONE');assert.equal(card.description,'Cycle complete. Take a moment for yourself.');assert.equal(card.seconds,0);assert.equal(card.completed,4);
+});

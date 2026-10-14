@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, closedBandSize} = require('../notch.js');
+const {create: createI18n} = require('../i18n.js');
 
 const closed = {width: 260, height: 10, band: 10, radius: 4, progress: 0};
 const opened = {width: 640, height: 280, band: 32, radius: 28, progress: 1};
@@ -159,6 +160,7 @@ test('quiet real spectrum samples remain visibly dynamic without animating silen
 function interactionFixture() {
   const source = require('node:fs').readFileSync(require.resolve('../notch.js'), 'utf8');
   const start = source.indexOf('  let layoutResizeClick'), end = source.indexOf('  function showFileChooser(', start);
+  const closeStart = source.indexOf('  function outside(', end), closeEnd = source.indexOf('  function selectView(', closeStart);
   const timers = new Map(), changes = [];
   let nextTimer = 0, focused = null, now = 1000;
   const scope = {
@@ -177,9 +179,9 @@ function interactionFixture() {
       welcome=null,localSendContext=null,nearby={},queueState={};
     function setState(next) {state=next;changes.push(next);}
     function update() {}
-    ${source.slice(start, end)}
-    this.api={enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,
-      get state(){return state;},get pending(){return collapseTimer;},set state(value){state=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;}};
+    ${source.slice(start, end)}${source.slice(closeStart, closeEnd)}
+    this.api={enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,scheduleCollapse,open,outside,key,
+      get state(){return state;},get pending(){return collapseTimer;},set state(value){state=value;},set view(value){view=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;}};
   `, scope);
   function runDue() {
     for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
@@ -193,6 +195,37 @@ test('pointer leave collapses even when the native host leaves CSS hover stale',
   const f = interactionFixture();
   f.api.leave(); f.flush();
   assert.equal(f.api.state, 'discreet');
+});
+
+test('settings remain open when their shrinking contour leaves the cursor outside, even after deactivation', () => {
+  const f = interactionFixture(); f.api.state = 'open'; f.api.view = 'settings';
+  f.api.pointerInteraction({target: {inside: true}}); f.api.protectLayoutResize(360, 280);
+  f.api.nativePointer({inside: false, moved: false}); f.advance(651);
+  assert.equal(f.api.state, 'open'); assert.equal(f.api.pending, 0);
+  f.api.nativePointer({inside: false, moved: true});
+  f.api.pointerPosition({pointerType: 'mouse', movementX: -8, movementY: 0, target: {inside: false}});
+  f.api.scheduleCollapse(true); f.api.focusDeparture(); f.advance(10000);
+  assert.equal(f.api.state, 'open'); assert.equal(f.api.pending, 0);
+});
+
+test('settings can still close explicitly with Escape, an outside click, or the toggle', () => {
+  for (const close of ['escape', 'outside', 'toggle']) {
+    const f = interactionFixture(); f.api.state = 'open'; f.api.view = 'settings';
+    f.api.leave(); f.flush(); assert.equal(f.api.state, 'open');
+    if (close === 'escape') f.api.key({key: 'Escape', preventDefault() {}});
+    else if (close === 'outside') f.api.outside({target: {inside: false}});
+    else f.api.open();
+    assert.equal(f.api.state, 'discreet', close);
+  }
+});
+
+test('leaving settings restores passive collapse and a closed settings route still has ordinary hover behavior', () => {
+  const f = interactionFixture(); f.api.state = 'open'; f.api.view = 'settings';
+  f.api.nativePointer({inside: false}); f.advance(1000); assert.equal(f.api.state, 'open');
+  f.api.view = 'music'; f.api.focusDeparture();
+  f.advance(219); assert.equal(f.api.state, 'open'); f.advance(1); assert.equal(f.api.state, 'discreet');
+  f.api.view = 'settings'; f.api.nativePointer({inside: true}); assert.equal(f.api.state, 'hover');
+  f.api.nativePointer({inside: false}); f.advance(220); assert.equal(f.api.state, 'discreet');
 });
 
 test('returning to the notch cancels collapse and dragging defers it until release', () => {
@@ -405,8 +438,9 @@ function liveBandFixture() {
   const element = () => ({hidden:false,dataset:{},attributes:{},children:[],style:{values:{},setProperty(name,value){this.values[name]=value;},getPropertyValue(name){return this.values[name]||'';}},
     setAttribute(name,value){this.attributes[name]=value;},removeAttribute(){},querySelector(){return element();},querySelectorAll(){return[];},cloneNode(){return element();},replaceChildren(...children){this.children=children;},append(child){this.children.push(child);}});
   const byId = id => {if(!elements.has(id))elements.set(id,element());return elements.get(id);};
-  const scope = {byId,notch:element(),document:{createElement:()=>element()},focusCardValues:()=>({completed:1,total:4}),
-    isModuleEnabled:()=>true,text:(node,value)=>{node.textContent=value;},shelfGlyph:()=>element(),localSendCount:count=>`${count} fichiers`};
+  const i18n = createI18n(null);
+  const scope = {i18n,t:i18n.t,byId,notch:element(),document:{createElement:()=>element()},focusCardValues:()=>({completed:1,total:4}),
+    isModuleEnabled:()=>true,text:(node,value)=>{node.textContent=value;},shelfGlyph:()=>element()};
   require('node:vm').runInNewContext(`
     let state='discreet',fileDragging=false,connectionLost=false,music={available:true,playing:true,title:'Titre',artist:'Artiste'},
       focus={sessionActive:true,pomodoro:{phase:'work',finished:false}},focusSettings={},moduleFeedback=null,transfer=null,nearby={peers:[]};
@@ -414,12 +448,14 @@ function liveBandFixture() {
     function focusIsActive(){return focus.sessionActive;}
     function localSendBand(){return transfer;}
     function renderLocalSend(){renderLocalSendBand();}
+    ${body('  function localSendCount(','  function localizedLocalSendFailure(')}
+    ${body('  function localizedFeedback(','  function notifyModuleChange(')}
     ${body('  function renderModuleFeedback(','  function clearModuleFeedback(')}
     ${body('  function musicInBand(','  function homePrimary(')}
     ${body('  function renderLocalSendBand(','  function renderLocalSend(')}
     this.api={render:renderLiveActivities,set state(value){state=value;},set transfer(value){transfer=value;},set feedback(value){moduleFeedback=value;},set dragging(value){fileDragging=value;},set playing(value){music.playing=value;}};
   `,scope);
-  return {api:scope.api,byId};
+  return {api:scope.api,byId,i18n};
 }
 
 test('discreet mode shows thin progress while rich music and the focus ring belong to hover', () => {
@@ -458,4 +494,20 @@ test('feedback never reveals a rich card in discreet mode and transfer progress 
   f.api.state='open';f.api.render();
   assert.equal(f.byId('localsend-live').hidden,true);
   assert.equal(f.byId('localsend-discreet-progress').hidden,true);
+});
+
+test('Focus completion feedback preserves French defaults and refreshes cycle text when the language changes', () => {
+  const f=liveBandFixture(); f.api.state='hover';
+  f.api.feedback={id:'focus',kind:'complete',title:'Cycle terminé',detail:'Travail et pauses terminés',sequence:1};
+  f.api.render();
+  const cycles=f.byId('module-feedback-cycles');
+  assert.equal(f.i18n.locale(),'fr'); assert.equal(cycles.hidden,false);
+  assert.equal(cycles.children.at(-1).textContent,'1 sur 4');
+  assert.equal(f.byId('module-feedback-title').textContent,'Cycle terminé');
+  f.i18n.setLocale('en'); f.api.render();
+  assert.equal(cycles.children.at(-1).textContent,'1 of 4');
+  assert.equal(f.byId('module-feedback-title').textContent,'Cycle complete');
+  assert.equal(f.byId('module-feedback-live').hidden,false);
+  f.api.state='discreet'; f.api.render();
+  assert.equal(f.byId('module-feedback-live').hidden,true);
 });

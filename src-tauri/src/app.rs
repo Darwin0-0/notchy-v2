@@ -15,12 +15,51 @@ use std::{
 };
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-const KEYS: [&str; 4] = [
+const KEYS: [&str; 5] = [
     "notchy-minimal-appearance-v1",
     "notchy-minimal-modules-v1",
     "notchy-minimal-focus-v1",
     "notchy-minimal-welcome-v1",
+    "notchy-language-v1",
 ];
+fn valid_language(value: &str) -> bool {
+    matches!(value, "fr" | "en")
+}
+fn tray_labels(language: &str) -> [&'static str; 3] {
+    if language == "en" {
+        ["Open Notchy V2", "Hide", "Quit"]
+    } else {
+        ["Ouvrir Notchy V2", "Masquer", "Quitter"]
+    }
+}
+#[cfg(test)]
+mod language_tests {
+    use super::{tray_labels, valid_language, KEYS};
+    #[test]
+    fn tray_menu_uses_the_chosen_language_and_french_fallback() {
+        assert_eq!(tray_labels("en"), ["Open Notchy V2", "Hide", "Quit"]);
+        assert_eq!(tray_labels("fr"), ["Ouvrir Notchy V2", "Masquer", "Quitter"]);
+        assert_eq!(tray_labels("invalid"), tray_labels("fr"));
+    }
+    #[test]
+    fn language_preferences_accept_only_the_two_supported_values() {
+        assert!(KEYS.contains(&"notchy-language-v1"));
+        for value in ["fr", "en"] { assert!(valid_language(value)); }
+        for value in ["", "FR", "en-US", "de", "null", "\"en\""] { assert!(!valid_language(value)); }
+    }
+    #[test]
+    fn restoring_language_keeps_other_preferences_untouched() {
+        let focus = "{\"deadline\":12345}";
+        for language in ["fr", "en", "invalid"] {
+            let preferences = std::collections::BTreeMap::from([
+                ("notchy-language-v1", language), ("notchy-minimal-focus-v1", focus)
+            ]);
+            let restored = preferences.into_iter().filter(|(key, value)| *key != "notchy-language-v1" || valid_language(value)).collect::<std::collections::BTreeMap<_, _>>();
+            assert_eq!(restored.get("notchy-minimal-focus-v1"), Some(&focus));
+            assert_eq!(restored.get("notchy-language-v1").is_some(), language != "invalid");
+        }
+    }
+}
 struct DesktopState {
     services: Arc<Services>,
     server: Arc<Server>,
@@ -28,6 +67,7 @@ struct DesktopState {
     origin: String,
     geometry: Mutex<Geometry>,
     preferences: tokio::sync::Mutex<BTreeMap<String, String>>,
+    tray_items: Mutex<Option<[tauri::menu::MenuItem<tauri::Wry>; 3]>>,
     visible: AtomicBool,
     dialog: AtomicBool,
     downloads: AtomicU64,
@@ -96,6 +136,8 @@ async fn preference(state: &DesktopState, value: Value) -> Result<Value, ApiErro
             text.len() <= 262144
                 && if key == "notchy-minimal-welcome-v1" {
                     text == "done"
+                } else if key == "notchy-language-v1" {
+                    valid_language(text)
                 } else {
                     serde_json::from_str::<Value>(text).is_ok()
                 }
@@ -119,6 +161,14 @@ async fn preference(state: &DesktopState, value: Value) -> Result<Value, ApiErro
     .await?;
     tokio::fs::rename(&temporary, &destination).await?;
     *preferences = next;
+    if key == "notchy-language-v1" {
+        let labels = tray_labels(value.as_str().unwrap_or("fr"));
+        if let Some(items) = state.tray_items.lock().unwrap().as_ref() {
+            for (item, label) in items.iter().zip(labels) {
+                item.set_text(label).map_err(|_| ApiError::new(503, "Menu de Notchy indisponible."))?;
+            }
+        }
+    }
     Ok(json!({"ok":true}))
 }
 async fn open_shelf(state: &DesktopState, id: Value, reveal: bool) -> Result<Value, ApiError> {
@@ -337,7 +387,8 @@ pub fn run() {
         let native=packaged;
         let preferences_file=data.join(".desktop-profile/tauri-preferences.json");
         let preferences:BTreeMap<String,String>=match std::fs::read(&preferences_file){Ok(bytes)=>{if bytes.len()>1024*1024{return Err("Préférences trop volumineuses.".into());}serde_json::from_slice(&bytes)?},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>BTreeMap::new(),Err(error)=>return Err(error.into())};
-        let preferences=preferences.into_iter().filter(|(key,value)|KEYS.contains(&key.as_str())&&value.len()<=262144).collect::<BTreeMap<_,_>>();
+        let preferences=preferences.into_iter().filter(|(key,value)|KEYS.contains(&key.as_str())&&value.len()<=262144&&(key!="notchy-language-v1"||valid_language(value))).collect::<BTreeMap<_,_>>();
+        let labels=tray_labels(preferences.get("notchy-language-v1").map(String::as_str).unwrap_or("fr"));
         let services=Arc::new(tauri::async_runtime::block_on(Services::new(data.clone(),native.clone()))?);
         if !checking&&std::env::args().any(|argument|argument=="--localsend"){
             let _=tauri::async_runtime::block_on(services.nearby.command(json!({"command":"discover"}),&services.files));
@@ -347,7 +398,7 @@ pub fn run() {
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
         let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"localSendActive":nearby_active});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
-        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:AtomicBool::new(false),checking,reports:tokio::sync::Mutex::new(Vec::new())});
+        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:AtomicBool::new(false),checking,reports:tokio::sync::Mutex::new(Vec::new())});
         app.manage(state.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();
         let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}/?desktop=1").parse()?))
@@ -374,8 +425,9 @@ pub fn run() {
           _=>{},
         });
         use tauri::{menu::{Menu,MenuItem,PredefinedMenuItem},tray::{TrayIconBuilder,TrayIconEvent,MouseButton,MouseButtonState}};
-        let open=MenuItem::with_id(app,"open","Ouvrir Notchy V2",true,None::<&str>)?;let hide_item=MenuItem::with_id(app,"hide","Masquer",true,None::<&str>)?;let quit=MenuItem::with_id(app,"quit","Quitter",true,None::<&str>)?;
+        let open=MenuItem::with_id(app,"open",labels[0],true,None::<&str>)?;let hide_item=MenuItem::with_id(app,"hide",labels[1],true,None::<&str>)?;let quit=MenuItem::with_id(app,"quit",labels[2],true,None::<&str>)?;
         let menu=Menu::with_items(app,&[&open,&hide_item,&PredefinedMenuItem::separator(app)?,&quit])?;
+        *state.tray_items.lock().unwrap()=Some([open,hide_item,quit]);
         let mut tray=TrayIconBuilder::with_id("notchy").tooltip("Notchy V2").menu(&menu).show_menu_on_left_click(false)
           .on_menu_event(|app,event|{if let (Some(window),Some(state))=(app.get_webview_window("main"),app.try_state::<Arc<DesktopState>>()){match event.id.as_ref(){"open"=>show(&window,&state,"open"),"hide"=>hide(&window,&state),"quit"=>app.exit(0),_=>{}}}})
           .on_tray_icon_event(|tray,event|{if matches!(event,TrayIconEvent::Click{button:MouseButton::Left,button_state:MouseButtonState::Up,..}){let app=tray.app_handle();if let (Some(window),Some(state))=(app.get_webview_window("main"),app.try_state::<Arc<DesktopState>>()){show(&window,&state,"open");}}});

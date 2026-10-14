@@ -1,66 +1,66 @@
+<div align="center">
+
+<img src="assets/notchy-mark.svg" width="112" alt="Notchy mark">
+
 # Notchy V2
 
-Une encoche pour Windows, avec un moteur Rust et une interface Tauri. Surface noire, transitions discrètes et modules ajustés à leur contenu.
+**Your day, a little closer.**
 
-## Fonctions de base
+Music, tasks, weather and files—right where you need them.
 
-- **Musique** : pochette, commandes disponibles du lecteur Windows, progression et spectre audio réel. La couleur du spectre vient de la pochette, avec du blanc en son absence.
-- **Pomodoro** : sessions, pauses et cycles, avec affichage du temps et signal bref aux changements de phase.
-- **Météo** : conditions racontées en quelques lignes, choix de la ville et actualisation.
-- **Étagère** : dépôt, sélection, aperçu et réutilisation des fichiers. OCR et conversion sont des actions de fichiers, pas des modules supplémentaires.
-- **LocalSend** : envoi et réception sur le réseau local, demande d'acceptation, progression et retour de fin de transfert dans l'encoche.
+![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D4) ![Status: actively evolving](https://img.shields.io/badge/status-actively%20evolving-62d7be) [![Contributions welcome](https://img.shields.io/badge/contributions-welcome-8b6ce7)](CONTRIBUTING.md)
 
-Le dock ouvert par clic droit propose seulement Musique, Pomodoro, Météo et Étagère. LocalSend se trouve dans Tray. Les modules restent retirables et leurs anciens emplacements compatibles sont conservés. L'interface charge **trois scripts et une feuille CSS**, sans framework frontend ni serveur Node.js dans l'application.
+[Get started](docs/DEVELOPMENT.md#build-and-run-on-windows) · [Help improve Notchy](CONTRIBUTING.md) · [Report a bug](https://github.com/Darwin0-0/notchy-v2/issues/new)
 
-L'encoche possède les états **discret, survol et ouvert**. Le discret reste une bande de **260 × 10 px**, même avec de la musique, un Pomodoro ou un transfert. Il affiche seulement les progressions ; pochette, titre, spectre et anneau Focus apparaissent sur une ligne au survol, en **312 × 36 px** (+20 % de largeur). Un léger ressort accompagne le mouvement et conserve son élan lorsque la transition s'inverse. Une sortie du pointeur la replie ; le clavier et les dialogues conservent leurs protections. Liquid Glass et la capture du fond d'écran ont été retirés.
+</div>
 
-Le panneau ouvert s'élargit et se réduit selon la vue et les modules présents. Fermer « À suivre » rend sa largeur au lecteur ; les paramètres prennent la hauteur de leur formulaire. Un court délai protège la navigation après un clic pendant que le contour se redimensionne, sans maintenir un espace vide.
+![Notchy music player with sample artwork and playback controls](assets/previews/overview.png)
 
-## Compiler sous Windows
+Notchy is a compact notch for Windows. Hover for a quick glance, open it for the controls, then get back to what you were doing. Its panel adapts to the modules you choose and the space they need.
 
-Prérequis : Windows 10/11 x64, WebView2, .NET Framework 4.x, Rust MSVC x64, et les outils C++ de Visual Studio avec un Windows SDK. Node.js est nécessaire uniquement aux tests JavaScript.
+Mimo greets you on first launch with an optional quick guide. You can revisit it from Settings whenever you need a reminder.
 
-Depuis un PowerShell 64 bits dans ce dépôt :
+<p align="center"><img src="assets/previews/welcome.gif" alt="Mimo greeting on Notchy’s welcome screen, with a language choice"></p>
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Build-Notchy.ps1 -Release
-```
+The project is actively evolving. Choose Français or English on the welcome screen or in Settings; the previews use sample data.
 
-Le script compile les composants Windows depuis `native/`, puis Rust avec `Cargo.lock`. Le résultat portable est dans `build/release/`. Pour un build de développement, omettre `-Release` ; le résultat est dans `build/debug/`.
+## Make room for what matters
 
-Après compilation, `Notchy V2.cmd` ouvre la version disponible et active LocalSend. Ce lancement conserve les données dans le dossier du dépôt. Un exécutable lancé sans `--data-root` utilise le dossier d'application Windows.
+- **Music within reach.** Artwork, playback controls, track progress and a spectrum that responds to real audio. Add **Up next** with the optional Spotify connection.
+- **One place for tasks and Pomodoro.** Keep your next task beside your session, work in focused intervals, and take a short or long break when it is time.
+- **Weather you can read at a glance.** A short forecast for your current location or a city you choose.
+- **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
+- **LocalSend in Tray.** Accept incoming files, send to nearby devices, and follow the transfer without leaving the notch.
 
-L'application n'est pas signée et ce dépôt ne fournit pas encore d'installateur. WebView2 est un runtime Windows partagé, distinct des fichiers de Notchy.
+![Tasks and Pomodoro together in the Focus module, using sample data](assets/previews/focus.png)
 
-## Spotify facultatif
+<p align="center"><img src="assets/previews/localsend.gif" alt="A sample LocalSend reception, from consent to completion"></p>
 
-Les commandes Windows et le spectre fonctionnent sans identifiant API personnel. La file **À suivre** et ses commandes Spotify nécessitent la configuration de ta propre application Spotify.
+## Start small, make it yours
 
-Utilise la redirection `http://127.0.0.1:43821/callback`. Avant de lancer Notchy, configure `NOTCHY_SPOTIFY_CLIENT_ID` avec ton identifiant d'application. Le fichier `.env.example` est un modèle ; l'application ne charge pas automatiquement un fichier `.env`.
+1. [Build and run Notchy](docs/DEVELOPMENT.md#build-and-run-on-windows) on Windows. A packaged download is not available yet.
+2. Hover over the notch for a glance; click to open the full controls.
+3. Right-click to arrange or remove Music, Focus, Weather and Shelf. Open **Tray** for files and LocalSend.
+4. Choose your city, add a task and start a session. Settings stay open while you move between controls; the close button or Escape dismisses them.
 
-Autre possibilité : créer `.desktop-profile/spotify-client.json` dans le dossier de données avec une propriété `clientId`. Ne versionne jamais ce fichier. Aucun secret client n'est demandé ; l'autorisation utilise PKCE et les sessions locales utilisent la protection Windows.
+Your personal profiles and files stay in local data folders and are excluded from the source repository. Weather uses a public forecast service; Spotify is optional, and LocalSend connects devices on your local network. Setup and privacy details are in the [development guide](docs/DEVELOPMENT.md).
 
-La météo utilise Open-Meteo sans clé personnelle. L'accès à la position actuelle dépend des autorisations Windows ; une ville peut être choisie manuellement.
+## Build it with us
 
-## Données et confidentialité
+You do not need to know the whole codebase to make Notchy better. A clear bug report, a small fix or a thoughtful design observation is a useful place to start.
 
-Ce dépôt est une copie source propre, sans historique de développement privé. Il exclut les profils, tokens, identité et certificats LocalSend, fichiers de l'Étagère, ville enregistrée, captures de diagnostic et outils locaux.
+[Open an issue](https://github.com/Darwin0-0/notchy-v2/issues/new) with what you tried and what you expected, or read [CONTRIBUTING.md](CONTRIBUTING.md) to work on one focused improvement. Screenshots, keyboard-access feedback and reports from different display scales are welcome.
 
-Les données de fonctionnement sont locales : `.desktop-profile/`, `.tauri-webview/`, `.localsend/`, `.shelf/` et `weather.json`. Ces chemins sont ignorés par Git. Chaque installation génère sa propre identité LocalSend ; aucun certificat ou token de session n'est livré dans les sources.
+## What we are refining
 
-Les collecteurs d'appels, de notifications et d'historique du presse-papiers ne sont pas chargés dans cette version. Copier un résultat vers le presse-papiers Windows reste une action explicite.
+- Everyday interactions: opening, hovering, resizing and dismissing the notch.
+- The flow between tasks, focused work and breaks.
+- Clearer feedback for file actions and LocalSend transfers.
 
-LocalSend ne fixe pas de plafond artificiel en octets par fichier ou par transfert. L'espace disque, le nombre de fichiers de l'Étagère et les limites de traitement des aperçus/OCR/conversions restent des contraintes distinctes.
+These are areas for discussion and improvement, not delivery promises.
 
-## Vérifications
+## Thanks, and licensing
 
-```powershell
-node --test tests/*.test.cjs
-cargo test --manifest-path src-tauri/Cargo.toml --lib -- --test-threads=1
-```
+Thanks to everyone who tests a build, reports a rough edge or shares an idea—and to the authors of the [third-party components](THIRD_PARTY_NOTICES.md) used here.
 
-Les tests couvrent notamment le repli, le spectre réel, la migration des emplacements, les besoins de taille des modules, les phases Pomodoro, les échanges locaux et l'absence de configuration Spotify. Ils ne remplacent pas les contrôles Windows et les transferts réels entre appareils.
-
-## Composants tiers
-
-Voir [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) pour NAudio, les polices et les pictogrammes. Leurs licences sont conservées dans le dépôt et les builds. Ce dépôt public n'ajoute pas de licence générale au code de l'application.
+A project-wide licence has not been selected yet. Public availability does not add one; check the licensing status before reusing or redistributing the application code. Third-party licences remain in place.

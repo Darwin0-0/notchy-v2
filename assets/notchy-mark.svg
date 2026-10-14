@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <title>Notchy</title>
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="#131518"/>
+  <path d="M31 35v34c0 13 6 24 19 24h5" stroke="#B4E9DE" stroke-width="13" stroke-linecap="round"/>
+  <path d="M68 93h10c14 0 19-11 19-24V35" stroke="#6FE3C4" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="64" cy="48" r="5" fill="#EDF9F5"/>
+</svg>

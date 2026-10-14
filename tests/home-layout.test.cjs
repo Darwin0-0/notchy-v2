@@ -27,7 +27,7 @@ test('modules receive space for their different uses instead of a rigid equal sp
   const pair = homeModuleLayout(['music', 'focus'], 720);
   assert.equal(pair.mode, 'columns');
   assert.deepEqual(ids(pair), ['music', 'focus']);
-  assert.ok(pair.items[0].width > pair.items[1].width, 'artwork, timeline and transport receive more width than the timer');
+  assert.ok(pair.items[1].width > pair.items[0].width, 'the combined Focus and task list receive more width than the compact player');
   assert.ok(pair.items[1].height > pair.items[0].height, 'Focus does not inherit the player height');
   checkRequirements(pair, 720);
   const reverse = homeModuleLayout(['focus', 'music'], 720);
@@ -88,12 +88,12 @@ test('useful maximum widths prevent sparse oversized modules on very wide displa
   }
 });
 
-test('only deliberate expanded views change the affected module height', () => {
+test('only deliberate configuration views change the affected module height', () => {
   const modules = ['music', 'weather', 'focus'];
   const normal = homeModuleLayout(modules, 1000);
   for (const [context, changed, height] of [
     [{weatherPicker: true}, 'weather', 248],
-    [{focusConfig: true}, 'focus', 224],
+    [{focusConfig: true}, 'focus', 244],
   ]) {
     const expanded = homeModuleLayout(modules, 1000, 16, context);
     assert.equal(expanded.items.find(item => item.id === changed).height, height);
@@ -105,6 +105,17 @@ test('only deliberate expanded views change the affected module height', () => {
   }
   const contentOnly = homeModuleLayout(modules, 1000, 16, {seconds: 7, title: 'A very long title', calendarMode: 'week', fileMode: 'actions'});
   assert.deepEqual(contentOnly, normal, 'clock ticks and text length are not layout inputs');
+});
+
+test('Focus allocates a wide side-by-side task layout or a taller readable stack at its boundary', () => {
+  for (const [width, height] of [[320, 392], [603, 392], [604, 264], [720, 264]]) {
+    const result = homeModuleLayout(['focus'], width);
+    assert.equal(result.items[0].width, width); assert.equal(result.items[0].height, height);
+    checkRequirements(result, width);
+    const configuration = homeModuleLayout(['focus'], width, 16, {focusConfig: true});
+    assert.equal(configuration.items[0].height, 244); assert.equal(configuration.items[0].width, width);
+    checkRequirements(configuration, width);
+  }
 });
 
 test('secondary Shelf stays in Tray while a primary Shelf keeps its own module and holes preserve order', () => {

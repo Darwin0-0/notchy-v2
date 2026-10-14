@@ -195,3 +195,69 @@ test('one-session and maximum twelve-session cycles catch up completely and fini
     assert.equal(focus.tick(state, start + duration + 99999999).changed, false);
   }
 });
+
+test('legacy Focus tasks migrate into the shared list without changing a running deadline', () => {
+  const state = focus.restore({minutes: 25, remaining: 812, deadline: 822000, task: '  Finish the draft  ',
+    pomodoro: {work: 25, rest: 5, longRest: 15, total: 4, session: 1, phase: 'work'}}, 10000);
+  assert.deepEqual(state.tasks, [{id: 'legacy-task', title: 'Finish the draft', done: false}]);
+  assert.equal(state.activeTaskId, 'legacy-task');
+  assert.equal(state.task, 'Finish the draft');
+  assert.equal(state.deadline, 822000);
+  assert.equal(focus.remaining(state, 10000), 812);
+});
+
+test('restored task lists discard invalid IDs, duplicate entries and foreign properties', () => {
+  const state = focus.restore({minutes: 25, activeTaskId: 'b', task: 'ignored legacy value', tasks: [
+    {id: 'a', title: 'First', done: 'true', password: 'discard'}, {id: 'a', title: 'Duplicate'},
+    {id: 'b', title: 'Second', done: false}, {id: 'bad<id>', title: 'Invalid'}, {id: 'empty', title: '  '},
+    {id: 'long', title: 'z'.repeat(600)}, null,
+  ]});
+  assert.equal(state.tasks.length, 3);
+  assert.deepEqual(state.tasks[0], {id: 'a', title: 'First', done: false});
+  assert.equal(state.tasks[2].title.length, 500);
+  assert.equal(state.activeTaskId, 'b');
+  assert.equal(state.task, 'Second');
+  const completed = focus.restore({minutes: 25, activeTaskId: 'done', tasks: [{id: 'done', title: 'Finished', done: true}]});
+  assert.equal(completed.activeTaskId, null);
+  assert.equal(completed.task, '');
+});
+
+test('adding and selecting tasks keeps all running or paused Pomodoro timing intact', () => {
+  for (const deadline of [1510000, null]) {
+    const state = focus.restore({minutes: 25, remaining: 1234, deadline, sessionActive: true,
+      pomodoro: {work: 25, rest: 5, longRest: 15, total: 4, session: 1, phase: 'work'}}, 10000);
+    const before = {...state, tasks: undefined, activeTaskId: undefined, task: undefined};
+    assert.equal(focus.taskAction(state, {type: 'add', title: 'First'}, 'a'), true);
+    assert.equal(state.activeTaskId, 'a');
+    assert.equal(focus.taskAction(state, {type: 'add', title: 'Second'}, 'b'), true);
+    assert.equal(state.activeTaskId, 'a');
+    assert.equal(focus.taskAction(state, {type: 'select', id: 'b'}), true);
+    assert.equal(state.task, 'Second');
+    assert.equal(focus.taskAction(state, {type: 'toggle', id: 'b'}), true);
+    assert.equal(state.tasks[1].done, true);
+    assert.equal(state.activeTaskId, null);
+    assert.equal(focus.taskAction(state, {type: 'select', id: 'b'}), false);
+    assert.equal(focus.taskAction(state, {type: 'toggle', id: 'b'}), true);
+    assert.equal(focus.taskAction(state, {type: 'select', id: 'b'}), true);
+    assert.equal(focus.taskAction(state, {type: 'delete', id: 'b'}), true);
+    assert.equal(state.task, '');
+    assert.deepEqual({...state, tasks: undefined, activeTaskId: undefined, task: undefined}, before);
+    const restored = focus.restore(JSON.parse(JSON.stringify(state)), 10000);
+    assert.deepEqual(restored.tasks, [{id: 'a', title: 'First', done: false}]);
+    assert.equal(restored.deadline, deadline);
+  }
+});
+
+test('task storage stays bounded and invalid actions never mutate the list', () => {
+  const state = focus.restore({minutes: 25, tasks: Array.from({length: 120}, (_, id) => ({id: `t${id}`, title: `Task ${id}`}))});
+  assert.equal(state.tasks.length, 100);
+  const before = JSON.stringify(state);
+  for (const [action, id] of [[{type: 'add', title: 'Over limit'}, 'another'], [{type: 'delete', id: 'unknown'}],
+    [{type: 'select', id: '<script>'}], [{type: 'foreign', id: 't0'}], [null]]) assert.equal(focus.taskAction(state, action, id), false);
+  assert.equal(JSON.stringify(state), before);
+  assert.equal(focus.taskAction(state, {type: 'delete', id: 't0'}), true);
+  assert.equal(focus.taskAction(state, {type: 'add', title: '   '}, 'empty'), false);
+  assert.equal(focus.taskAction(state, {type: 'add', title: 'Safe'}, 'invalid/id'), false);
+  assert.equal(focus.taskAction(state, {type: 'add', title: 'x'.repeat(600)}, 'bounded'), true);
+  assert.equal(state.tasks.at(-1).title.length, 500);
+});

@@ -2,7 +2,7 @@
   "name": "notchy-v2",
   "version": "0.3.0",
   "private": true,
-  "description": "Encoche Windows Tauri, modules de base et LocalSend",
+  "description": "Music, tasks, focus time and files in a quieter Windows notch",
   "scripts": {
     "test": "node --test tests/*.test.cjs"
   }

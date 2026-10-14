@@ -1,14 +1,12 @@
-# Composants tiers
+# Third-party notices
 
-Notchy utilise les composants suivants. Leurs licences restent distinctes de celle du code de l’application.
+Notchy uses the following components. Their licences remain separate from the application code.
 
-- **NAudio** : bibliothèque de capture audio Windows, distribuée sous Microsoft Public License (Ms-PL). La licence complète figure dans `native/NAudio-LICENSE.txt` et accompagne les composants compilés.
-- **Manrope** : Copyright 2018 The Manrope Project Authors. SIL Open Font License 1.1, texte complet dans `assets/manrope-OFL.txt`.
-- **Dancing Script** : Copyright 2016 The Dancing Script Project Authors. SIL Open Font License 1.1, texte complet dans `assets/dancing-script-OFL.txt`.
-- **Aref Ruqaa** : Copyright 2015–2020 The Aref Ruqaa Project Authors. SIL Open Font License 1.1, texte complet dans `assets/aref-ruqaa-OFL.txt`.
-- **Lucide** : certains pictogrammes proviennent de Lucide, sous licence ISC. Texte complet dans `assets/LUCIDE-LICENSE.txt`.
-- Les dépendances Rust et leurs versions sont répertoriées dans `src-tauri/Cargo.lock`. Les mentions de licence propres à chaque dépendance restent applicables.
+- **NAudio**: Windows audio capture library, distributed under the Microsoft Public License (Ms-PL). The full licence is in `native/NAudio-LICENSE.txt` and accompanies the compiled components.
+- **Manrope**: Copyright 2018 The Manrope Project Authors. SIL Open Font License 1.1; full text in `assets/manrope-OFL.txt`.
+- **Lucide**: selected icons are from Lucide, under the ISC licence. Full text in `assets/LUCIDE-LICENSE.txt`.
+- Rust dependencies and their versions are recorded in `src-tauri/Cargo.lock`. Each dependency retains its own licence terms.
 
-Les noms et pictogrammes Spotify désignent le service compatible. Ils restent la propriété de leurs titulaires et ne constituent pas une affiliation officielle.
+Spotify names and icons identify the compatible service. They belong to their respective owners and do not imply an official affiliation.
 
-Aucune licence supplémentaire du code de l’application n’est accordée par ce document.
+This document does not grant an additional licence for the application code.

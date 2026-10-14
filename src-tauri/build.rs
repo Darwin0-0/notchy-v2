@@ -17,7 +17,7 @@ fn assert_plain_tree(path: &Path) {
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).parent().unwrap().canonicalize().unwrap();
     let dist = root.join("dist");
-    let mut assets = vec!["index.html", "notch.css", "notch.js", "focus.js", "welcome.js", "assets/manrope-latin.woff2", "assets/manrope-OFL.txt", "assets/dancing-script.ttf", "assets/dancing-script-OFL.txt", "assets/aref-ruqaa.ttf", "assets/aref-ruqaa-OFL.txt"];
+    let mut assets = vec!["index.html", "notch.css", "i18n.js", "notch.js", "focus.js", "welcome.js", "assets/manrope-latin.woff2", "assets/manrope-OFL.txt"];
     if root.join("focus-lab.html").is_file() { assets.push("focus-lab.html"); }
     for name in assets.iter().copied().chain(["assets/spotify.ico"]) {
         let input = root.join(name).canonicalize().unwrap();

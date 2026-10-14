@@ -1,0 +1,31 @@
+name: Project checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Interface models and interactions
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm test
+  rust:
+    name: Rust services
+    runs-on: windows-latest
+    env:
+      # Library checks do not package the separate Windows media bridges.
+      TAURI_CONFIG: '{"bundle":{"resources":null}}'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --no-default-features --lib --bins

@@ -28,7 +28,7 @@ foreach ($taskName in $taskNativeNames) {
 }
 Copy-Item -LiteralPath (Join-Path $taskRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $taskBuild 'THIRD_PARTY_NOTICES.md') -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $taskBuild 'licenses') | Out-Null
-foreach ($taskName in @('manrope-OFL.txt', 'dancing-script-OFL.txt', 'aref-ruqaa-OFL.txt', 'LUCIDE-LICENSE.txt')) {
+foreach ($taskName in @('manrope-OFL.txt', 'LUCIDE-LICENSE.txt')) {
   Copy-Item -LiteralPath (Join-Path $taskRoot ('assets/' + $taskName)) -Destination (Join-Path $taskBuild ('licenses/' + $taskName)) -Force
 }
 Write-Output ('Notchy prêt : ' + (Join-Path $taskBuild 'Notchy V2.exe'))
