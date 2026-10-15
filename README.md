@@ -14,7 +14,11 @@ Music, tasks, weather and files—right where you need them.
 
 </div>
 
-![Notchy music player with sample artwork and playback controls](assets/previews/overview.png)
+**Meet Notchy in 28 seconds.** Music, focus and nearby sharing, in one quiet space.
+
+https://github.com/user-attachments/assets/2d7da5f4-7fbd-425a-ac63-8856d356afb4
+
+[Watch or download the film](assets/previews/notchy-film.mp4)
 
 Notchy is a compact notch for Windows. Click to open your controls. Move away and the notch settles into its discreet view. Its panel adapts to the modules you choose and the space they need.
 
@@ -24,7 +28,7 @@ Mimo wakes up, takes a curious look and welcomes you in. An optional quick guide
 
 <p align="center"><img src="assets/previews/welcome.gif" alt="Mimo greeting on Notchy’s welcome screen, with a language choice"></p>
 
-The project is actively evolving. Choose Français or English on the welcome screen or in Settings; the previews use sample data.
+The project is actively evolving. Choose Français or English on the welcome screen or in Settings; the film and previews use sample data.
 
 ## Make room for what matters
 
