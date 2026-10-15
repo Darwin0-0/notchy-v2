@@ -4,6 +4,8 @@ Notchy uses one black notch surface. Modules share that surface; the notch owns 
 
 The source of truth for geometry, spring, timings, accents and spacing is `ISLAND_CONFIG` at the top of [notch.js](../notch.js). [notch.css](../notch.css) owns the content layout. The JavaScript constants are exposed to CSS as custom properties.
 
+The brand mark is Mimo's original robot head, using the same shell, eyes and mouth as [welcome.js](../welcome.js). [notchy-mark.svg](../assets/notchy-mark.svg) places the white head on a black tile for documentation, and [icon.ico](../assets/icon.ico) supplies the corresponding Windows application and tray icon in multiple resolutions. The NSIS installer uses the same file through `bundle.windows.nsis.installerIcon` in [tauri.conf.json](../src-tauri/tauri.conf.json).
+
 ## Notch states
 
 | State | Size | Lower radius |
@@ -24,6 +26,8 @@ The discreet tab always stays thin, including while music, Focus or a transfer i
 Hover reveals the activity row without opening the central panel: one primary label and real value, then up to two secondary icon badges. Focus has priority, followed by Music and an active LocalSend transfer; a running file operation can use the last place when no transfer occupies it. Countdown values and transfer progress come from their real state. A file operation without measurable progress stays indeterminate. An idle LocalSend listener, discovery screen, saved files, weather or task count does not create an ongoing activity. The row uses the reference's 240/300/360 × 42 px sizes without the previous extra enlargement. The full panel opens only after a click or keyboard activation. Paused Focus keeps its actual remaining time. The export's looping activity count, fixed timer text and simulated progress are demonstration placeholders rather than application behaviour.
 
 Compact, Standard and Large select widths of 540, 567 and 594 px. Ordinary routes, Settings, the queue, Shelf and LocalSend keep the 324 px height. Nook's scene uses 330 px for one, two or three placed modules. The final exports' wider demonstration canvases are adapted to these dimensions rather than enlarging the native window. Welcome and tutorial retain 380 × 232 px. The rounding control adjusts only the open contour around its default radius. Smaller work areas reduce the available dimensions. Extra form or list content scrolls inside the surface.
+
+Secondary activity badges have transparent backgrounds. Music's measured spectrum and LocalSend's progress ring sit directly on the shared notch surface or cover-derived backdrop, without separate dark discs. Their geometry, progress and motion remain unchanged.
 
 ## Content grid
 

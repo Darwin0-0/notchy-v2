@@ -1569,7 +1569,7 @@ body[data-motion="false"] .rest-spectrum i { transform: scaleY(.5); transition: 
 .activity-glyph { position: relative; flex: 0 0 auto; display: grid; place-items: center; min-width: 7px; }
 .activity-focus-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: #5ac8fa; animation: activity-pulse 2s ease-in-out infinite; }
 [data-activity][data-playing="false"] .activity-focus-dot { animation: none; opacity: .5; }
-.activity-badge { position: relative; flex: 0 0 26px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 13px; background: #1c1c1e; animation: activity-arrive 300ms ease-out both; }
+.activity-badge { position: relative; flex: 0 0 26px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 13px; background: transparent; animation: activity-arrive 300ms ease-out both; }
 .activity-badge:nth-child(2) { margin-left: 9px; }
 .activity-badge:nth-child(2)::before { content: ''; position: absolute; left: -9px; top: 5px; width: 1px; height: 16px; background: #2c2c2e; }
 .activity-badge .activity-glyph { width: 26px; height: 26px; }

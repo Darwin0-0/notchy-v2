@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/notchy-mark.svg" width="112" alt="Notchy mark">
+<img src="assets/notchy-mark.svg" width="112" alt="Notchy's Mimo robot head on a black tile">
 
 # Notchy V2
 

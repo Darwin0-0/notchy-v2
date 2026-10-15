@@ -1,7 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
-  <title>Notchy</title>
-  <rect x="4" y="4" width="120" height="120" rx="30" fill="#131518"/>
-  <path d="M31 35v34c0 13 6 24 19 24h5" stroke="#B4E9DE" stroke-width="13" stroke-linecap="round"/>
-  <path d="M68 93h10c14 0 19-11 19-24V35" stroke="#6FE3C4" stroke-width="13" stroke-linecap="round"/>
-  <circle cx="64" cy="48" r="5" fill="#EDF9F5"/>
+  <title>Notchy — Mimo robot head</title>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#000000"/>
+  <g transform="translate(12 12) scale(1.625)" fill="#ffffff" data-mimo-source="notchy-v1">
+    <path fill-rule="evenodd" d="M25 8H39C51 8 58 16 58 28V37C58 50 51 55 39 55H25C13 55 6 50 6 37V28C6 16 13 8 25 8Z M25 12C15 12 10 18 10 28V37C10 47 15 51 25 51H39C49 51 54 47 54 37V28C54 18 49 12 39 12Z"/>
+    <circle cx="23" cy="32" r="4.5"/>
+    <circle cx="41" cy="32" r="4.5"/>
+    <path d="M29.5 39h5a2.5 2.5 0 0 1-5 0Z"/>
+  </g>
 </svg>

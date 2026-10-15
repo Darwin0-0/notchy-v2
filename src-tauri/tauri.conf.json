@@ -23,6 +23,11 @@
     "icon": [
       "../assets/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "../assets/icon.ico"
+      }
+    },
     "resources": {
       "../native/bin/MediaBridge.exe": "native/MediaBridge.exe",
       "../native/bin/SpectrumBridge.exe": "native/SpectrumBridge.exe",
