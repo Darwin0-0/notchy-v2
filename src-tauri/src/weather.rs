@@ -1,5 +1,5 @@
 use crate::{error::ApiError, native_bridge::read_frame};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -28,7 +28,7 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 fn empty() -> Value {
-    json!({"status":"empty","mode":"local","selectedCity":null,"city":"","displayName":"","temperature":null,"feelsLike":null,"condition":"","icon":"unknown","code":null,"isDay":null,"min":null,"max":null,"hours":[],"nextRain":null,"rainRisk":null,"error":null,"stale":false,"fetchedAt":null,"locationStatus":null})
+    json!({"status":"empty","mode":"local","selectedCity":null,"city":"","displayName":"","temperature":null,"feelsLike":null,"condition":"","icon":"unknown","code":null,"isDay":null,"min":null,"max":null,"hours":[],"days":[],"nextRain":null,"rainRisk":null,"error":null,"stale":false,"fetchedAt":null,"locationStatus":null})
 }
 fn finite(value: &Value) -> Option<f64> {
     value.as_f64().filter(|n| n.is_finite())
@@ -248,6 +248,35 @@ pub fn project(data: &Value, city: &Value, mode: &Value) -> Value {
         .iter()
         .filter_map(|hour| finite(&hour["precipitationProbability"]))
         .reduce(f64::max);
+    let mut days = Vec::new();
+    if let Some(times) = data["daily"]["time"].as_array() {
+        for (i, time) in times.iter().take(7).enumerate() {
+            let Some(date) = time.as_str().filter(|date| date.len() == 10 && date.is_ascii()) else {
+                continue;
+            };
+            let Ok(at) = NaiveDate::parse_from_str(date, "%Y-%m-%d") else {
+                continue;
+            };
+            if at.format("%Y-%m-%d").to_string() != date
+                || sample_time(&current["time"]).is_some_and(|current| at < current.date())
+                || days.iter().any(|day: &Value| day["date"] == date)
+            {
+                continue;
+            }
+            let (Some(minimum), Some(maximum)) = (
+                finite(&data["daily"]["temperature_2m_min"][i]).filter(|n| n.abs() <= 100.0),
+                finite(&data["daily"]["temperature_2m_max"][i]).filter(|n| n.abs() <= 100.0),
+            ) else {
+                continue;
+            };
+            if minimum <= maximum {
+                days.push(json!({"date":date,"min":minimum,"max":maximum}));
+            }
+            if days.len() == 3 {
+                break;
+            }
+        }
+    }
     let next = two_hour_rain(data);
     result["status"] = "ready".into();
     result["temperature"] = json!(temperature);
@@ -260,6 +289,7 @@ pub fn project(data: &Value, city: &Value, mode: &Value) -> Value {
     result["min"] = json!(minimum);
     result["max"] = json!(maximum);
     result["hours"] = hours.into();
+    result["days"] = days.into();
     result["nextRain"] = if next["available"] == true {
         next
     } else {
@@ -687,7 +717,7 @@ impl Weather {
                 "timezone",
                 city["timezone"].as_str().unwrap_or("auto").into(),
             ),
-            ("forecast_days", "2".into()),
+            ("forecast_days", "3".into()),
         ]);
         if let Ok(data) = self.read(url, cancelled).await {
             let projected = project(&data, city, &json!(mode));
@@ -985,7 +1015,7 @@ mod tests {
         json!({"id":123,"name":"Ville de test","country":"France","region":"Région de test","latitude":48.8534,"longitude":2.3488,"timezone":"Europe/Paris"})
     }
     fn data() -> Value {
-        json!({"current":{"temperature_2m":24,"apparent_temperature":18,"weather_code":61,"is_day":1,"time":"2026-10-14T10:00"},"daily":{"temperature_2m_max":[26],"temperature_2m_min":[16]},"hourly":{"time":["2026-10-14T09:00","2026-10-14T10:00","2026-10-14T11:00","2026-10-14T12:00"],"temperature_2m":[12,24,25,24],"weather_code":[0,61,63,3],"precipitation_probability":[0,70,80,20]},"minutely_15":{"time":["2026-10-14T10:15","2026-10-14T10:30","2026-10-14T10:45","2026-10-14T11:00","2026-10-14T11:15","2026-10-14T11:30","2026-10-14T11:45","2026-10-14T12:00"],"rain":[0.1,0.2,0.1,0,0,0,0,0],"precipitation":[0.1,0.2,0.1,0,0,0,0,0]}})
+        json!({"current":{"temperature_2m":24,"apparent_temperature":18,"weather_code":61,"is_day":1,"time":"2026-10-14T10:00"},"daily":{"time":["2026-10-14","2026-10-15","2026-10-16"],"temperature_2m_max":[26,27,25],"temperature_2m_min":[16,18,17]},"hourly":{"time":["2026-10-14T09:00","2026-10-14T10:00","2026-10-14T11:00","2026-10-14T12:00"],"temperature_2m":[12,24,25,24],"weather_code":[0,61,63,3],"precipitation_probability":[0,70,80,20]},"minutely_15":{"time":["2026-10-14T10:15","2026-10-14T10:30","2026-10-14T10:45","2026-10-14T11:00","2026-10-14T11:15","2026-10-14T11:30","2026-10-14T11:45","2026-10-14T12:00"],"rain":[0.1,0.2,0.1,0,0,0,0,0],"precipitation":[0.1,0.2,0.1,0,0,0,0,0]}})
     }
     #[test]
     fn location_rejects_untrusted_fields() {
@@ -1010,10 +1040,30 @@ mod tests {
         assert_eq!(p["hours"][0]["temperature"], 24.0);
         assert_eq!(p["hours"][0]["condition"], "Pluie");
         assert_eq!(p["rainRisk"], 80.0);
+        assert_eq!(p["days"], json!([
+            {"date":"2026-10-14","min":16.0,"max":26.0},
+            {"date":"2026-10-15","min":18.0,"max":27.0},
+            {"date":"2026-10-16","min":17.0,"max":25.0}
+        ]));
         assert_eq!(p["nextRain"]["samples"], 8);
         assert_eq!(p["nextRain"]["rainExpected"], true);
         assert_eq!(p["nextRain"]["to"], "2026-10-14T12:00");
         assert!(p["nextRain"].get("minutes").is_none());
+    }
+    #[test]
+    fn daily_forecast_never_invents_dates_or_invalid_temperatures() {
+        let mut missing = data();
+        missing["daily"]["time"] = Value::Null;
+        assert_eq!(project(&missing, &city(), &json!("city"))["days"], json!([]));
+        let mut invalid = data();
+        invalid["daily"] = json!({
+            "time":["2026-10-14","2026-10-14","2026-02-30","2026-10-16","2026-10-17","2026-10-18"],
+            "temperature_2m_min":[16,12,13,25,101,17],
+            "temperature_2m_max":[26,24,25,20,103,null]
+        });
+        assert_eq!(project(&invalid, &city(), &json!("city"))["days"], json!([
+            {"date":"2026-10-14","min":16.0,"max":26.0}
+        ]));
     }
     #[test]
     fn missing_or_ambiguous_rain_is_not_fabricated() {
@@ -1138,6 +1188,8 @@ mod tests {
         let params = url.query_pairs().into_owned().collect::<HashMap<_, _>>();
         assert_eq!(params["latitude"], "48.8534");
         assert_eq!(params["precipitation_unit"], "mm");
+        assert_eq!(params["forecast_days"], "3");
+        assert_eq!(selected["days"].as_array().unwrap().len(), 3);
         drop(calls);
         f.service.dispose().await;
     }

@@ -110,10 +110,10 @@ test('only deliberate configuration views change the affected module height', ()
 test('Focus keeps the reference stack compact rather than stretching on a wider screen', () => {
   for (const width of [320, 400, 528, 604, 720, 2000]) {
     const result = homeModuleLayout(['focus'], width);
-    assert.equal(result.items[0].width, Math.min(width, 528)); assert.equal(result.items[0].height, 340);
+    assert.equal(result.items[0].width, Math.min(width, 420)); assert.equal(result.items[0].height, 264);
     checkRequirements(result, width);
     const configuration = homeModuleLayout(['focus'], width, 16, {focusConfig: true});
-    assert.equal(configuration.items[0].height, 244); assert.equal(configuration.items[0].width, Math.min(width, 528));
+    assert.equal(configuration.items[0].height, 244); assert.equal(configuration.items[0].width, Math.min(width, 420));
     checkRequirements(configuration, width);
   }
 });

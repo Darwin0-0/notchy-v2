@@ -1,95 +1,160 @@
 (function (root) {
   'use strict';
+  const MOTION = Object.freeze({entrance: 300, mascot: 420, wordmark: 360, slide: 360, exit: 180, reduced: 150, introStart: 120, introEnd: 1900, wakeAt: 300, wake: 220, curiousAt: 560, look: 220, nameAt: 780, returnAt: 1180, settle: 400, gazeX: 2, gazeY: -.5, tilt: 3, easing: 'cubic-bezier(.2,.8,.2,1)'});
+  // Exact head geometry from Notchy V1's robot-companion.js; torso, arms and props are omitted.
+  const MIMO_HEAD = Object.freeze({shell: 'M25 8H39C51 8 58 16 58 28V37C58 50 51 55 39 55H25C13 55 6 50 6 37V28C6 16 13 8 25 8Z M25 12C15 12 10 18 10 28V37C10 47 15 51 25 51H39C49 51 54 47 54 37V28C54 18 49 12 39 12Z', mouth: 'M29.5 39h5a2.5 2.5 0 0 1-5 0Z'});
   const steps = [
-    {title: 'Un aperçu, un clic.', text: 'Survole l’encoche pour un aperçu. Clique pour ouvrir tes modules.', drawing: '<path d="M4 10h43q4 0 4 4v1q0 3 3 3h20q3 0 3-3v-1q0-4 4-4h43"/><path d="M23 30h31q4 0 4 4v8q0 5 5 5h34q5 0 5-5v-8q0-4 4-4h23"/><path d="m45 27 4-4 4 4m-4-4v6"/>'},
-    {title: 'Une tâche, un temps pour elle.', text: 'Ajoute ta tâche dans Focus, puis lance le Pomodoro. La pause arrive au bon moment.', drawing: '<circle cx="47" cy="27" r="19"/><path d="M47 16v11l8 5M80 17h34M80 29h26m-26 12h20m-23-26-4 4-3-3m7 12-4 4-3-3m7 12-4 4-3-3"/>'},
-    {title: 'Dépose. Garde. Partage.', text: 'Glisse un fichier sur l’encoche. Garde-le dans l’Étagère ou envoie-le avec LocalSend.', drawing: '<path d="M8 10h29q4 0 4 4v16q0 6 6 6h67q6 0 6-6V14q0-4 4-4h20"/><path d="M55 6h21l8 8v19H55zM75 6v9h9M61 22h16M61 27h10"/><path d="m101 19 5 5 5-5m-5-11v16"/>'}
+    {title: 'Un aperçu, un clic.', text: 'Survole l’encoche pour un aperçu. Clique pour ouvrir tes modules.', drawing: '<path d="M6 10h46a8 8 0 0 1 8 8v8a8 8 0 0 0 8 8h24a8 8 0 0 0 8-8v-8a8 8 0 0 1 8-8h36"/><circle class="welcome-ripple" cx="75" cy="40" r="9" stroke-width="1.4"/><path d="M75 52V40m0 0-4 4m4-4 4 4"/>'},
+    {title: 'Une tâche, un temps pour elle.', text: 'Ajoute ta tâche dans Focus, puis lance le Pomodoro. La pause arrive au bon moment.', drawing: '<circle cx="52" cy="30" r="20"/><path d="M52 18v12l8 5"/><path d="m84 18 3 3 5-6M98 18h30"/><path d="m84 30 3 3 5-6M98 30h30"/><path d="m84 42 3 3 5-6M98 42h30"/>'},
+    {title: 'Dépose. Garde. Partage.', text: 'Glisse un fichier sur l’encoche. Garde-le dans l’Étagère ou envoie-le avec LocalSend.', drawing: '<path d="M6 12h30a7 7 0 0 1 7 7v16a7 7 0 0 0 7 7h50a7 7 0 0 0 7-7V19a7 7 0 0 1 7-7h30"/><path class="welcome-file-nudge" d="M65 16h14l6 6v14H65z"/><path class="welcome-file-nudge" d="M69 28h12M69 33h8"/><path class="welcome-arrow-nudge" d="M96 22v14m0 0-4-4m4 4 4-4"/>'}
   ];
-  function create({host, start = () => {}, tutorialFinish = start, motion = true} = {}) {
+  function create({host, start = () => {}, tutorialFinish = start, motion = true, stageChanged = () => {}} = {}) {
     const document = host?.ownerDocument;
     if (!document) throw new TypeError('La bienvenue nécessite un élément hôte.');
     const window = document.defaultView, reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     const i18n = window.NotchyI18n, t = (source, values) => i18n?.t(source, values) ?? source;
-    let active = false, page = 'welcome', step = 0, disposed = false, animations = [], focusFrame = 0;
+    let active = false, page = 'welcome', stage = 'idle', step = 0, disposed = false, animations = [], focusFrame = 0;
+    const elementAnimations = new Map(), introTimers = new Set();
     const sourceText = new Map();
     const node = (tag, className, text) => {const value = document.createElement(tag); value.className = className; if (text !== undefined) {sourceText.set(value, text); value.textContent = t(text);} return value;};
     const control = (command, text, className = '') => {const value = node('button', className, text); value.type = 'button'; value.dataset.welcomeCommand = command; return value;};
-    const card = node('div', 'welcome-card'), intro = node('div', 'welcome-intro');
-    const brand = node('div', 'welcome-brand');
     const svgNode = (tag, attributes) => {const value = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [name, content] of Object.entries(attributes)) value.setAttribute(name, content); return value;};
-    const mark = svgNode('svg', {viewBox: '0 0 64 84', 'aria-hidden': 'true'}); mark.classList.add('welcome-mimo');
-    const body = svgNode('g', {class: 'welcome-mimo-body'});
-    // Mimo's original V1 silhouette; the welcome owns only this short greeting.
-    body.append(svgNode('rect', {class: 'welcome-mimo-ear', x: 3, y: 28, width: 7, height: 11, rx: 3}), svgNode('rect', {class: 'welcome-mimo-ear', x: 54, y: 28, width: 7, height: 11, rx: 3}));
-    body.append(svgNode('path', {'fill-rule': 'evenodd', d: 'M25 8H39C51 8 58 16 58 28V37C58 50 51 55 39 55H25C13 55 6 50 6 37V28C6 16 13 8 25 8Z M25 12C15 12 10 18 10 28V37C10 47 15 51 25 51H39C49 51 54 47 54 37V28C54 18 49 12 39 12Z'}));
-    const waveArm = svgNode('rect', {class: 'welcome-mimo-wave', x: 48, y: 66, width: 7, height: 9, rx: 3.5});
-    const rightEye = svgNode('circle', {class: 'welcome-mimo-eye', cx: 41, cy: 32, r: 4.5});
-    body.append(svgNode('circle', {cx: 23, cy: 32, r: 4.5}), rightEye, svgNode('path', {d: 'M29.5 39h5a2.5 2.5 0 0 1-5 0Z'}));
-    const laptop = svgNode('g', {class: 'welcome-mimo-laptop'});
-    laptop.append(svgNode('rect', {class: 'welcome-mimo-pc', x: 13, y: 49, width: 38, height: 26, rx: 4}), svgNode('rect', {class: 'welcome-mimo-pc-base', x: 10, y: 74, width: 44, height: 3, rx: 1.5}), svgNode('path', {d: 'M28 61h8M32 57v8', fill: 'none', stroke: 'currentColor', 'stroke-width': 2.5, 'stroke-linecap': 'round'}));
-    body.append(laptop, svgNode('rect', {x: 9, y: 66, width: 7, height: 9, rx: 3.5}), waveArm, svgNode('rect', {x: 20, y: 73, width: 8, height: 8, rx: 4}), svgNode('rect', {x: 36, y: 73, width: 8, height: 8, rx: 4})); mark.append(body);
-    brand.append(mark, node('div', 'welcome-wordmark', 'Notchy'));
+    const card = node('div', 'welcome-card'), intro = node('div', 'welcome-intro'), brand = node('div', 'welcome-brand');
+    const mascot = node('div', 'welcome-mascot');
+    const mark = svgNode('svg', {width: 56, height: 56, viewBox: '0 0 64 64', 'aria-hidden': 'true', 'data-mimo-source': 'notchy-v1'}); mark.classList.add('welcome-mimo');
+    mark.append(svgNode('path', {class: 'welcome-mimo-shell', d: MIMO_HEAD.shell, fill: '#ffffff', 'fill-rule': 'evenodd'}));
+    // Gaze and waking use parent groups, leaving the circles' blink transform independent.
+    const features = svgNode('g', {class: 'welcome-mimo-features'}), eyelids = svgNode('g', {class: 'welcome-mimo-eyelids'});
+    eyelids.append(svgNode('circle', {class: 'welcome-mimo-eye', cx: 23, cy: 32, r: 4.5, fill: '#ffffff'}), svgNode('circle', {class: 'welcome-mimo-eye', cx: 41, cy: 32, r: 4.5, fill: '#ffffff'}));
+    features.append(eyelids, svgNode('path', {d: MIMO_HEAD.mouth, fill: '#ffffff'})); mark.append(features);
+    mascot.append(mark);
+    const wordmark = node('div', 'welcome-wordmark', 'Notchy'); wordmark.setAttribute('aria-label', 'Notchy');
+    brand.append(mascot, wordmark);
     const title = node('h2', 'welcome-title', 'Fais place à ton rythme.'), description = node('p', 'welcome-description', 'Musique, focus et fichiers. Juste quand tu en as besoin.');
     const introActions = node('div', 'welcome-actions'); introActions.append(control('start', 'Démarrer', 'welcome-primary'), control('tutorial', 'Découvrir', 'welcome-secondary'));
-    intro.append(brand, title, description, introActions);
-    const tutorial = node('div', 'welcome-tutorial'); tutorial.hidden = true;
-    const top = node('div', 'welcome-tutorial-top'), counter = node('span', 'welcome-counter'); top.append(counter, control('start', 'Passer', 'welcome-skip'));
-    const drawing = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); drawing.setAttribute('viewBox', '0 0 152 54'); drawing.setAttribute('aria-hidden', 'true'); drawing.classList.add('welcome-drawing');
-    const stepTitle = node('h2', 'welcome-step-title'), stepText = node('p', 'welcome-step-text');
+    intro.append(title, description, introActions);
+    const tutorial = node('div', 'welcome-tutorial'), top = node('div', 'welcome-tutorial-top'), counter = node('span', 'welcome-counter'); top.append(counter, control('start', 'Passer', 'welcome-skip'));
+    const slides = steps.map(value => {
+      const layer = node('div', 'welcome-slide'), illustration = node('div', 'welcome-illustration');
+      const drawing = svgNode('svg', {width: 150, height: 60, viewBox: '0 0 150 60', fill: 'none', stroke: '#6FE3C5', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true'}); drawing.classList.add('welcome-drawing'); drawing.innerHTML = value.drawing;
+      const title = node('h2', 'welcome-step-title', value.title), text = node('p', 'welcome-step-text', value.text);
+      illustration.append(drawing); layer.append(illustration, title, text); tutorial.append(layer); return {layer, illustration, title, text};
+    });
     const tutorialActions = node('div', 'welcome-actions'), previous = control('previous', 'Précédent', 'welcome-secondary'), next = control('next', 'Suivant', 'welcome-primary'); tutorialActions.append(previous, next);
     const status = node('span', 'welcome-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
-    const language = node('label', 'language-control welcome-language'), languageLabel = node('span', '', 'Langue'), languageChoice = node('select', '');
+    const language = node('label', 'welcome-language'), languageLabel = node('span', 'welcome-status', 'Langue'), languageChoice = node('select', '');
     languageChoice.id = 'welcome-language'; languageChoice.dataset.languageChoice = ''; languageChoice.setAttribute('aria-label', t('Langue'));
-    for (const [code, name] of [['fr', 'Français'], ['en', 'English']]) {const option = node('option', '', name); option.value = code; option.setAttribute('lang', code); languageChoice.append(option);}
+    for (const code of ['fr', 'en']) {const option = node('option', '', code.toUpperCase()); option.value = code; option.setAttribute('lang', code); languageChoice.append(option);}
     language.append(languageLabel, languageChoice);
-    tutorial.append(top, drawing, stepTitle, stepText, tutorialActions, status); card.append(intro, tutorial, language); host.replaceChildren(card); host.hidden = true;
-    function stopMimo() {
-      animations.forEach(animation => animation.cancel()); animations = [];
+    tutorial.append(top, tutorialActions, status); card.append(brand, intro, tutorial, language); host.replaceChildren(card); host.hidden = true; host.dataset.welcomeDesign = 'mimo-head';
+    const motionEnabled = () => (typeof motion === 'function' ? motion() : motion) !== false && !reduced.matches && !document.hidden;
+    function stopAnimations() {animations.forEach(animation => animation.cancel()); animations = []; elementAnimations.clear(); mascot.style.transform = features.style.transform = eyelids.style.transform = '';}
+    function clearIntroTimers() {for (const timer of introTimers) window.clearTimeout(timer); introTimers.clear();}
+    function scheduleIntro(value, delay) {
+      const timer = window.setTimeout(() => {
+        introTimers.delete(timer);
+        if (!active || disposed || document.hidden || page !== 'welcome') return;
+        if (!motionEnabled()) {clearIntroTimers(); stopAnimations(); setStage('welcome'); return;}
+        if (typeof value === 'function') value(); else setStage(value);
+      }, delay);
+      introTimers.add(timer);
+    }
+    function animate(element, frames, duration, delay = 0, easing = MOTION.easing) {
+      if (document.hidden || typeof element.animate !== 'function') return;
+      if (!motionEnabled()) {
+        if (!frames.some(frame => frame.opacity !== undefined)) return;
+        frames = frames.map(({opacity}) => ({opacity})); duration = MOTION.reduced; delay = 0; easing = 'linear';
+      }
+      const previous = elementAnimations.get(element);
+      if (previous) {
+        const current = window.getComputedStyle?.(element);
+        if (current) frames[0] = Object.fromEntries(Object.keys(frames[0]).map(property => [property, current[property]]));
+        previous.cancel(); animations = animations.filter(animation => animation !== previous);
+      }
+      const animation = element.animate(frames, {duration, delay, easing, fill: 'both'}); animations.push(animation);
+      elementAnimations.set(element, animation);
+      void animation.finished.then(() => {const index = animations.indexOf(animation); if (index >= 0) {animations.splice(index, 1); if (elementAnimations.get(element) === animation) elementAnimations.delete(element); animation.cancel();}}, () => {});
+    }
+    function reveal(element, delay = 0, duration = MOTION.entrance) {
+      animate(element, [{opacity: 0, transform: 'translateY(6px)'}, {opacity: 1, transform: 'translateY(0px)'}], duration, delay);
     }
     function greetMimo() {
-      stopMimo();
-      if ((typeof motion === 'function' ? motion() : motion) === false || reduced.matches || document.hidden) return;
-      if (typeof body.animate !== 'function') return;
-      const timing = {duration: 780, delay: 0, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'both'};
-      animations.push(body.animate([{opacity: 0, transform: 'translateY(6px) scale(.94)'}, {opacity: 1, transform: 'translateY(-1px) scale(1.015)', offset: .65}, {opacity: 1, transform: 'translateY(0) scale(1)'}], timing));
-      animations.push(waveArm.animate([{transform: 'translateY(0) rotate(0deg)'}, {transform: 'translateY(-14px) rotate(-20deg)', offset: .3}, {transform: 'translateY(-14px) rotate(12deg)', offset: .55}, {transform: 'translateY(-14px) rotate(-16deg)', offset: .72}, {transform: 'translateY(0) rotate(0deg)'}], timing));
-      animations.push(rightEye.animate([{transform: 'scaleY(1)'}, {transform: 'scaleY(1)', offset: .4}, {transform: 'scaleY(.15)', offset: .52}, {transform: 'scaleY(1)', offset: .68}, {transform: 'scaleY(1)'}], timing));
-      const current = animations;
-      Promise.all(current.map(animation => animation.finished)).then(() => {if (animations === current) stopMimo();}, () => {});
+      const center = ((wordmark.getBoundingClientRect?.().width || 96) + 12) / 2;
+      host.dataset.mimoBeat = 'wake'; mascot.style.transform = `translateX(${center}px)`;
+      animate(mascot, [{opacity: 0, transform: `translate(${center}px,6px) rotate(-2deg)`}, {opacity: 1, transform: `translate(${center}px,0px) rotate(0deg)`}], MOTION.mascot);
+      scheduleIntro(() => {
+        host.dataset.mimoBeat = 'awake';
+        animate(eyelids, [{transform: 'scaleY(.12)'}, {transform: 'scaleY(1)'}], MOTION.wake);
+      }, MOTION.wakeAt);
+      scheduleIntro(() => {
+        host.dataset.mimoBeat = 'curious'; features.style.transform = `translate(${MOTION.gazeX}px,${MOTION.gazeY}px)`; mascot.style.transform = `translateX(${center}px) rotate(${MOTION.tilt}deg)`;
+        animate(features, [{transform: 'translate(0px,0px)'}, {transform: features.style.transform}], MOTION.look);
+        animate(mascot, [{transform: `translateX(${center}px) rotate(0deg)`}, {transform: mascot.style.transform}], MOTION.look);
+      }, MOTION.curiousAt);
+      scheduleIntro(() => {
+        host.dataset.mimoBeat = 'name'; mascot.style.transform = '';
+        animate(mascot, [{transform: `translateX(${center}px) rotate(${MOTION.tilt}deg)`}, {transform: 'translateX(0px) rotate(0deg)'}], MOTION.wordmark);
+        animate(wordmark, [{opacity: 0, transform: 'translateX(8px)'}, {opacity: 1, transform: 'translateX(0px)'}], MOTION.wordmark);
+      }, MOTION.nameAt);
+      scheduleIntro(() => {
+        host.dataset.mimoBeat = 'ready'; features.style.transform = '';
+        animate(features, [{transform: `translate(${MOTION.gazeX}px,${MOTION.gazeY}px)`}, {transform: 'translate(0px,0px)'}], MOTION.entrance);
+        animate(mascot, [{transform: 'translateY(0px) rotate(0deg)'}, {transform: 'translateY(1.5px) rotate(1.5deg)', offset: .45}, {transform: 'translateY(0px) rotate(0deg)'}], MOTION.settle);
+      }, MOTION.returnAt);
     }
-    function focus(control) {if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = window.requestAnimationFrame(() => {focusFrame = 0; if (active && !disposed && !document.hidden) control?.focus();});}
+    function moveSlide(slide, entering, direction = 1) {
+      animate(slide.layer, [{opacity: entering ? 0 : 1, transform: `translateX(${entering ? direction * 16 : 0}px)`}, {opacity: entering ? 1 : 0, transform: `translateX(${entering ? 0 : -direction * 16}px)`}], entering ? MOTION.slide : MOTION.exit, 0, entering ? MOTION.easing : 'ease-in');
+    }
+    function focus(control) {if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = 0; if (document.hidden) return; focusFrame = window.requestAnimationFrame(() => {focusFrame = 0; if (active && !disposed && !document.hidden) control?.focus({preventScroll: true});});}
     function render() {
       for (const [element, source] of sourceText) element.textContent = t(source);
+      host.dataset.welcomeStage = stage; host.dataset.welcomeMotion = String(active && ['logo', 'welcome'].includes(stage) && motionEnabled());
+      if (stage !== 'logo') host.dataset.mimoBeat = stage === 'welcome' ? 'ready' : 'idle';
       languageChoice.value = i18n?.locale() || 'fr'; languageChoice.setAttribute('aria-label', t('Langue'));
-      intro.hidden = page !== 'welcome'; tutorial.hidden = page !== 'tutorial';
-      if (page !== 'tutorial') return;
-      const value = steps[step]; counter.textContent = `${step + 1} / ${steps.length}`; stepTitle.textContent = t(value.title); stepText.textContent = t(value.text);
-      drawing.innerHTML = value.drawing; previous.disabled = step === 0; next.textContent = t(step === steps.length - 1 ? 'C’est parti' : 'Suivant'); next.dataset.welcomeCommand = step === steps.length - 1 ? 'finish' : 'next';
-      status.textContent = t('Étape {step} sur {total} : {title}', {step: step + 1, total: steps.length, title: t(value.title)});
+      brand.hidden = !['logo', 'welcome'].includes(stage); intro.hidden = language.hidden = stage !== 'welcome'; tutorial.hidden = stage !== 'tour';
+      for (const [index, slide] of slides.entries()) {slide.layer.dataset.active = String(index === step); slide.layer.inert = index !== step; slide.layer.setAttribute('aria-hidden', String(index !== step));}
+      previous.disabled = step === 0; counter.textContent = `${step + 1} / ${steps.length}`;
+      next.textContent = t(step === steps.length - 1 ? 'C’est parti' : 'Suivant'); next.dataset.welcomeCommand = step === steps.length - 1 ? 'finish' : 'next';
+      status.textContent = stage === 'tour' ? t('Étape {step} sur {total} : {title}', {step: step + 1, total: steps.length, title: t(steps[step].title)}) : '';
+    }
+    function setStage(value) {
+      const previousStage = stage; stage = value; render(); stageChanged(stage);
+      if (stage === 'logo') greetMimo();
+      else if (stage === 'welcome') {if (previousStage !== 'logo') {reveal(mascot, 0, MOTION.mascot); reveal(wordmark, 100, MOTION.wordmark);} reveal(title, 40); reveal(description, 80); reveal(introActions, 120); reveal(language); focus(introActions.firstElementChild);}
+      else if (stage === 'tour') {moveSlide(slides[step], true); reveal(top); reveal(tutorialActions, 80); reveal(slides[step].illustration); reveal(slides[step].title, 40); reveal(slides[step].text, 80); focus(next);}
     }
     function show(mode = 'welcome') {
       if (disposed) return false;
-      active = true; page = mode === 'tutorial' ? 'tutorial' : 'welcome'; step = 0; host.hidden = false; render();
-      if (page === 'welcome') greetMimo(); else stopMimo();
-      focus(page === 'welcome' ? introActions.firstElementChild : next); return true;
+      const nextPage = mode === 'tutorial' ? 'tutorial' : 'welcome';
+      if (active && page === nextPage) {render(); return true;}
+      clearIntroTimers(); stopAnimations(); active = true; page = nextPage; step = 0; host.hidden = false;
+      if (page === 'tutorial') setStage('tour');
+      else if (!motionEnabled()) setStage('welcome');
+      else {setStage('idle'); scheduleIntro('logo', MOTION.introStart); scheduleIntro('welcome', MOTION.introEnd);}
+      return true;
     }
-    function hide() {active = false; host.hidden = true; stopMimo(); if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = 0;}
+    function hide() {active = false; host.hidden = true; host.dataset.welcomeMotion = 'false'; clearIntroTimers(); stopAnimations(); if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = 0;}
     function click(event) {
       const value = event.target.closest('[data-welcome-command]'); if (!active || disposed || !value || !host.contains(value) || value.disabled) return;
       const command = value.dataset.welcomeCommand;
-      if (command === 'start' || command === 'finish') {hide(); (command === 'finish' ? tutorialFinish : start)();}
-      else if (command === 'tutorial') {page = 'tutorial'; step = 0; stopMimo(); render(); focus(next);}
-      else if (command === 'previous' || command === 'next') {step = Math.max(0, Math.min(steps.length - 1, step + (command === 'previous' ? -1 : 1))); render(); focus(next);}
+      if (command === 'start' || command === 'finish') {stopAnimations(); setStage('done'); hide(); (command === 'finish' ? tutorialFinish : start)();}
+      else if (command === 'tutorial') {page = 'tutorial'; step = 0; clearIntroTimers(); stopAnimations(); setStage('tour');}
+      else if (command === 'previous' || command === 'next') {
+        const old = slides[step]; step = Math.max(0, Math.min(steps.length - 1, step + (command === 'previous' ? -1 : 1))); render();
+        const direction = command === 'next' ? 1 : -1; moveSlide(old, false, direction); moveSlide(slides[step], true, direction); focus(next);
+      }
     }
-    function keydown(event) {if (active && page === 'tutorial' && event.key === 'Escape' && !event.isComposing) {event.preventDefault(); event.stopPropagation(); page = 'welcome'; stopMimo(); render(); focus(introActions.lastElementChild);}}
+    function keydown(event) {if (active && page === 'tutorial' && event.key === 'Escape' && !event.isComposing) {event.preventDefault(); event.stopPropagation(); page = 'welcome'; stopAnimations(); setStage('welcome'); focus(introActions.lastElementChild);}}
     const changeLanguage = () => i18n?.setLocale(languageChoice.value);
-    const onReducedMotion = () => {if (reduced.matches) stopMimo();}, onHidden = () => {if (document.hidden) {stopMimo(); if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = 0;}};
-    const motionObserver = typeof window.MutationObserver === 'function' ? new window.MutationObserver(() => {if ((typeof motion === 'function' ? motion() : motion) === false) stopMimo();}) : null;
+    const settleIntro = () => {clearIntroTimers(); stopAnimations(); if (active && ['idle', 'logo'].includes(stage)) setStage('welcome'); else render();};
+    const onReducedMotion = () => {if (reduced.matches) settleIntro(); else render();};
+    const onHidden = () => {if (document.hidden) {settleIntro(); if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = 0;} else render();};
+    const motionObserver = typeof window.MutationObserver === 'function' ? new window.MutationObserver(() => {if ((typeof motion === 'function' ? motion() : motion) === false) settleIntro(); else render();}) : null;
     if (motionObserver && document.body) motionObserver.observe(document.body, {attributes: true, attributeFilter: ['data-motion']});
     languageChoice.addEventListener('change', changeLanguage);
     host.addEventListener('click', click); host.addEventListener('keydown', keydown); reduced.addEventListener('change', onReducedMotion); document.addEventListener('visibilitychange', onHidden);
     const removeLanguage = i18n?.onChange(() => {if (!disposed) render();});
-    return Object.freeze({show, hide, dispose: () => {if (disposed) return; hide(); disposed = true; removeLanguage?.(); languageChoice.removeEventListener('change', changeLanguage); motionObserver?.disconnect(); host.removeEventListener('click', click); host.removeEventListener('keydown', keydown); reduced.removeEventListener('change', onReducedMotion); document.removeEventListener('visibilitychange', onHidden);}, isActive: () => active, inspect: () => ({active, page, step, animating: animations.length > 0, disposed})});
+    return Object.freeze({show, hide, dispose: () => {if (disposed) return; hide(); disposed = true; removeLanguage?.(); languageChoice.removeEventListener('change', changeLanguage); motionObserver?.disconnect(); host.removeEventListener('click', click); host.removeEventListener('keydown', keydown); reduced.removeEventListener('change', onReducedMotion); document.removeEventListener('visibilitychange', onHidden);}, isActive: () => active, inspect: () => ({active, page, stage, step, beat: host.dataset.mimoBeat || 'idle', animating: animations.length > 0, blinking: host.dataset.welcomeMotion === 'true', disposed})});
   }
   const api = {create};
   if (typeof module === 'object' && module.exports) module.exports = api;

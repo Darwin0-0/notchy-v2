@@ -16,9 +16,11 @@ Music, tasks, weather and files—right where you need them.
 
 ![Notchy music player with sample artwork and playback controls](assets/previews/overview.png)
 
-Notchy is a compact notch for Windows. Hover for a quick glance, open it for the controls, then get back to what you were doing. Its panel adapts to the modules you choose and the space they need.
+Notchy is a compact notch for Windows. Click to open your controls. Move away and the notch settles into its discreet view. Its panel adapts to the modules you choose and the space they need.
 
-Mimo greets you on first launch with an optional quick guide. You can revisit it from Settings whenever you need a reminder.
+Nook gives your current activity the main stage, with other ongoing activities beside it. Select a card to bring it forward. Your task list, Pomodoro and everyday essentials remain within reach, without interrupting your session or losing your place.
+
+Mimo wakes up, takes a curious look and welcomes you in. An optional quick guide helps you find your way; revisit it from Settings whenever you need a reminder.
 
 <p align="center"><img src="assets/previews/welcome.gif" alt="Mimo greeting on Notchy’s welcome screen, with a language choice"></p>
 
@@ -26,7 +28,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 
 ## Make room for what matters
 
-- **Music within reach.** Artwork, playback controls, track progress and a spectrum that responds to real audio. Add **Up next** with the optional Spotify connection.
+- **Music within reach.** Notchy automatically follows compatible Windows media players, with artwork, playback controls, track progress and a softly animated spectrum. Everyday playback needs no personal API key. Add **Up next** with the optional Spotify connection.
 - **One place for tasks and Pomodoro.** Keep your next task beside your session, work in focused intervals, and take a short or long break when it is time.
 - **A panel for each moment.** Choose Focus, Ambience, Day, Complete or Minimal from Scenarios in Settings. Optional rules follow your work and breaks; manual choices and ongoing interactions stay protected.
 - **Weather you can read at a glance.** A short forecast for your current location or a city you choose.
@@ -40,8 +42,8 @@ The project is actively evolving. Choose Français or English on the welcome scr
 ## Start small, make it yours
 
 1. [Build and run Notchy](docs/DEVELOPMENT.md#build-and-run-on-windows) on Windows. A packaged download is not available yet.
-2. Hover over the notch for a glance; click to open the full controls.
-3. Right-click to arrange or remove Music, Focus, Weather and Shelf. Open **Tray** for files and LocalSend.
+2. Hover over the notch for a quick preview, then click to open the controls. Move away to return to the discreet view. Keyboard editing, file dialogs and active drags stay protected while you use them.
+3. Right-click to arrange or remove Music, Focus, Tasks, Weather and Shelf. Open **Tray** for files and LocalSend.
 4. Choose your city, add a task and start a session. Settings stay open while you move between controls; the close button or Escape dismisses them.
 
 Your personal profiles and files stay in local data folders and are excluded from the source repository. Weather uses a public forecast service; Spotify is optional, and LocalSend connects devices on your local network. Setup and privacy details are in the [development guide](docs/DEVELOPMENT.md).
@@ -51,6 +53,8 @@ Your personal profiles and files stay in local data folders and are excluded fro
 You do not need to know the whole codebase to make Notchy better. A clear bug report, a small fix or a thoughtful design observation is a useful place to start.
 
 [Open an issue](https://github.com/Darwin0-0/notchy-v2/issues/new) with what you tried and what you expected, or read [CONTRIBUTING.md](CONTRIBUTING.md) to work on one focused improvement. Screenshots, keyboard-access feedback and reports from different display scales are welcome.
+
+Have an idea for a module? Start with the [module design contract and JSON manifest](docs/MODULES.md). It gives a proposal a shared shape before code is added; external modules are not loaded by the app yet.
 
 ## What we are refining
 

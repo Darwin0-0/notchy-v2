@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:notchy:module-manifest:v1",
+  "title": "Notchy module integration proposal v1",
+  "description": "A declarative design and integration contract. The current application does not load or execute manifests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifestVersion", "id", "version", "name", "description", "regions", "presentations", "permissions", "capabilities", "appearance", "motion"],
+  "properties": {
+    "$schema": {"type": "string", "maxLength": 512, "description": "Optional editor hint, not a runtime fetch instruction."},
+    "manifestVersion": {"const": 1},
+    "id": {"type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"},
+    "version": {"type": "string", "maxLength": 64, "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$"},
+    "name": {"$ref": "#/$defs/label"},
+    "description": {"$ref": "#/$defs/explanation"},
+    "regions": {"type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["scene", "rail"]}},
+    "presentations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["full", "scene", "rail"],
+      "properties": {
+        "full": {"$ref": "#/$defs/presentation"},
+        "scene": {"$ref": "#/$defs/presentation"},
+        "rail": {"$ref": "#/$defs/presentation"}
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 10,
+      "items": {"enum": ["network", "location", "media.read", "media.control", "audio.output", "files.user-selected", "shelf.read", "shelf.write", "local-network", "clipboard.write"]}
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["progress", "actions", "settings", "band"],
+      "properties": {
+        "progress": {"$ref": "#/$defs/progress"},
+        "actions": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/action"}},
+        "settings": {"type": "boolean"},
+        "band": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["discreet", "hover", "changes"],
+          "properties": {
+            "discreet": {"enum": ["none", "progress"]},
+            "hover": {"enum": ["none", "summary", "ring", "spectrum"]},
+            "changes": {"$ref": "#/$defs/identifiers"}
+          }
+        }
+      }
+    },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "accent", "artwork"],
+      "properties": {
+        "surface": {"const": "host-opaque"},
+        "accent": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "artwork": {"enum": ["none", "validated-cover"]}
+      }
+    },
+    "motion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preset", "reducedMotion", "pauseWhenHidden", "ambient"],
+      "properties": {
+        "preset": {"const": "host"},
+        "reducedMotion": {"enum": ["static", "fade"]},
+        "pauseWhenHidden": {"const": true},
+        "ambient": {"enum": ["none", "measured-data"]}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"capabilities": {"type": "object", "properties": {"band": {"type": "object", "properties": {"hover": {"const": "spectrum"}}}}}}},
+      "then": {"properties": {"permissions": {"type": "array", "contains": {"const": "audio.output"}}}}
+    },
+    {
+      "if": {
+        "properties": {
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "band": {
+                "type": "object",
+                "anyOf": [
+                  {"properties": {"discreet": {"const": "progress"}}},
+                  {"properties": {"hover": {"const": "ring"}}}
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {"properties": {"capabilities": {"type": "object", "properties": {"progress": {"type": "object", "properties": {"kind": {"not": {"const": "none"}}}}}}}}
+    }
+  ],
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+    "identifiers": {"type": "array", "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+    "label": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["en", "fr"],
+      "properties": {
+        "en": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "\\S"},
+        "fr": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "\\S"}
+      }
+    },
+    "explanation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["en", "fr"],
+      "properties": {
+        "en": {"type": "string", "minLength": 1, "maxLength": 280, "pattern": "\\S"},
+        "fr": {"type": "string", "minLength": 1, "maxLength": 280, "pattern": "\\S"}
+      }
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["purpose", "content", "actions"],
+      "properties": {
+        "purpose": {"$ref": "#/$defs/explanation"},
+        "content": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "actions": {"$ref": "#/$defs/identifiers"}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "role"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "label": {"$ref": "#/$defs/label"},
+        "role": {"enum": ["primary", "secondary", "destructive"]}
+      }
+    },
+    "progress": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "none"}}},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "label"],
+          "properties": {"kind": {"const": "indeterminate"}, "label": {"$ref": "#/$defs/label"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "unit", "direction", "label"],
+          "properties": {
+            "kind": {"const": "determinate"},
+            "unit": {"const": "ratio"},
+            "direction": {"enum": ["increasing", "decreasing"]},
+            "label": {"$ref": "#/$defs/label"}
+          }
+        }
+      ]
+    }
+  }
+}

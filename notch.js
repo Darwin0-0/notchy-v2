@@ -1,11 +1,38 @@
 (function (window) {
   'use strict';
 
-  // A lightly underdamped spring keeps reversal momentum with about 1.5% rebound.
+  const OPEN_SURFACE_SCALE = 1.35;
+  const ISLAND_CONFIG = Object.freeze({
+    states: Object.freeze({
+      rest: Object.freeze({width: 128, height: 10, radius: 6}),
+      compact: Object.freeze({width: 240, height: 40, radius: 10}),
+      expanded: Object.freeze({width: 440 * OPEN_SURFACE_SCALE, height: 240 * OPEN_SURFACE_SCALE, radius: 14}),
+    }),
+    spring: Object.freeze({stiffness: 400, damping: 30, mass: 1,
+      easing: 'linear(0, 0.0702, 0.2262, 0.4081, 0.5808, 0.7266, 0.8394, 0.9202, 0.9736, 1.0056, 1.022, 1.0279, 1.0276, 1.0239, 1.0189, 1.0138, 1.0093, 1.0057, 1.0031, 1.0013, 1.0001, 0.9995, 0.9992, 0.9992, 1)'}),
+    durations: Object.freeze({surface: 500, contentEnter: 300, contentExit: 150, contentSpring: 500, navigation: 400, color: 250, progress: 1000, reduced: 150}),
+    delays: Object.freeze({content: 80, hover: 120, leave: 280}),
+    accents: Object.freeze({music: '#F28B96', focus: '#5AC8FA', tasks: '#A6E3B4'}),
+    activities: Object.freeze({widths: Object.freeze([240, 300, 360]), height: 42, radius: 6, shoulder: 8, peekScale: 1, sceneHeight: 330, expandedHeight: 330, headerTop: 8, headerHeight: 32, sceneTop: 64, side: 20, bottom: 20, gap: 12}),
+    notification: Object.freeze({width: 300, height: 72, radius: 8, shoulder: 8, duration: 2800}),
+    rest: Object.freeze({marker: 4, handleWidth: 28, handleHeight: 2, progressLeft: 14, progressWidth: 70, equalizerBars: 4, equalizerWidth: 2, equalizerHeight: 6, equalizerGap: 2, equalizerInset: 18}),
+    welcome: Object.freeze({introWidth: 300, introHeight: 88, introRadius: 14, width: 380, height: 232, radius: 14}),
+    compact: Object.freeze({coverSize: 20, coverRadius: 6, equalizerBars: 4, equalizerWidth: 3, equalizerHeight: 14,
+      equalizerMinScale: .28, equalizerDuration: 900, equalizerDelays: Object.freeze([0, -150, -300, -600])}),
+    expanded: Object.freeze({playSize: 40, navigationSize: 6, navigationActiveWidth: 18}),
+    formats: Object.freeze({compact: 400 * OPEN_SURFACE_SCALE, balanced: 420 * OPEN_SURFACE_SCALE, comfortable: 440 * OPEN_SURFACE_SCALE}),
+    layout: Object.freeze({header: 48, side: 20, bottom: 20, footer: 32, gap: 8, columns: 4, rows: 4}),
+    shadow: '0 18px 40px -16px rgba(0,0,0,.45)',
+  });
+
+  // An exact spring solution carries the current velocity through reversals.
   function createSurfaceMotion() {
-    const keys = ['width', 'height', 'band', 'radius', 'progress'];
+    const keys = ['width', 'height', 'band', 'radius', 'progress', 'shoulder'];
     const values = {}, velocities = {}, target = {};
-    let initialized = false, lastTime = 0, active = false;
+    let initialized = false, lastTime = 0, active = false, elapsed = 0;
+    const {stiffness, damping, mass} = ISLAND_CONFIG.spring;
+    const omega = Math.sqrt(stiffness / mass), decay = damping / (2 * mass);
+    const frequency = Math.sqrt(omega * omega - decay * decay);
 
     function snap() {
       for (const key of keys) { values[key] = target[key]; velocities[key] = 0; }
@@ -13,8 +40,11 @@
     }
 
     function setTarget(next, {snap: immediate = false} = {}) {
+      next = {shoulder: 0, ...next};
       if (!keys.every(key => Number.isFinite(next[key]))) return false;
+      const changed = keys.some(key => target[key] !== next[key]);
       for (const key of keys) target[key] = next[key];
+      if (changed) elapsed = 0;
       if (!initialized || immediate) { initialized = true; snap(); }
       else active = keys.some(key => Math.abs(values[key] - target[key]) > .01 || Math.abs(velocities[key]) > .1);
       return true;
@@ -26,8 +56,7 @@
       if (Number.isFinite(now)) lastTime = now;
       if (immediate) snap();
       else if (active && dt) {
-        const omega = 34, damping = .8, decay = omega * damping;
-        const frequency = omega * Math.sqrt(1 - damping * damping);
+        elapsed += dt;
         const attenuation = Math.exp(-decay * dt), sine = Math.sin(frequency * dt), cosine = Math.cos(frequency * dt);
         for (const key of keys) {
           const displacement = values[key] - target[key];
@@ -36,7 +65,7 @@
           velocities[key] = (velocity * cosine - (decay * velocity + omega * omega * displacement) / frequency * sine) * attenuation;
         }
         active = keys.some(key => Math.abs(values[key] - target[key]) > .01 || Math.abs(velocities[key]) > .1);
-        if (!active) snap();
+        if (!active || elapsed >= ISLAND_CONFIG.durations.surface / 1000 - 1e-9) snap();
       }
       return {...values};
     }
@@ -44,14 +73,16 @@
     return Object.freeze({setTarget, step, isActive: () => active});
   }
 
-  function shape({width, height, radius}, viewportWidth) {
+  function shape({width, height, radius, shoulder = 0}, viewportWidth) {
     const round = value => Math.round(value * 1000) / 1000;
+    width = Math.max(1, round(width));
     height = Math.max(1, round(height));
-    const shoulder = round(Math.min(24, height * .35, Math.max(0, (viewportWidth - width) / 2)));
-    radius = Math.max(0, Math.min(round(width) / 2, height / 2, round(radius)));
-    const right = round(shoulder + width), totalWidth = round(width + shoulder * 2);
+    shoulder = Math.max(0, Math.min(height, round(shoulder)));
+    if (Number.isFinite(viewportWidth)) width = Math.max(1, Math.min(width, round(viewportWidth - 32 - shoulder * 2)));
+    const totalWidth = round(width + shoulder * 2), right = round(width + shoulder);
+    radius = Math.max(0, Math.min(width / 2, height - shoulder, round(radius)));
     const bottom = round(height - radius);
-    const path = `M0 0 H${totalWidth} Q${right} 0 ${right} ${shoulder} V${bottom} Q${right} ${height} ${round(right - radius)} ${height} H${round(shoulder + radius)} Q${shoulder} ${height} ${shoulder} ${bottom} V${shoulder} Q${shoulder} 0 0 0 Z`;
+    const path = shoulder ? `M0 0 H${totalWidth} C${right + shoulder * .45} 0 ${right} ${shoulder * .45} ${right} ${shoulder} V${bottom} A${radius} ${radius} 0 0 1 ${right - radius} ${height} H${shoulder + radius} A${radius} ${radius} 0 0 1 ${shoulder} ${bottom} V${shoulder} C${shoulder} ${shoulder * .45} ${shoulder * .55} 0 0 0 Z` : `M0 0 H${width} V${bottom} Q${width} ${height} ${round(width - radius)} ${height} H${radius} Q0 ${height} 0 ${bottom} V0 Z`;
     return {width: round(width), height, shoulder, radius, totalWidth, path};
   }
 
@@ -59,12 +90,13 @@
     if (!value || typeof value !== 'object' || Array.isArray(value)) value = {};
     const text = item => typeof item === 'string' ? item.slice(0, 240) : '';
     const title = text(value.title), artist = text(value.artist), source = text(value.source);
+    const sourceId = typeof value.sourceId === 'string' ? value.sourceId.slice(0, 256) : '';
     const available = value.available === true;
     const number = item => Number.isFinite(item) ? Math.max(0, Math.min(604800, item)) : 0;
     const duration = number(value.duration);
     let cover = typeof value.cover === 'string' && value.cover.length <= 5_400_000 && /^data:image\/(?:png|jpeg|webp);base64,[a-zA-Z0-9+/]+={0,2}$/.test(value.cover) ? value.cover : '';
-    if (value.cover === undefined && title === previous.title && artist === previous.artist && source === previous.source) cover = previous.cover || '';
-    return {available, title, artist, source, cover: available ? cover : '', playing: available && value.playing === true,
+    if (value.cover === undefined && title === previous.title && artist === previous.artist && source === previous.source && sourceId === (previous.sourceId || '')) cover = previous.cover || '';
+    return {available, title, artist, source, sourceId, cover: available ? cover : '', playing: available && value.playing === true,
       position: available ? Math.min(number(value.position), duration || 604800) : 0, duration: available ? duration : 0,
       canToggle: available && value.canToggle === true, canNext: available && value.canNext === true, canPrevious: available && value.canPrevious === true,
       canSeek: available && duration > 0 && value.canSeek === true,
@@ -100,27 +132,53 @@
     const lift = Math.max(0, 145 - Math.max(...rgb));
     return '#' + rgb.map(value => Math.min(255, value + lift).toString(16).padStart(2, '0')).join('');
   }
+  function artworkPalette(accent = '') {
+    if (typeof accent !== 'string' || !/^#[a-f0-9]{6}$/i.test(accent)) return {base: '#202024', highlight: '#38383e', shadow: '#0a0a0d'};
+    const rgb = [1, 3, 5].map(offset => parseInt(accent.slice(offset, offset + 2), 16));
+    const luminance = factor => rgb.map(value => value * factor / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((total, value, index) => total + value * [.2126, .7152, .0722][index], 0);
+    const color = target => {
+      let low = 0, high = 255 / Math.max(1, ...rgb);
+      for (let step = 0; step < 16; step++) {const mid = (low + high) / 2; if (luminance(mid) <= target) low = mid; else high = mid;}
+      return '#' + rgb.map(value => Math.floor(value * low).toString(16).padStart(2, '0')).join('');
+    };
+    return {base: color(.095), highlight: color(.12), shadow: color(.008)};
+  }
 
+  const openPanelLimits = Object.freeze({width: ISLAND_CONFIG.states.expanded.width, height: ISLAND_CONFIG.states.expanded.height});
   // Each module declares its content size and band behavior; the notch owns geometry.
   const moduleLayouts = {
     music: {minWidth: 300, basis: 360, maxWidth: 440, height: 176, panelWidth: 440},
-    focus: {minWidth: 320, basis: 528, maxWidth: 528, height: 340, panelWidth: 572},
+    focus: {minWidth: 320, basis: 360, maxWidth: 420, height: 264, panelWidth: 404},
+    tasks: {minWidth: 160, basis: 320, maxWidth: 440, height: 222, panelWidth: 440},
     weather: {minWidth: 288, basis: 320, maxWidth: 384, height: 208, panelWidth: 424},
     shelf: {minWidth: 300, basis: 360, maxWidth: 480, height: 208, panelWidth: 560},
   };
   const moduleDefinitions = Object.freeze(Object.fromEntries([
-    ['music', 'Musique', 'music-player', 'music', 160, 154, 'progress', 'spectrum', ['track', 'pause', 'resume'], 0],
-    ['focus', 'Focus & tâches', 'focus-player', 'focus', 320, 244, 'progress', 'ring', ['start', 'stop', 'pause', 'resume', 'phase', 'complete'], 1],
+    ['music', 'Musique', 'music-player', 'music', 160, 154, 'progress', 'spectrum', ['track'], 0],
+    ['focus', 'Focus & tâches', 'focus-player', 'focus', 320, 244, 'progress', 'ring', ['phase', 'complete', 'task-complete'], 1],
+    ['tasks', 'Tâches', 'tasks-player', 'tasks', 160, 164, 'none', 'none', ['phase', 'complete', 'task-complete'], null],
     ['shelf', 'Étagère', 'shelf-player', 'tray', 160, 148, 'none', 'none', ['sent', 'received', 'complete', 'kept'], null],
     ['weather', 'Météo', 'weather-player', 'weather', 168, 164, 'none', 'none', [], 2],
   ].map(([id, label, element, view, minWidth, minHeight, discreet, hover, changes, initialSlot]) => [id, Object.freeze({
     id, label, element, view, defaultInstalled: true, initialSlot, directOpen: ['shelf', 'weather'].includes(id),
     size: Object.freeze({width: moduleLayouts[id].panelWidth, height: moduleLayouts[id].height + 30, minWidth, minHeight, maxHeight: id === 'focus' ? 420 : 300}),
     layout: Object.freeze({...moduleLayouts[id], minHeight: moduleLayouts[id].height}),
-    editor: Object.freeze({basis: moduleLayouts[id].basis + 24, maxWidth: moduleLayouts[id].maxWidth + 24, height: id === 'focus' ? 216 : moduleLayouts[id].height + 24, grow: id === 'music' ? 1.3 : 1}),
+    editor: Object.freeze({basis: moduleLayouts[id].basis + 24, maxWidth: moduleLayouts[id].maxWidth + 24, height: id === 'focus' ? 180 : moduleLayouts[id].height + 24, grow: id === 'music' ? 1.3 : 1}),
     band: Object.freeze({discreet, hover, changes: Object.freeze(changes)}),
   })])));
   function getModuleDefinitions() { return JSON.parse(JSON.stringify(Object.values(moduleDefinitions))); }
+
+  function nookGridPlan(page, enabled = []) {
+    const layouts = {
+      music: [['music', 1, 1, 4, 4]],
+      focus: [['focus', 1, 1, 2, 4], ['tasks', 3, 1, 2, 4]],
+      tasks: [['pomodoro', 1, 1, 4, 1], ['tasks', 1, 2, 2, 3], ['shelf', 3, 2, 2, 3]],
+      essential: [['weather', 1, 1, 2, 2], ['localsend', 3, 1, 2, 2], ['shelf', 1, 3, 2, 2], ['scenarios', 3, 3, 2, 2]],
+    };
+    const modules = Array.isArray(enabled) ? enabled : [];
+    return (Object.hasOwn(layouts, page) ? layouts[page] : layouts.music).filter(([id]) => ['localsend', 'scenarios'].includes(id) || modules.includes(['tasks', 'pomodoro'].includes(id) ? 'focus' : id))
+      .map(([id, column, row, columns, rows]) => ({id, column, row, columns, rows}));
+  }
 
   function homeModuleLayout(ids, availableWidth, gap = 16, context = {}) {
     const ordered = Array.isArray(ids) ? ids.filter((id, index, list) => typeof id === 'string' && Object.hasOwn(moduleDefinitions, id) && list.indexOf(id) === index).slice(0, 4) : [];
@@ -200,15 +258,20 @@
     if (previous >= 0 && previous !== index) next.slots[previous] = next.slots[index];
     next.slots[index] = id; return next;
   }
+  function modulePlacementPlan(value = {}) {
+    const normalized = normalizeModules(value);
+    const slots = normalized.slots.slice(0, 3).map(id => normalized.enabled.includes(id) ? id : null);
+    const indices = slots.map((id, index) => id ? index : -1).filter(index => index >= 0), count = indices.length;
+    const items = indices.map((slot, index) => ({id: slots[slot], slot, index,
+      presentation: count === 1 ? 'full' : count === 3 && index ? 'rail' : 'scene',
+      share: count === 1 ? 100 : 50, heightShare: count === 3 && index ? .5 : 1}));
+    return {slots, indices, count, primary: items[0]?.id || null, primaryIndex: indices[0] ?? -1, items};
+  }
   function moduleEditorPresentation(value, picked = null) {
-    const normalized = normalizeModules(value), slots = normalized.slots.map(id => normalized.enabled.includes(id) ? id : null);
-    const filled = slots.map((id, index) => id ? index : -1).filter(index => index >= 0), last = filled.at(-1) ?? -1;
-    let free = slots.findIndex((id, index) => !id && index > last);
-    if (free < 0) free = slots.findIndex(id => !id);
-    const selecting = Object.hasOwn(moduleDefinitions, picked || ''), indices = [...filled];
-    if (free >= 0 && (selecting || !filled.length)) indices.push(free);
-    const widths = indices.map(index => moduleDefinitions[slots[index] || (selecting ? picked : '')]?.editor.basis || 180);
-    return {slots, indices, free, height: Math.max(184, ...indices.map(index => moduleDefinitions[slots[index] || (selecting ? picked : '')]?.editor.height || 184)), width: Math.min(880, Math.max(620, widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * 12 + 46))};
+    const plan = modulePlacementPlan(value), primary = plan.primaryIndex < 0 ? 0 : plan.primaryIndex;
+    const presentations = Array.from({length: 3}, (_, slot) => slot === primary ? 'scene' : 'rail');
+    return {slots: [...plan.slots], indices: [0, 1, 2], free: plan.slots.findIndex(id => !id), presentations,
+      width: ISLAND_CONFIG.states.expanded.width, height: ISLAND_CONFIG.states.expanded.height - ISLAND_CONFIG.layout.header - ISLAND_CONFIG.layout.bottom};
   }
 
   const scenarioIds = Object.freeze(['focus', 'ambience', 'day', 'complete', 'minimal']);
@@ -230,7 +293,7 @@
   function scenarioModulePlan(id, enabled, activity = {}) {
     if (!scenarioIds.includes(id)) return [];
     const available = Array.isArray(enabled) ? enabled.filter((item, index, list) => Object.hasOwn(moduleDefinitions, item) && list.indexOf(item) === index) : [];
-    const plans = {focus: ['focus', 'music'], ambience: ['music', 'weather'], day: ['music', 'focus', 'weather'], complete: ['music', 'focus', 'weather', 'shelf']};
+    const plans = {focus: ['music', 'focus'], ambience: ['music', 'weather'], day: ['music', 'focus', 'weather'], complete: ['music', 'focus', 'weather', 'shelf']};
     if (id === 'minimal') return available.slice(0, 1);
     return (plans[id] || []).filter(item => available.includes(item));
   }
@@ -375,6 +438,29 @@
       horizon: stale ? 'prévision précédente · 2 h' : 'prochaines 2 h', loading, status, state: loading ? 'loading' : stale ? 'stale' : available ? 'ready' : 'unavailable'};
   }
 
+  function weatherDesignValues(snapshot = {}, presentation = 'full') {
+    const size = ['full', 'scene', 'rail'].includes(presentation) ? presentation : 'full';
+    const available = Number.isFinite(snapshot.temperature), validTemperature = value => Number.isFinite(value) && Math.abs(value) <= 150;
+    const validDate = value => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(value + 'T12:00:00Z');
+      return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    const seenHours = new Set(), seenDays = new Set();
+    const hours = available && Array.isArray(snapshot.hours) ? snapshot.hours.filter(hour => {
+      const at = hour?.time;
+      if (typeof at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(at) || !validDate(at.slice(0, 10)) || Number(at.slice(11, 13)) > 23 || Number(at.slice(14, 16)) > 59 || !validTemperature(hour.temperature) || seenHours.has(at)) return false;
+      seenHours.add(at); return true;
+    }).slice(0, {full: 6, scene: 4, rail: 2}[size]).map(hour => ({time: hour.time, temperature: Math.round(hour.temperature)})) : [];
+    const days = available && size === 'full' && Array.isArray(snapshot.days) ? snapshot.days.filter(day => {
+      if (!validDate(day?.date) || !validTemperature(day.min) || !validTemperature(day.max) || day.min > day.max || seenDays.has(day.date)) return false;
+      seenDays.add(day.date); return true;
+    }).slice(0, 3).map(day => ({date: day.date, min: Math.round(day.min), max: Math.round(day.max)})) : [];
+    return {size, available, hours, days, narrative: size !== 'rail' && available,
+      min: validTemperature(snapshot.min) ? Math.round(snapshot.min) : null, max: validTemperature(snapshot.max) ? Math.round(snapshot.max) : null,
+      rainRisk: Number.isFinite(snapshot.rainRisk) ? Math.round(Math.max(0, Math.min(100, snapshot.rainRisk))) : null};
+  }
+
   function dragFileCount(dataTransfer) {
     const items = Array.from(dataTransfer?.items || []), count = items.filter(item => item.kind === 'file').length;
     return count || (dataTransfer?.files?.length > 0 ? dataTransfer.files.length : null);
@@ -388,16 +474,85 @@
     return {title: progress > 0 ? 'Transfert interrompu à ' + Math.round(progress) + ' %' : 'Transfert impossible', detail: error || 'Vérifie que les appareils utilisent le même réseau Wi-Fi.', help: value.direction === 'receive' ? 'Relance l’envoi depuis l’appareil expéditeur.' : 'Réessayer démarre un nouvel envoi depuis le début.'};
   }
 
-  function closedBandSize(state, {music = false, focus = false, transfer = false, feedback = null} = {}) {
-    if (state === 'discreet') return {width: 260, band: 10, radius: 4, progress: 0};
-    let size = {width: 312, band: 36, radius: 12, progress: 0};
-    if (feedback === 'done') size = {width: 440, band: 110, radius: 18, progress: 0};
-    if (feedback === 'track') size = {width: 312, band: 44, radius: 12, progress: 0};
-    if (transfer) size = {width: 312, band: 36, radius: 12, progress: 0};
-    return size;
+  function activitySnapshot({music = {}, focus = {}, transfer = null, file = null, now = Date.now()} = {}) {
+    const activities = [], clean = value => typeof value === 'string' ? value.trim().slice(0, 240) : '';
+    const clock = value => { const seconds = Math.max(0, Math.floor(Number(value) || 0)); return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); };
+    if (!focus.pomodoro?.finished && (focus.sessionActive || focus.deadline)) {
+      const seconds = FocusModel.remaining(focus, now), paused = !focus.deadline;
+      activities.push({id: 'focus', label: paused || focus.pomodoro?.phase === 'break' ? 'Pause' : 'Focus', value: clock(seconds), detail: clean(focus.task), playing: !paused});
+    }
+    if (music.available === true) activities.push({id: 'music', label: clean(music.title) || 'Musique', value: clock(music.position), detail: clean(music.artist) || clean(music.source), playing: music.playing === true});
+    if (transfer && ['incoming', 'preparing', 'waiting', 'sending', 'receiving'].includes(transfer.status)) {
+      const progress = ['sending', 'receiving'].includes(transfer.status) && Number.isFinite(transfer.progress) ? Math.max(0, Math.min(1, transfer.progress / 100)) : null;
+      activities.push({id: 'transfer', label: transfer.status === 'incoming' ? 'Demande de partage' : transfer.direction === 'receive' ? 'Réception' : 'Envoi', value: progress === null ? 'LocalSend' : Math.round(progress * 100) + ' %', detail: clean(transfer.alias), progress, playing: true});
+    } else if (file?.status === 'running') {
+      const progress = file.progress?.total > 0 && Number.isFinite(file.progress.current) ? Math.max(0, Math.min(1, file.progress.current / file.progress.total)) : null;
+      activities.push({id: 'file', label: 'Fichier en cours', value: progress === null ? 'Étagère' : Math.round(progress * 100) + ' %', detail: clean(file.source?.name), progress, playing: true});
+    }
+    return activities.slice(0, 3);
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = {FocusModel, focusConfiguration, focusCardValues, weatherNarrative, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, moduleEditorPresentation, homeModuleLayout, getModuleDefinitions, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, closedBandSize};
+  function createActivityScene({now = Date.now, confirmation = 1600} = {}) {
+    const entries = new Map();
+    let order = [], serial = 0;
+    const copy = () => ({primary: order[0] || null, rail: order.slice(1), items: order.map(id => ({...entries.get(id)}))});
+    function update(values = [], {completed = [], interacting = null, preserveOrder = false} = {}) {
+      const current = now(), active = new Map(), previousPrimary = order[0];
+      for (const value of Array.isArray(values) ? values : []) {
+        if (!value || !['focus', 'tasks', 'music', 'weather', 'shelf', 'transfer', 'file'].includes(value.id) || active.has(value.id)) continue;
+        active.set(value.id, {...value});
+        if (active.size === 3) break;
+      }
+      const added = [];
+      for (const [id, value] of active) {
+        const previous = entries.get(id), restarted = previous && (value.key !== previous.key || previous.complete);
+        if (!previous || restarted) added.push(id);
+        entries.set(id, {...value, started: previous && !restarted ? previous.started : ++serial, complete: false});
+      }
+      for (const [id, previous] of entries) {
+        if (active.has(id)) continue;
+        if (!previous.complete && completed.includes(id)) entries.set(id, {...previous, complete: true, progress: 1, until: current + confirmation});
+        else if (!previous.complete || previous.until <= current) entries.delete(id);
+      }
+      order = order.filter(id => entries.has(id));
+      for (const id of added) if (!order.includes(id)) order.push(id);
+      // A newly started Focus earns the scene once. A deliberate rail promotion
+      // remains selected on later ticks, even while that Focus keeps running.
+      if (!entries.has(previousPrimary)) {
+        const next = preserveOrder ? order[0] || active.keys().next().value : active.has('focus') ? 'focus' : active.has(interacting) ? interacting : [...active.keys()].sort((a, b) => entries.get(b).started - entries.get(a).started)[0];
+        if (next) order = [next, ...order.filter(id => id !== next)];
+      }
+      if (!preserveOrder && added.includes('focus') && order[0] !== 'focus') order = ['focus', ...order.filter(id => id !== 'focus')];
+      if (order.length > 3) {
+        const expired = order.filter(id => entries.get(id)?.complete);
+        while (order.length > 3) {const id = expired.shift() || order.at(-1); order = order.filter(value => value !== id); entries.delete(id);}
+      }
+      return copy();
+    }
+    function promote(id) {
+      const index = order.indexOf(id);
+      if (index < 1) return index === 0;
+      [order[0], order[index]] = [order[index], order[0]];
+      return true;
+    }
+    return Object.freeze({update, promote, inspect: copy, reset() {entries.clear(); order = []; serial = 0;}});
+  }
+
+  function closedBandSize(state, {activities = [], feedback = false} = {}) {
+    if (state === 'hover' && feedback) {
+      const {width, height, radius, shoulder} = ISLAND_CONFIG.notification;
+      return {width, band: height, radius, shoulder, progress: 0};
+    }
+    const count = Math.min(3, activities.length);
+    if (count && state === 'hover') {
+      const sizes = ISLAND_CONFIG.activities, scale = sizes.peekScale;
+      return {width: sizes.widths[count - 1] * scale, band: sizes.height * scale, radius: sizes.radius * scale, shoulder: sizes.shoulder * scale, progress: 0};
+    }
+    const size = ISLAND_CONFIG.states[state === 'compact' || state === 'hover' ? 'compact' : 'rest'];
+    return {width: size.width, band: size.height, radius: size.radius, shoulder: 0, progress: 0};
+  }
+
+  if (typeof module === 'object' && module.exports) module.exports = {ISLAND_CONFIG, FocusModel, focusConfiguration, focusCardValues, weatherNarrative, weatherDesignValues, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, modulePlacementPlan, moduleEditorPresentation, homeModuleLayout, nookGridPlan, getModuleDefinitions, openPanelLimits, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, artworkPalette, closedBandSize, activitySnapshot, createActivityScene};
   if (!window?.document) return;
 
   const document = window.document;
@@ -410,6 +565,8 @@
   const notch = document.getElementById('notch');
   const toggle = document.getElementById('notch-toggle');
   const panel = document.getElementById('notch-panel');
+  const expandedLayer = document.getElementById('island-expanded-layer');
+  const islandFooter = document.getElementById('island-footer');
   const menu = document.getElementById('notch-menu');
   const menuButtons = [...menu.querySelectorAll('[data-view]')];
   const surface = document.getElementById('notch-surface');
@@ -421,9 +578,50 @@
   const sizes = {
     discreet: closedBandSize('discreet'),
     hover: closedBandSize('hover'),
-    open: {width: 560, band: 40, radius: 18, progress: 1},
+    open: {width: ISLAND_CONFIG.states.expanded.width, band: 0, radius: ISLAND_CONFIG.states.expanded.radius, progress: 1},
   };
   let state = 'discreet', view = 'nook', frame = 0, disposed = false, geometry, collapseTimer = 0, collapseDeferred = false, fileDialogOpen = false;
+  let islandPage = 'music', scenarioReturnPage = null, closingTo = null, contentExitTimer = 0, hoverTimer = 0, welcomeStage = 'idle';
+  const contentAnimations = new Map();
+  const compactContent = document.getElementById('island-compact-content');
+  const restContent = document.getElementById('island-rest-live');
+  for (const [key, value] of Object.entries({spring: ISLAND_CONFIG.spring.easing, shadow: ISLAND_CONFIG.shadow, 'music-color': ISLAND_CONFIG.accents.music, 'focus-color': ISLAND_CONFIG.accents.focus, 'tasks-color': ISLAND_CONFIG.accents.tasks, 'equalizer-duration': ISLAND_CONFIG.compact.equalizerDuration + 'ms', 'navigation-duration': ISLAND_CONFIG.durations.navigation + 'ms', 'color-duration': ISLAND_CONFIG.durations.color + 'ms', 'progress-duration': ISLAND_CONFIG.durations.progress + 'ms', 'cover-size': ISLAND_CONFIG.compact.coverSize + 'px', 'cover-radius': ISLAND_CONFIG.compact.coverRadius + 'px', 'equalizer-width': ISLAND_CONFIG.compact.equalizerWidth + 'px', 'equalizer-height': ISLAND_CONFIG.compact.equalizerHeight + 'px', 'equalizer-min': ISLAND_CONFIG.compact.equalizerMinScale, 'navigation-size': ISLAND_CONFIG.expanded.navigationSize + 'px', 'navigation-active-width': ISLAND_CONFIG.expanded.navigationActiveWidth + 'px', 'play-size': ISLAND_CONFIG.expanded.playSize + 'px', 'header-height': ISLAND_CONFIG.layout.header + 'px', 'side': ISLAND_CONFIG.layout.side + 'px', 'bottom': ISLAND_CONFIG.layout.bottom + 'px', 'footer-height': ISLAND_CONFIG.layout.footer + 'px', 'gap': ISLAND_CONFIG.layout.gap + 'px', 'columns': ISLAND_CONFIG.layout.columns, 'rows': ISLAND_CONFIG.layout.rows, 'compact-width': ISLAND_CONFIG.states.compact.width + 'px', 'compact-height': ISLAND_CONFIG.states.compact.height + 'px', 'rest-width': ISLAND_CONFIG.states.rest.width + 'px', 'rest-height': ISLAND_CONFIG.states.rest.height + 'px', 'rest-marker-size': ISLAND_CONFIG.rest.marker + 'px', 'rest-handle-width': ISLAND_CONFIG.rest.handleWidth + 'px', 'rest-handle-height': ISLAND_CONFIG.rest.handleHeight + 'px', 'rest-equalizer-width': ISLAND_CONFIG.rest.equalizerWidth + 'px', 'rest-equalizer-height': ISLAND_CONFIG.rest.equalizerHeight + 'px'})) notch.style.setProperty('--island-' + key, value);
+  function islandCoreView() { return !getModuleEditorActive() && ['nook', 'music', 'focus', 'tasks'].includes(view); }
+  function animateIslandLayer(node, entering, compact = false) {
+    if (!node) return;
+    const current = getComputedStyle(node), from = {opacity: current.opacity, filter: current.filter, transform: current.transform};
+    for (const animation of contentAnimations.get(node) || []) animation.cancel();
+    const reducedMotion = !motionEnabled(), target = {opacity: entering ? '1' : '0', filter: reducedMotion || entering ? 'blur(0px)' : 'blur(10px)', transform: reducedMotion || entering ? 'translateY(0px) scale(1)' : compact ? 'translateY(5px) scale(.9)' : 'translateY(20px) scale(.95)'};
+    node.style.pointerEvents = entering ? 'auto' : 'none'; node.inert = !entering;
+    if (reducedMotion) {from.filter = target.filter = 'none'; from.transform = target.transform = 'none'; node.style.filter = 'none'; node.style.transform = 'none';}
+    if (typeof node.animate !== 'function' || document.hidden) {Object.assign(node.style, target); return;}
+    const delay = entering && !reducedMotion ? ISLAND_CONFIG.delays.content : 0;
+    const fade = node.animate([{opacity: from.opacity, filter: from.filter}, {opacity: target.opacity, filter: target.filter}], {duration: reducedMotion ? ISLAND_CONFIG.durations.reduced : entering ? ISLAND_CONFIG.durations.contentEnter : ISLAND_CONFIG.durations.contentExit, delay, fill: 'both', easing: 'ease-out'});
+    const movement = node.animate([{transform: from.transform}, {transform: target.transform}], {duration: reducedMotion ? ISLAND_CONFIG.durations.reduced : entering ? ISLAND_CONFIG.durations.contentSpring : ISLAND_CONFIG.durations.contentExit, delay, fill: 'both', easing: entering && !reducedMotion ? ISLAND_CONFIG.spring.easing : 'ease-out'});
+    const animations = [fade, movement]; contentAnimations.set(node, animations);
+    void Promise.all(animations.map(animation => animation.finished)).then(() => {if (contentAnimations.get(node) === animations) {Object.assign(node.style, target); for (const animation of animations) animation.cancel(); contentAnimations.delete(node);}}).catch(() => {});
+  }
+  function renderIslandNavigation() {
+    const core = islandCoreView(); notch.dataset.islandCore = String(core); notch.dataset.islandPage = islandPage;
+    notch.dataset.nookGrid = String(view === 'nook' && !getModuleEditorActive());
+    islandFooter.hidden = !core; islandFooter.inert = state !== 'open' || !!closingTo;
+    const page = view === 'focus' ? 'focus' : view === 'tasks' ? 'tasks' : islandPage;
+    for (const button of islandFooter.querySelectorAll('[data-island-page]')) {
+      const id = button.dataset.islandPage, enabled = id === 'essential' || isModuleEnabled(id) || id === 'tasks' && isModuleEnabled('focus');
+      button.disabled = !enabled; button.setAttribute('aria-pressed', String(page === id)); button.style.setProperty('--tab-color', ISLAND_CONFIG.accents[id] || 'var(--ui-focus)');
+    }
+    focusComponent?.setPage?.(view === 'nook' ? 'split' : core ? page === 'tasks' ? 'tasks' : 'focus' : 'split');
+  }
+  function islandNavigation(event) {
+    const button = event.target.closest('button'); if (!button) return;
+    if (button.dataset.islandUtility) {selectViewButton({dataset: {view: button.dataset.islandUtility}}); setState('open'); return;}
+    if (!button.dataset.islandPage || button.disabled) return;
+    if (button.dataset.islandPage === 'music' && !musicInBand()) {islandPage = 'music'; selectViewButton({dataset: {view: 'music'}}); renderIslandNavigation(); update(); return;}
+    islandPage = button.dataset.islandPage; selectViewButton({dataset: {view: 'nook'}});
+    if (['music', 'focus'].includes(islandPage) && activityScene.promote(islandPage)) renderHomeLayout();
+    renderIslandNavigation(); update();
+    if (motionEnabled() && typeof panel.animate === 'function') panel.animate([{opacity: 0}, {opacity: 1}], {duration: ISLAND_CONFIG.durations.contentExit, easing: 'ease-out'});
+  }
   let homeLayout = null, pointerInside = false, keyboardNavigation = false;
   let localSendContext = null, nearbyMutation = 0, nearbyLoaded = false;
   const byId = id => document.getElementById(id);
@@ -432,19 +630,19 @@
   if (desktop) { document.documentElement.dataset.desktop = 'true'; document.body.classList.add('desktop'); }
   let appearance = normalizeAppearance();
   try { appearance = normalizeAppearance(JSON.parse(window.localStorage.getItem('notchy-minimal-appearance-v1'))); } catch {}
-  const appearanceFormats = {compact: {width: 520, height: 180}, balanced: {width: 560, height: 196}, comfortable: {width: 620, height: 216}};
   function motionEnabled() { return appearance.motion && !reduced.matches; }
   function renderAppearance() {
     document.body.dataset.motion = String(motionEnabled());
     document.body.dataset.appearanceFormat = appearance.format;
-    byId('appearance-format').value = appearance.format; byId('appearance-radius').value = appearance.radius;
-    byId('appearance-radius-value').value = appearance.radius <= 15 ? t('Léger') : appearance.radius >= 21 ? t('Doux') : t('Équilibré'); byId('appearance-motion').checked = appearance.motion;
+    byId('appearance-format').value = appearance.format;
+    for (const button of settingsPlayer.querySelectorAll('[data-appearance-format]')) button.setAttribute('aria-pressed', String(button.dataset.appearanceFormat === appearance.format)); byId('appearance-radius').value = appearance.radius;
+    byId('appearance-radius-value').value = appearance.radius <= 15 ? t('Net') : appearance.radius >= 21 ? t('Doux') : t('Équilibré'); byId('appearance-motion').checked = appearance.motion;
   }
   function setAppearance(value, persist = true) {
     if (disposed) return false;
     appearance = normalizeAppearance({...appearance, ...value});
     if (persist) try { window.localStorage.setItem('notchy-minimal-appearance-v1', JSON.stringify(appearance)); } catch {}
-    renderAppearance(); update(); musicLifecycle(); return true;
+    renderAppearance(); islandMotionPreference(); musicLifecycle(); return true;
   }
   function appearanceInput(event) {
     if (event.target.id === 'appearance-format') setAppearance({format: event.target.value});
@@ -455,14 +653,24 @@
     if (!desktop || disposed) return;
     if (event) desktopMouse = {x: event.clientX, y: event.clientY};
     const hit = desktopMouse && document.elementFromPoint(desktopMouse.x, desktopMouse.y);
-    const interactive = !!hit?.closest('#notch-toggle,#notch-panel,#notch-menu,#module-feedback-actions');
+    const interactive = !!hit?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer,#module-feedback-actions,#notch-surface > use,#music-hover-controls button');
     if (interactive !== desktopInteractive) { desktopInteractive = interactive; desktop.setInteractive(interactive); }
   }
   function desktopFocus(event) { if (desktop && event.target.closest('#notch')) desktop.focus(); }
+  for (const [key, value] of Object.entries(ISLAND_CONFIG.rest)) notch.style.setProperty('--island-rest-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()), value + 'px');
   const player = byId('music-player'), live = byId('music-live'), strip = byId('music-discreet-progress');
-  const commands = [...panel.querySelectorAll('[data-music-command]')];
-  const spectrumBars = [...notch.querySelectorAll('.music-spectrum i')];
+  const commands = [...notch.querySelectorAll('[data-music-command]')];
+  player.dataset.musicDesign = 'revision-2';
+  const musicTools = document.createElement('div'); musicTools.className = 'music-queue-tools';
+  musicTools.append(byId('music-source'), ...['shuffle', 'repeat'].map(command => player.querySelector(`[data-music-command="${command}"]`)));
+  byId('music-queue').querySelector('.music-queue-heading').after(musicTools);
+  player.querySelector('.music-main').append(byId('music-queue-toggle'));
+  for (const [command, path] of [['previous', 'M11 6v12L2 12zM22 6v12l-9-6z'], ['next', 'M13 6v12l9-6zM2 6v12l9-6z']]) player.querySelector(`[data-music-command="${command}"] path`).setAttribute('d', path);
+  for (const bars of notch.querySelectorAll('.music-spectrum')) {while (bars.children.length < ISLAND_CONFIG.compact.equalizerBars) bars.append(document.createElement('i')); while (bars.children.length > ISLAND_CONFIG.compact.equalizerBars) bars.lastElementChild.remove();}
+  for (const bars of notch.querySelectorAll('.music-spectrum')) [...bars.children].forEach((bar, index) => bar.style.animationDelay = (ISLAND_CONFIG.compact.equalizerDelays[index] || 0) + 'ms');
   const liveBars = [...byId('music-live-spectrum').children], playerBars = [...byId('music-player-spectrum').children], feedbackBars = [...byId('module-feedback-spectrum').children];
+  const restBars = [...restContent.querySelector('.rest-spectrum').children];
+  const spectrumBars = [...notch.querySelectorAll('.music-spectrum i,.rest-spectrum i')];
   const coverImages = [byId('music-cover'), byId('music-live-cover')];
   let spectrumArtwork = '';
   let music = normalizeMusic(), musicAt = window.performance.now(), musicError = '';
@@ -478,7 +686,7 @@
   let scenarioController = null, scenarioPreferences = normalizeScenarios();
   try {const saved = window.localStorage.getItem(scenarioStorageKey); if (saved && saved.length <= 4096) scenarioPreferences = normalizeScenarios(JSON.parse(saved));} catch {}
   const moduleLabels = Object.fromEntries(Object.values(moduleDefinitions).map(item => [item.id, t(item.label)]));
-  let queueOpen = false, queueReturnView = 'music', queueActive = false, queueBusy = false, queueTimer = 0, queueEpoch = 0, queueRetryUntil = 0, queueListSignature = '';
+  let queueOpen = false, queueReturnView = 'music', queueReturnPage = 'music', queueActive = false, queueBusy = false, queueTimer = 0, queueEpoch = 0, queueRetryUntil = 0, queueListSignature = '';
   let queueState = {status: 'disconnected', current: null, items: [], message: ''};
   let queueNotice = '', queueOperation = '';
   let welcome = null;
@@ -488,7 +696,7 @@
     if (disposed || !welcome) return false;
     if (getModuleEditorActive()) closeModuleEditor(false);
     if (view !== 'welcome') { welcomeReturnView = view; welcomeReturnState = state === 'discreet' ? 'open' : state; }
-    clearModuleFeedback(); selectViewButton({dataset: {view: 'welcome'}}); setState('open'); welcome.show(mode);
+    clearModuleFeedback(); selectViewButton({dataset: {view: 'welcome'}}); panel.scrollTop = 0; panel.scrollLeft = 0; setState('open'); welcome.show(mode);
     return true;
   }
   function finishWelcome(nextState = welcomeReturnState) {
@@ -510,25 +718,26 @@
     const closed = byId('module-feedback-live'), opened = byId('module-feedback-open');
     closed.hidden = !feedback || state !== 'hover' || fileDragging;
     opened.hidden = !feedback || state !== 'open' || fileDragging;
-    const done = !!feedback && (feedback.id === 'shelf' || feedback.id === 'focus' && (feedback.kind === 'complete' || feedback.kind === 'phase' && focus.pomodoro?.phase === 'break'));
+    const focusFeedback = feedback && ['focus', 'tasks'].includes(feedback.id);
+    const done = !!feedback && (feedback.id === 'shelf' || focusFeedback && (feedback.kind === 'task-complete' || feedback.kind === 'complete' || feedback.kind === 'phase' && focus.pomodoro?.phase === 'break'));
     notch.dataset.feedback = feedback ? done ? 'done' : feedback.id === 'music' && feedback.kind === 'track' ? 'track' : 'change' : '';
     const actions = byId('module-feedback-actions'); actions.hidden = closed.hidden || !done;
     byId('module-feedback-spectrum').hidden = closed.hidden || feedback?.id !== 'music';
     if (!feedback) return;
     for (const id of ['module-feedback-title', 'module-feedback-open-title']) text(byId(id), feedback.title);
     text(byId('module-feedback-detail'), feedback.detail);
-    text(byId('module-feedback-label'), done ? feedback.id === 'focus' ? t('SESSION TERMINÉE') : t('C’EST PRÊT') : feedback.id === 'music' ? t('EN LECTURE') : 'FOCUS');
-    if (done && feedback.id === 'focus') {
+    text(byId('module-feedback-label'), feedback?.kind === 'task-complete' ? t('Tâche terminée').toLocaleUpperCase(i18n.locale()) : done ? focusFeedback ? t('SESSION TERMINÉE') : t('C’EST PRÊT') : feedback.id === 'music' ? t('EN LECTURE') : 'FOCUS');
+    if (done && focusFeedback && feedback.kind !== 'task-complete') {
       text(byId('module-feedback-title'), focus.task?.trim() || (feedback.kind === 'complete' ? t('Cycle terminé') : t('Un moment pour souffler')));
       text(byId('module-feedback-detail'), focus.pomodoro?.phase === 'break' && !focus.complete ? t('La pause a commencé') : t('Travail et pauses terminés'));
     } else if (feedback.id === 'music') { text(byId('module-feedback-title'), music.title || feedback.title); text(byId('module-feedback-detail'), music.artist || music.source); }
-    const cycles = byId('module-feedback-cycles'); cycles.hidden = !done || feedback.id !== 'focus';
+    const cycles = byId('module-feedback-cycles'); cycles.hidden = !done || !focusFeedback || feedback.kind === 'task-complete';
     if (!cycles.hidden) {
       const card = focusCardValues(focus, focusSettings), signature = card.completed + '/' + card.total + '/' + i18n.locale();
       if (cycles.dataset.value !== signature) { cycles.dataset.value = signature; cycles.replaceChildren(...Array.from({length: card.total}, (_, index) => { const pip = document.createElement('i'); pip.className = index < card.completed ? 'completed' : ''; return pip; })); const label = document.createElement('small'); label.textContent = t('{completed} sur {total}', {completed: card.completed, total: card.total}); cycles.append(label); }
     }
-    text(actions.querySelector('[data-feedback-command="open"]'), feedback.id === 'focus' ? focus.complete ? t('Voir Focus') : t('Voir la pause') : t('Voir le résultat'));
-    actions.querySelector('[data-feedback-command="skip"]').hidden = feedback.id !== 'focus' || !focusIsActive() || focus.pomodoro?.phase !== 'break';
+    text(actions.querySelector('[data-feedback-command="open"]'), feedback.kind === 'task-complete' ? t('Voir les tâches') : focusFeedback ? focus.complete ? t('Voir Focus') : t('Voir la pause') : t('Voir le résultat'));
+    actions.querySelector('[data-feedback-command="skip"]').hidden = !focusFeedback || !focusIsActive() || focus.pomodoro?.phase !== 'break';
     notch.style.setProperty('--module-feedback-color', feedback.id === 'music' ? notch.style.getPropertyValue('--spectrum-color') || '#ffffff' : ['files', 'shelf'].includes(feedback.id) ? '#76d6aa' : feedback.kind === 'phase' && focus.pomodoro?.phase === 'break' ? '#62e7ad' : '#78cecc');
     if (closed.dataset.sequence !== String(feedback.sequence)) {
       closed.dataset.sequence = String(feedback.sequence);
@@ -545,11 +754,12 @@
     if (render && !disposed) { renderModuleFeedback(); renderLiveActivities(); update(); }
   }
   function localizedFeedback(value) {
-    const detail = value.id === 'focus' ? value.detail.startsWith('Session ') ? t('Session {session} sur {total}', {session: focus.pomodoro?.session || 1, total: focus.pomodoro?.total || 4}) : t(value.detail) : value.detail;
+    const detail = ['focus', 'tasks'].includes(value.id) && value.kind !== 'task-complete' ? value.detail.startsWith('Session ') ? t('Session {session} sur {total}', {session: focus.pomodoro?.session || 1, total: focus.pomodoro?.total || 4}) : t(value.detail) : value.detail;
     return {...value, title: t(value.title), detail};
   }
   function notifyModuleChange(event) {
     if (event?.id === 'files') event = {...event, id: 'shelf'};
+    if (event?.id === 'focus' && !isModuleEnabled('focus') && isModuleEnabled('tasks')) event = {...event, id: 'tasks'};
     const definition = moduleDefinitions[event?.id];
     if (disposed || !definition || !isModuleEnabled(event.id) || !definition.band.changes.includes(event.kind) || document.hidden) return;
     const restoreQuiet = state === 'discreet' || moduleFeedback?.restoreQuiet === true;
@@ -569,20 +779,39 @@
     moduleFeedbackTimer = window.setTimeout(() => {
       const quiet = moduleFeedback?.restoreQuiet; clearModuleFeedback();
       if (quiet && state === 'hover' && !pointerInside && !protectedInteraction()) setState('discreet');
-    }, 2800);
+    }, ISLAND_CONFIG.notification.duration);
   }
   function observeModuleActivity(id, value) {
     const next = moduleActivitySnapshot(id, value), previous = moduleActivityStates.get(id);
     moduleActivityStates.set(id, next);
     const event = moduleActivityChange(id, previous, next); if (event) notifyModuleChange(event);
   }
-  function feedbackVisibility() { if (document.hidden) clearModuleFeedback(); }
+  function feedbackVisibility() {
+    if (!document.hidden) return;
+    clearModuleFeedback();
+    settleIslandLayers();
+  }
+  function settleIslandLayers() {
+    if (closingTo) {const next = closingTo; window.clearTimeout(contentExitTimer); closingTo = null; contentExitTimer = 0; applyState(next);}
+    for (const animations of contentAnimations.values()) for (const animation of animations) animation.cancel();
+    contentAnimations.clear();
+    const miniControls = byId('music-hover-controls');
+    for (const [node, visible, compact] of [[expandedLayer, state === 'open', false], [toggle, state !== 'open', true], [compactContent, state === 'hover', true], [restContent, state !== 'hover', true], [miniControls, miniControls.dataset.visible === 'true', true]]) {
+      const simple = !motionEnabled();
+      Object.assign(node.style, {opacity: visible ? '1' : '0', filter: simple || visible ? 'none' : 'blur(10px)', transform: simple || visible ? 'none' : compact ? 'translateY(5px) scale(.9)' : 'translateY(20px) scale(.95)', pointerEvents: visible ? 'auto' : 'none'});
+      node.inert = !visible;
+    }
+    miniControls.style.pointerEvents = 'none'; miniControls.hidden = miniControls.dataset.visible !== 'true';
+    renderIslandNavigation();
+  }
+  function islandMotionPreference() {settleIslandLayers(); update();}
+
   function feedbackCommand(event) {
     const command = event.target.closest('[data-feedback-command]')?.dataset.feedbackCommand, feedback = moduleFeedback;
     if (!command || !feedback || disposed) return;
     event.stopPropagation();
-    if (command === 'skip' && feedback.id === 'focus') { clearModuleFeedback(); focusComponent.command('skip'); return; }
-    const id = feedback.id; clearModuleFeedback(); selectViewButton({dataset: {view: moduleDefinitions[id].view}}); setState('open');
+    if (command === 'skip' && ['focus', 'tasks'].includes(feedback.id)) { clearModuleFeedback(); focusComponent.command('skip'); return; }
+    const id = feedback.id, target = feedback.kind === 'task-complete' ? 'tasks' : ['focus', 'tasks'].includes(id) ? 'focus' : moduleDefinitions[id].view; clearModuleFeedback(); selectViewButton({dataset: {view: target}}); setState('open');
   }
   const moduleMime = 'application/x-notchy-module';
   let moduleSettings = normalizeModules(), moduleDraft = null, moduleMessage = '', moduleEditing = false;
@@ -593,14 +822,20 @@
   } catch {}
   function getModules() { return {enabled: [...moduleSettings.enabled], slots: [...moduleSettings.slots]}; }
   function isModuleEnabled(id) { return moduleSettings.enabled.includes(id); }
+  function focusCoreEnabled() { return isModuleEnabled('focus') || isModuleEnabled('tasks'); }
   function configuredModuleOrder() {
     const ordered = moduleSettings.slots.filter(id => isModuleEnabled(id));
     return [...ordered, ...moduleSettings.enabled.filter(id => !ordered.includes(id))];
   }
   function getHomeSlots() {
+    if (view === 'nook' && !getModuleEditorActive() && islandPage === 'tasks') return isModuleEnabled('tasks') || isModuleEnabled('focus') ? ['tasks', null, null] : [null, null, null];
+    if (view === 'nook' && !getModuleEditorActive() && ['tasks', 'essential'].includes(islandPage)) {
+      const ids = [...new Set(nookGridPlan(islandPage, moduleSettings.enabled).map(item => ['tasks', 'pomodoro'].includes(item.id) ? 'focus' : item.id).filter(id => Object.hasOwn(moduleDefinitions, id)))];
+      return Array.from({length: 3}, (_, index) => ids[index] || null);
+    }
     const selected = scenarioController?.getPreferences().selected;
-    if (selected) {const plan = scenarioModulePlan(selected, configuredModuleOrder()); return Array.from({length: 4}, (_, index) => plan[index] || null);}
-    return moduleSettings.slots.map(id => isModuleEnabled(id) ? id : null);
+    if (selected) return modulePlacementPlan({enabled: moduleSettings.enabled, slots: scenarioModulePlan(selected, configuredModuleOrder())}).slots;
+    return modulePlacementPlan(moduleSettings).slots;
   }
   function getModuleOrder() {
     const ordered = getHomeSlots().filter(Boolean);
@@ -618,6 +853,8 @@
   function setModules(value, persist = true) {
     if (disposed) return false;
     const previous = getModules(); moduleSettings = normalizeModules(value); moduleDraft = moduleEditing ? getModules() : null;
+    activityScene.reset();
+    if (persist) {view = 'nook'; islandPage = 'music';}
     moduleMessage = t('Disposition appliquée.');
     if (persist) try {
       window.localStorage.setItem(moduleStorageKey, JSON.stringify(moduleSettings)); moduleMessage = t('Disposition enregistrée.');
@@ -649,16 +886,16 @@
     modulePreviousView = view; modulePreviousState = state; moduleReturnFocus = document.activeElement;
     moduleDraft = getModules(); modulePicked = null; moduleMessage = ''; moduleEditing = true;
     const target = event?.target?.closest?.('[data-home-slot], [data-module-open]');
-    const moduleId = target?.dataset.moduleOpen || target?.dataset.module, storedIndex = moduleDraft.slots.indexOf(moduleId);
-    const index = Object.hasOwn(moduleDefinitions, moduleId || '') ? storedIndex >= 0 ? storedIndex : moduleDraft.slots.findIndex(id => !id || !moduleDraft.enabled.includes(id)) : target?.dataset.homeSlot;
-    if (storedIndex < 0 && Object.hasOwn(moduleDefinitions, moduleId || '') && index >= 0) modulePicked = moduleId;
-    moduleSelected = Number.isInteger(Number(index)) && Number(index) >= 0 && Number(index) < 4 ? Number(index) : Math.max(0, moduleDraft.slots.findIndex(Boolean));
+    const moduleId = target?.dataset.moduleOpen || target?.dataset.module, storedIndex = moduleDraft.slots.slice(0, 3).indexOf(moduleId);
+    const index = Object.hasOwn(moduleDefinitions, moduleId || '') ? storedIndex >= 0 ? storedIndex : moduleDraft.slots.slice(0, 3).findIndex(id => !id || !moduleDraft.enabled.includes(id)) : target?.dataset.homeSlot;
+    if (storedIndex < 0 && Object.hasOwn(moduleDefinitions, moduleId || '')) modulePicked = moduleId;
+    moduleSelected = Number.isInteger(Number(index)) && Number(index) >= 0 && Number(index) < 3 ? Number(index) : Math.max(0, moduleDraft.slots.slice(0, 3).findIndex(Boolean));
     moduleEditorLayout(true); modulesPlayer.querySelector(`[data-module-slot-box="${moduleSelected}"]`).focus({preventScroll: true}); return true;
   }
   function closeModuleEditor(commit = false) {
     if (!moduleEditing) return false;
     const value = moduleDraft; moduleEditing = false; moduleDraft = null; modulePicked = null;
-    if (commit) setModules(value); else moduleMessage = t('Changements annulés.');
+    if (commit) {modulePreviousView = 'nook'; modulePreviousState = 'open'; setModules(value);} else moduleMessage = t('Changements annulés.');
     moduleEditorLayout(false, true);
     if (moduleReturnFocus?.isConnected && moduleReturnFocus.tabIndex >= 0 && !moduleReturnFocus.closest('[hidden],[inert]')) moduleReturnFocus.focus({preventScroll: true});
     else if (state === 'open') menu.querySelector('[data-view="nook"]').focus({preventScroll: true});
@@ -670,37 +907,38 @@
     if (welcome?.isActive() || !notch.contains(target) || target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || window.getSelection()?.toString().trim()) return false;
     event.preventDefault(); return openModuleEditor(event);
   }
-  function modulePreview(host, id, compact = false) {
+  function modulePreview(host, id, template = 'main') {
     const make = (tag, className, value) => { const node = document.createElement(tag); if (className) node.className = className; if (value !== undefined) node.textContent = value; return node; };
     const glyph = name => byId('module-catalog').querySelector(`[data-module-id="${name}"] .module-tile > svg`).cloneNode(true);
-    const providerBadge = art => { if (!/spotify/i.test(music.source)) return; const badge = make('span', 'music-provider-badge'); badge.setAttribute('aria-label', 'Spotify'); const logo = make('img'); logo.src = '/spotify.ico'; logo.alt = ''; badge.append(logo); art.append(badge); };
+    template = ['main', 'rail', 'compact'].includes(template) ? template : template === true ? 'compact' : 'main';
+    host.dataset.template = template; host.dataset.module = id || ''; host.dataset.moduleId = id || ''; host.dataset.playing = String(id === 'music' ? music.playing : id === 'focus' ? !!focus.deadline : false);
     host.replaceChildren();
-    if (compact) {
-      const icon = make('span', 'module-preview-compact-icon'), copy = make('div', 'module-preview-compact-copy');
-      let title = id ? moduleLabels[id] : t('Ajouter'), detail = t('Libre');
-      if (id) icon.append(glyph(id)); else icon.textContent = '+';
-      if (id === 'music') {
-        title = music.available ? music.title || t('Musique') : t('Musique'); detail = music.available ? music.artist || music.source : t('Aucun morceau en cours');
-        if (music.cover) { const image = make('img'); image.src = music.cover; image.alt = ''; icon.replaceChildren(image); }
-        if (music.available) providerBadge(icon);
-      } else if (id === 'focus') { const value = focusCardValues(focus, focusSettings); title = time(value.seconds); detail = focusIsActive() ? focusLabel() : focus.complete ? t('Cycle terminé') : t('Focus · Prêt à commencer'); }
-      else if (id === 'shelf') detail = shelfLoaded ? localSendCount(shelfItems.length) : t('Chargement…');
-      else if (id === 'weather') { const value = localizedWeatherNarrative(getWeatherState()); title = Number.isFinite(weather.temperature) ? `${value.temperature} · ${value.city}` : t('Météo'); detail = weather.condition || t('Choisir une ville'); }
-      const name = make('strong', '', title), subtitle = make('small', '', detail); name.title = title; subtitle.title = detail;
-      copy.append(name, subtitle); host.append(icon, copy); return;
-    }
     if (id === 'music' && music.available) {
       const top = make('div', 'module-preview-music-top'), art = make('div', 'module-preview-art'), copy = make('div', 'module-preview-music-copy');
       if (music.cover) { const img = make('img'); img.src = music.cover; img.alt = ''; art.append(img); } else art.append(glyph('music'));
-      providerBadge(art);
-      const spectrum = byId('music-player-spectrum').cloneNode(true); spectrum.removeAttribute('id');
-      copy.append(make('strong', '', music.title || t('Musique')), make('small', '', music.artist || '')); top.append(art, copy, spectrum); host.append(top);
+      host.dataset.musicSize = host.dataset.presentation === 'full' ? 'full' : host.dataset.presentation === 'scene' ? 'half' : host.dataset.presentation === 'rail' ? 'banner' : template === 'main' ? 'full' : template === 'rail' ? 'half' : 'banner';
+      const status = make('span', 'module-preview-label', t(music.playing ? 'EN LECTURE' : 'Musique'));
+      copy.append(status, make('strong', '', music.title || t('Musique')), make('small', '', music.artist || music.source)); top.append(art, copy); host.append(top);
       const elapsed = position(), timeline = make('div', 'module-preview-music-timeline'), bar = make('span', 'module-preview-progress'), fill = make('i');
       fill.style.width = (music.duration > 0 ? Math.min(1, Math.max(0, elapsed / music.duration)) * 100 : 0) + '%'; bar.append(fill);
       timeline.append(make('small', '', time(elapsed)), bar, make('small', '', music.duration > 0 ? '−' + time(Math.max(0, music.duration - elapsed)) : '—:—')); host.append(timeline);
       const controls = make('div', 'module-preview-transport');
       for (const name of ['previous', 'toggle', 'next']) { const svg = player.querySelector(`[data-music-command="${name}"] svg`)?.cloneNode(true); if (svg) { svg.removeAttribute('id'); for (const node of svg.querySelectorAll('[id]')) node.removeAttribute('id'); controls.append(svg); } }
       host.append(controls); return;
+    }
+    if (id === 'focus') {
+      const value = focusCardValues(focus, focusSettings), heading = make('span', 'module-preview-label', t(focus.pomodoro?.phase === 'break' ? 'PAUSE' : 'FOCUS') + ' · ' + (focus.pomodoro?.session || 1) + '/' + value.total);
+      host.append(heading, make('strong', 'module-preview-focus-clock', time(value.seconds).padStart(5, '0')),
+        make('span', 'module-preview-focus-task', value.task || t('Focus libre')));
+      const bar = make('span', 'module-preview-progress'), fill = make('i'); fill.style.width = value.progress * 100 + '%'; bar.append(fill); host.append(bar);
+      const cycles = make('span', 'module-preview-focus-cycles');
+      for (let index = 0; index < value.total; index++) {const dot = make('i'); dot.classList.toggle('completed', index < value.completed); cycles.append(dot);}
+      host.append(cycles); return;
+    }
+    if (id === 'tasks') {
+      const current = focus.tasks.find(task => task.id === focus.activeTaskId) || focus.tasks.find(task => !task.done);
+      host.append(make('span', 'module-preview-label', t('Tâches')), make('strong', 'module-preview-task-title', current?.title || t('Ajouter une tâche')),
+        make('small', 'module-preview-task-count', `${focus.tasks.filter(task => task.done).length} / ${focus.tasks.length}`)); return;
     }
     if (id === 'weather') {
       const next = localizedWeatherNarrative(getWeatherState()), row = pairs => { const line = make('p', 'module-preview-weather-line'); for (const [value, emphasized] of pairs) line.append(make(emphasized ? 'strong' : 'span', '', value)); return line; };
@@ -709,9 +947,8 @@
       host.append(current, row([[t('à'), false], [next.city, true]]), row([[t('ressenti'), false], [next.feelsLike, true]]), forecast, make('small', 'module-preview-weather-horizon', next.horizon));
       return;
     }
-    if (id === 'focus') { host.append(focusComponent.preview()); return; }
     const empty = make('div', 'module-preview-empty');
-    if (!id) { empty.append(make('span', 'module-preview-add', '+'), make('strong', '', t('Ajouter un module')), make('small', '', t('Choisis une icône ci-dessous'))); host.append(empty); return; }
+    if (!id) { const add = make('span', 'module-preview-add'); add.setAttribute('aria-hidden', 'true'); add.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; empty.append(add, make('strong', '', t('Ajouter un module')), make('small', '', t('Choisis une icône ci-dessous'))); host.append(empty); return; }
     empty.append(glyph(id));
     if (id === 'shelf') empty.append(make('strong', '', 'Tray'), make('small', '', shelfItems.length ? localSendCount(shelfItems.length) : ''));
     else empty.append(make('strong', '', id === 'music' ? t('Musique') : t('Météo')), make('small', '', id === 'music' ? t('Aucun morceau en cours') : t('Choisir une ville')));
@@ -721,6 +958,7 @@
     if (disposed) return;
     modulesPlayer.hidden = !moduleEditing; if (!moduleEditing || !moduleDraft) return;
     const layout = moduleEditorPresentation(moduleDraft, modulePicked), slots = layout.slots, primary = Math.max(0, slots.findIndex(Boolean));
+    byId('module-editor-frames').dataset.count = String(slots.filter(Boolean).length);
     const frames = [...modulesPlayer.querySelectorAll('[data-module-slot-box]')], focused = document.activeElement;
     const ordered = [...layout.indices.map(index => frames.find(frame => Number(frame.dataset.moduleSlotBox) === index)), ...frames.filter(frame => !layout.indices.includes(Number(frame.dataset.moduleSlotBox)))];
     if (ordered.some((frame, index) => frame !== frames[index])) {
@@ -733,13 +971,13 @@
       frame.hidden = !layout.indices.includes(index);
       frame.dataset.moduleId = id || ''; frame.draggable = !!id; frame.classList.toggle('is-selected', index === moduleSelected);
       frame.classList.toggle('is-primary', index === primary); frame.classList.toggle('is-empty', !id);
-      const preferred = moduleDefinitions[id || modulePicked]?.editor || {basis: 180, maxWidth: 260, height: 156, grow: 1};
-      for (const [name, value] of Object.entries(preferred)) frame.style.setProperty(`--slot-${name}`, name === 'grow' ? String(value) : `${value}px`);
+      const presentation = layout.presentations?.[index] || (index ? 'rail' : 'full'); frame.dataset.presentation = presentation;
       frame.querySelector('.module-slot-caption').textContent = String(index + 1);
       frame.setAttribute('aria-label', t('Emplacement {position} · {kind} · {module}', {position: index + 1, kind: index === primary ? t('affichage principal') : t('accès rapide'), module: id ? moduleLabels[id] : t('ajouter un module')}));
       remove.hidden = !id; remove.setAttribute('aria-label', t('Retirer {module} de cet emplacement', {module: moduleLabels[id] || t('le module')}));
-      const preview = frame.querySelector('.module-preview'), previewKey = `${id || ''}/${index === primary}`;
-      if (!frame.hidden) modulePreview(preview, id, false); else preview.replaceChildren();
+      const preview = frame.querySelector('.module-preview'), previewKey = `${id || ''}/${presentation}/${index}`;
+      preview.dataset.presentation = presentation;
+      if (!frame.hidden) modulePreview(preview, id, index === primary ? 'main' : 'compact'); else preview.replaceChildren();
       if (preview.dataset.key && preview.dataset.key !== previewKey) animateModuleChange(preview);
       preview.dataset.key = previewKey;
       if (focused === remove && !id) frame.focus({preventScroll: true});
@@ -755,12 +993,13 @@
     byId('module-editor-hint').textContent = moduleMessage || t('Choisis un module, puis son emplacement.');
   }
   function placeModuleDraft(index, id) {
-    if (!moduleDraft || !Object.hasOwn(moduleLabels, id)) return;
+    if (!moduleDraft || !Number.isInteger(index) || index < 0 || index > 2 || !Object.hasOwn(moduleLabels, id)) return;
     if (!moduleDraft.enabled.includes(id)) moduleDraft.enabled.push(id);
     moduleDraft = assignModuleSlot(moduleDraft, index, id); moduleSelected = index; modulePicked = null;
     moduleMessage = t('{module} placé.', {module: moduleLabels[id]}); moduleEditorLayout();
   }
   function removeModuleDraft(index) {
+    if (!Number.isInteger(index) || index < 0 || index > 2) return;
     const id = moduleDraft?.slots[index]; if (!id) return;
     moduleDraft.slots[index] = null; moduleDraft.enabled = moduleDraft.enabled.filter(item => item !== id); moduleSelected = index; modulePicked = null;
     moduleMessage = t('{module} retiré.', {module: moduleLabels[id]}); moduleEditorLayout();
@@ -772,7 +1011,7 @@
     if (button?.dataset.moduleCommand === 'cancel') { closeModuleEditor(false); return; }
     if (button?.dataset.moduleCommand === 'remove') { removeModuleDraft(Number(button.closest('[data-module-slot-box]').dataset.moduleSlotBox)); return; }
     if (button?.dataset.moduleCommand === 'pick' && Object.hasOwn(moduleLabels, button.dataset.moduleId)) {
-      modulePicked = button.dataset.moduleId; const existing = moduleDraft.slots.indexOf(modulePicked); if (existing >= 0) moduleSelected = existing;
+      modulePicked = button.dataset.moduleId; const existing = moduleDraft.slots.slice(0, 3).indexOf(modulePicked); if (existing >= 0) moduleSelected = existing;
       moduleMessage = t('{module} sélectionné. Choisis un emplacement.', {module: moduleLabels[modulePicked]}); moduleEditorLayout(); return;
     }
     const frame = event.target.closest('[data-module-slot-box]'); if (!frame) return;
@@ -829,12 +1068,14 @@
   function renderSettingsConnections() {
     if (view !== 'settings') return;
     const focusSummary = focusComponent.summary();
-    byId('settings-focus').disabled = !isModuleEnabled('focus');
-    text(byId('settings-focus-detail'), !isModuleEnabled('focus') ? t('À ajouter depuis l’accueil') : focusSummary.active ? focusLabel() + t(' en cours') : t('Tâches et durée des sessions'));
+    byId('settings-focus').disabled = !focusCoreEnabled();
+    text(byId('settings-focus-detail'), !focusCoreEnabled() ? t('À ajouter depuis l’accueil') : focusSummary.active ? focusLabel() + t(' en cours') : t('Tâches et durée des sessions'));
     text(byId('settings-weather-detail'), weather.selectedCity?.name || weather.city || t('Choisir une ville'));
     text(byId('settings-localsend-detail'), nearby.available ? t('Prêt à partager à proximité') : t('Ouvrir le partage'));
   }
   function settingsCommand(event) {
+    const format = event.target.closest('[data-appearance-format]');
+    if (!disposed && format && !format.disabled && settingsPlayer.contains(format)) {setAppearance({format: format.dataset.appearanceFormat}); return;}
     const button = event.target.closest('[data-settings-command]');
     if (disposed || !button || button.disabled || !settingsPlayer.contains(button)) return;
     if (button.dataset.settingsCommand === 'close') { setState('discreet'); return; }
@@ -867,7 +1108,7 @@
   function scenarioInteracting() {
     const focused = document.hasFocus() ? document.activeElement : null;
     return document.hidden || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || welcome?.isActive() || state === 'open' && pointerInside ||
-      state === 'open' && (keyboardNavigation && !!focused?.closest('#notch-panel,#notch-menu') || !!focused?.closest('input,textarea,select,[contenteditable="true"]')) ||
+      state === 'open' && (keyboardNavigation && !!focused?.closest('#notch-panel,#notch-menu,#island-footer') || !!focused?.closest('input,textarea,select,[contenteditable="true"]')) ||
       state === 'open' && view === 'localsend' && ['consent', 'waiting', 'progress'].includes(localSendPresentation()?.stage);
   }
   function scenarioLabel(id) {return t({focus: 'Focus', ambience: 'Ambiance', day: 'Journée', complete: 'Complet', minimal: 'Minimal'}[id] || 'Scénarios');}
@@ -894,7 +1135,16 @@
     home.style.height = noticeElement.hidden ? '' : 'calc(100% - 32px)';
     if (!noticeElement.hidden) text(byId('scenario-home-status'), t('{scenario} appliqué.', {scenario: scenarioLabel(preferences.selected)}));
   }
+  function scenarioNookPage(selected) {
+    return {focus:'focus',ambience:'music',day:'essential',complete:'essential',minimal:isModuleEnabled('music') ? 'music' : isModuleEnabled('focus') ? 'focus' : 'essential'}[selected] || null;
+  }
   function scenarioChanged(change) {
+    if (change.layout) {
+      if (change.notice?.kind === 'automatic') scenarioReturnPage = islandPage;
+      if (change.notice?.kind === 'undone' && scenarioReturnPage) {islandPage = scenarioReturnPage; scenarioReturnPage = null;}
+      else islandPage = scenarioNookPage(change.preferences?.selected) || islandPage;
+      if (change.notice?.kind === 'manual') scenarioReturnPage = null;
+    }
     renderScenarios();
     if (change.layout) {renderHomeLayout(); renderMusic(); renderFocus(); renderShelf(); renderWeather(); weatherLifecycle();}
     update();
@@ -937,45 +1187,152 @@
   }
 
   const focusPlayer = byId('focus-player'), focusStrip = byId('focus-discreet-progress');
-  let focus = FocusModel.defaults(), focusSettings = focusConfiguration();
-  const focusComponent = FocusAPI.create({host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus});
+  let focus = FocusModel.defaults(), focusSettings = focusConfiguration(), tasksComponent = null;
+  const focusComponent = FocusAPI.create({host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus, openTasks() {
+    selectViewButton({dataset: {view: 'tasks'}}); setState('open'); tasksComponent.focusInput();
+  }, openConfiguration() {
+    selectViewButton({dataset: {view: 'focus'}});
+  }, restoreTaskFocus() {
+    restoreFocusTaskControl();
+  }});
   focus = focusComponent.getState(); focusSettings = focusComponent.getSettings();
+  const tasksPlayer = byId('tasks-player');
+  tasksComponent = FocusAPI.createTasks({host: tasksPlayer, focus: focusComponent, expand() {
+    selectViewButton({dataset: {view: 'tasks'}}); setState('open'); tasksComponent.focusInput();
+  }});
   moduleActivityStates.set('focus', moduleActivitySnapshot('focus', focus));
   function focusIsActive() { return !focus.pomodoro?.finished && (focus.sessionActive || !!focus.deadline); }
   function focusLabel() { return focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind === 'long' ? t('Pause longue') : t('Pause courte') : t('Concentration'); }
   function syncFocus(value) {
     if (disposed) return;
     focus = value.state; focusSettings = value.settings;
+    tasksComponent?.render();
+    renderFocusTaskPrompt();
     const card = value.card;
     notch.style.setProperty('--focus-progress', String(card.progress)); notch.dataset.focusPhase = focus.pomodoro?.phase || 'work';
     text(byId('focus-live-time'), time(card.seconds));
     focusStrip.setAttribute('aria-valuenow', String(Math.round(card.progress * 100)));
     focusStrip.setAttribute('aria-valuetext', t('{phase} · {time} restantes', {phase: focusLabel(), time: time(card.seconds)}));
     observeModuleActivity('focus', focus);
+    if (value.event) notifyModuleChange({id: isModuleEnabled('focus') ? 'focus' : 'tasks', ...value.event});
     scenarioController?.observe();
     renderLiveActivities(); renderHomeSummaries(); if (getModuleEditorActive()) renderModules();
     update();
   }
   function renderFocus() {
-    if (!disposed) focusComponent.lifecycle({enabled: isModuleEnabled('focus'), hidden: document.hidden, visible: state === 'open' && !focusPlayer.hidden && !getModuleEditorActive()});
+    if (!disposed) {
+      if (!focusPlayer.parentElement?.classList?.contains('activity-main')) focusPlayer.dataset.presentation = 'full';
+      focusComponent.lifecycle({enabled: focusCoreEnabled(), hidden: document.hidden, visible: state === 'open' && !focusPlayer.hidden && !getModuleEditorActive()});
+      if (view === 'tasks') tasksPlayer.dataset.presentation = 'full';
+      tasksComponent?.render();
+      renderFocusTaskPrompt();
+    }
+  }
+  function renderFocusTaskPrompt() {
+    const host = byId('focus-task-prompt'), prompt = focus.taskPrompt, task = focus.tasks.find(task => task.id === prompt?.taskId);
+    host.hidden = !task || !prompt || !focusCoreEnabled() || state !== 'open' || getModuleEditorActive() || fileDragging || !!nearby.incoming || focusComponent.inspect().configOpen || focusComponent.inspect().taskPickerOpen || !['nook', 'focus', 'tasks'].includes(view);
+    if (host.hidden) {host.dataset.signature = ''; return;}
+    host.dataset.kind = prompt.kind;
+    const next = focus.tasks.find(item => !item.done), title = t(prompt.kind === 'cycle-complete' ? 'Tâche terminée ?' : 'Tâche terminée · continuer sur :');
+    text(byId('focus-task-prompt-title'), title); text(byId('focus-task-prompt-detail'), task.title);
+    const signature = JSON.stringify([prompt, next?.id, next?.title, task.title, i18n.locale()]);
+    if (host.dataset.signature === signature) return;
+    host.dataset.signature = signature;
+    const actions = byId('focus-task-prompt-actions'), focused = document.activeElement;
+    const restore = host.contains(focused) ? {action: focused.dataset.focusTaskPromptAction, id: focused.dataset.taskId} : null;
+    const make = (action, label, id, primary = false) => {const button = document.createElement('button'); button.type = 'button'; button.dataset.focusTaskPromptAction = action; button.dataset.taskId = id; button.textContent = label; button.title = label; button.classList.toggle('is-primary', primary); return button;};
+    actions.replaceChildren(...(prompt.kind === 'cycle-complete' ? [make('keep', t('Pas encore'), task.id), make('complete', t('Oui'), task.id, true)] : [...(next ? [make('select', next.title, next.id)] : []), make('free', t('Focus libre'), task.id, true)]));
+    text(byId('focus-task-prompt-announcer'), title + ' ' + task.title);
+    if (restore) ([...actions.children].find(button => button.dataset.focusTaskPromptAction === restore.action && button.dataset.taskId === restore.id) || actions.firstElementChild)?.focus({preventScroll: true});
+  }
+  function focusTaskPromptCommand(event) {
+    const button = event.target.closest('[data-focus-task-prompt-action]');
+    const host = byId('focus-task-prompt');
+    if (disposed || !button || !host.contains(button) || button.disabled) return;
+    const prompt = focus.taskPrompt, action = button.dataset.focusTaskPromptAction, id = button.dataset.taskId;
+    if (!prompt) return;
+    const restoreFocus = host.contains(document.activeElement);
+    let accepted = false;
+    if (action === 'select' && prompt.kind === 'continue') accepted = focusComponent.tasks({type: 'select', id});
+    else if (id === prompt.taskId && (action === 'free' && prompt.kind === 'continue' || ['complete', 'keep'].includes(action) && prompt.kind === 'cycle-complete')) accepted = focusComponent.tasks({type: action === 'complete' ? 'confirm-complete' : action === 'free' ? 'unlink' : 'keep', id});
+    if (accepted && restoreFocus) restoreFocusTaskControl();
+  }
+  function restoreFocusTaskControl() {
+    const host = byId('focus-task-prompt');
+    const targets = [...(!host.hidden ? host.querySelectorAll('button') : []), ...document.querySelectorAll('#tasks-player [data-task-action="start"],#focus-toggle,#focus-start,#focus-task-link,[data-scene-command="focus-toggle"],[data-scene-command="focus-link-task"],#notch-menu button')];
+    targets.find(target => !target.disabled && !target.closest('[hidden],[inert]') && target.getClientRects().length)?.focus({preventScroll: true});
   }
 
-  function musicInBand() { return isModuleEnabled('music') && music.available && (state === 'hover' || music.playing && !connectionLost); }
+  function musicInBand() { return isModuleEnabled('music') && music.available; }
+  function getCollapsedActivities() {
+    const transfer = nearby.incoming ? {...nearby.incoming, status: 'incoming', direction: 'receive'} : nearby.transfer;
+    return activitySnapshot({music: musicInBand() ? {...music, position: position(), playing: music.playing && !connectionLost} : {}, focus: isModuleEnabled('focus') || isModuleEnabled('tasks') ? focus : {}, transfer: nearbyLoaded ? transfer : null, file: isModuleEnabled('shelf') ? fileJob : null});
+  }
+  function renderCollapsedActivities(activities = getCollapsedActivities()) {
+    const rail = byId('activity-rail');
+    const suppressed = fileDragging || state === 'hover' && !!moduleFeedback;
+    notch.dataset.mediaPreview = String(state === 'hover' && !suppressed && musicInBand());
+    rail.hidden = state !== 'hover' || suppressed || !activities.length;
+    const mini = state === 'hover' && !suppressed && activities[0]?.id === 'music';
+    const miniControls = byId('music-hover-controls'); notch.dataset.musicMini = String(mini);
+    if (miniControls.dataset.visible !== String(mini)) {
+      miniControls.dataset.visible = String(mini); miniControls.hidden = false;
+      animateIslandLayer(miniControls, mini, true); miniControls.style.pointerEvents = 'none';
+      if (!mini) {
+        const animations = contentAnimations.get(miniControls) || [];
+        if (!animations.length) miniControls.hidden = true;
+        else void Promise.all(animations.map(animation => animation.finished)).then(() => {if (miniControls.dataset.visible === 'false') miniControls.hidden = true;}).catch(() => {});
+      }
+    }
+    miniControls.querySelector('.music-hover-progress').setAttribute('aria-valuenow', String(Math.round((music.duration ? position() / music.duration : 0) * 100)));
+    notch.dataset.activityCount = String(activities.length);
+    notch.dataset.activityRail = String(!rail.hidden);
+    const signature = activities.map(item => item.id).join(',');
+    if (rail.dataset.signature !== signature) {
+      rail.dataset.signature = signature;
+      rail.replaceChildren(...activities.map((item, index) => {
+        const node = document.createElement('span'); node.className = index ? 'activity-badge' : 'activity-primary'; node.dataset.activity = item.id;
+        const glyph = document.createElement('span'); glyph.className = 'activity-glyph';
+        if (item.id === 'music') glyph.innerHTML = '<img alt="" hidden><svg class="activity-music-note" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13M9 9l11-2"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg><span class="activity-spectrum"><i></i><i></i><i></i><i></i></span>';
+        else if (item.id === 'focus') glyph.innerHTML = '<svg class="activity-progress activity-focus-ring" viewBox="0 0 30 30"><circle cx="15" cy="15" r="12"/><circle class="activity-progress-fill" cx="15" cy="15" r="12" pathLength="1"/></svg>';
+        else glyph.innerHTML = '<svg class="activity-progress" viewBox="0 0 30 30"><circle cx="15" cy="15" r="12"/><circle class="activity-progress-fill" cx="15" cy="15" r="12" pathLength="1"/></svg><svg class="activity-share" viewBox="0 0 24 24"><use href="#localsend-icon-share"/></svg>';
+        node.append(glyph);
+        if (!index) {const copy = document.createElement('span'); copy.className = 'activity-copy'; copy.innerHTML = '<strong></strong><small></small>'; const value = document.createElement('span'); value.className = 'activity-value'; node.append(copy, value); if (item.id === 'music') node.append(glyph.querySelector('.activity-spectrum').cloneNode(true));}
+        return node;
+      }));
+    }
+    const localized = item => ({label: item.id === 'music' && music.title ? item.label : t(item.label), value: item.id === 'transfer' || item.id === 'file' ? t(item.value) : item.value, detail: item.detail || (item.id === 'focus' ? focusLabel() : item.id === 'music' ? t(music.playing ? 'En lecture' : 'En pause') : 'LocalSend')});
+    const labels = [];
+    activities.forEach((item, index) => {
+      const node = rail.children[index], copy = localized(item);
+      node.dataset.playing = String(item.playing); node.dataset.indeterminate = String(item.progress === null);
+      node.style.setProperty('--activity-progress', String(item.id === 'focus' ? focusCardValues(focus, focusSettings).progress : item.progress ?? 0));
+      node.title = [copy.label, copy.value, copy.detail].filter(Boolean).join(' · '); labels.push(node.title);
+      if (!index) {text(node.querySelector('strong'), copy.label); text(node.querySelector('small'), copy.detail); text(node.querySelector('.activity-value'), copy.value);}
+      if (item.id === 'music') { const image = node.querySelector('img'), cover = !index && music.cover; image.hidden = !cover; if (cover && image.getAttribute('src') !== cover) image.src = cover; node.dataset.cover = String(!!cover); }
+    });
+    if (state !== 'hover' || !motionEnabled()) for (const bars of rail.querySelectorAll('.activity-spectrum')) delete bars.dataset.signal;
+    if (state !== 'open' && !suppressed) toggle.setAttribute('aria-label', labels.length ? labels.join(' ; ') + ' · ' + t('Ouvrir l’encoche') : t('Ouvrir l’encoche'));
+  }
   function renderLiveActivities() {
-    const hasMusic = musicInBand(), hasFocus = isModuleEnabled('focus') && focusIsActive(), priority = state === 'hover' && !!moduleFeedback && isModuleEnabled(moduleFeedback.id);
-    live.hidden = state !== 'hover' || !hasMusic || fileDragging || priority;
-    byId('focus-live').hidden = state !== 'hover' || !hasFocus || fileDragging || priority;
-    strip.hidden = state === 'open' || !hasMusic || fileDragging || priority;
-    focusStrip.hidden = state !== 'discreet' || !hasFocus || fileDragging;
+    const hasMusic = musicInBand(), hasFocus = (isModuleEnabled('focus') || isModuleEnabled('tasks')) && focusIsActive(), priority = state === 'hover' && !!moduleFeedback && isModuleEnabled(moduleFeedback.id);
+    restContent.dataset.music = String(hasMusic); restContent.dataset.focus = String(hasFocus);
+    restContent.dataset.active = String(hasMusic || hasFocus);
+    live.hidden = !hasMusic || fileDragging || priority;
+    byId('focus-live').hidden = !hasFocus || hasMusic || fileDragging || priority;
+    strip.hidden = !hasMusic || state !== 'discreet' || fileDragging;
+    focusStrip.hidden = !hasFocus || state !== 'discreet' || fileDragging;
     notch.dataset.liveCount = String(Number(hasMusic) + Number(hasFocus));
-    byId('live-activities').hidden = state !== 'hover' || fileDragging || priority || !(hasMusic || hasFocus);
+    byId('live-activities').hidden = fileDragging || priority || !(hasMusic || hasFocus);
     renderModuleFeedback();
     const transferBand = localSendBand();
     renderLocalSend();
     if (state !== 'open' && transferBand) {
-      byId('live-activities').hidden = true; strip.hidden = true; focusStrip.hidden = true;
+      byId('live-activities').hidden = true;
+      if (['progress', 'complete'].includes(transferBand.stage)) {strip.hidden = true; focusStrip.hidden = true;}
       byId('module-feedback-live').hidden = true; byId('module-feedback-actions').hidden = true;
     }
+    renderCollapsedActivities();
   }
   function homePrimary() { return getModuleEditorActive() ? getModuleEditorSlots()[0] : getHomeSlots().find(Boolean) || null; }
   function homeModuleContext() { const selected = scenarioController?.getPreferences().selected; return {weatherPicker: weatherPickerOpen, focusConfig: focusComponent?.inspect().configOpen, completeScenario: selected === 'complete', dayScenario: selected === 'day'}; }
@@ -983,13 +1340,257 @@
     const definition = moduleDefinitions[id], editing = getModuleEditorActive();
     if (id === 'files') return view === 'files' && !editing;
     if (editing && view === 'nook') return false;
-    const inHome = view === 'nook' && !editing && homeModuleLayout(getHomeSlots(), 0, 16, homeModuleContext()).items.some(item => item.id === id && !item.compact);
-    return !!definition && (definition.directOpen && view === definition.view || (editing ? getModuleEditorOrder().includes(id) : isModuleEnabled(id)) && (view === definition.view || inHome));
+    const scene = byId('nook-layout').dataset.layout === 'activities';
+    const inHome = view === 'nook' && !editing && ['music', 'focus', 'tasks'].includes(id) && (['music', 'tasks'].includes(id) ? scene ? activityScene.inspect().items.some(item => item.id === id && !item.complete) : getHomeSlots().includes(id) : scene ? byId('nook-layout').dataset.primary === id && byId('nook-layout').dataset.sceneComplete !== 'true' : getHomeSlots().includes(id));
+    return !!definition && (definition.directOpen && view === definition.view || id === 'focus' && view === 'focus' && focusCoreEnabled() || id === 'tasks' && isModuleEnabled('focus') && (view === 'tasks' || inHome && islandPage === 'tasks') || (editing ? getModuleEditorOrder().includes(id) : isModuleEnabled(id)) && (view === definition.view || inHome));
   }
   const homeCells = new Map();
-  function renderHomeLayout() {
+  const activityScene = createActivityScene(), activityCards = new Map();
+  let activityStage = null, activityMain = null, activitySide = null, activityExpiryTimer = 0, sceneConfigurationSignature = '';
+  function sceneActivities() {
+    const configured = modulePlacementPlan({enabled: islandPage === 'tasks' && isModuleEnabled('focus') ? [...moduleSettings.enabled, 'tasks'] : moduleSettings.enabled, slots: getHomeSlots()});
+    const live = new Map(getCollapsedActivities().map(item => [item.id, item]));
+    const priorTransfer = activityScene.inspect().items.find(item => item.id === 'transfer');
+    const confirmingTransfer = priorTransfer && nearby.transfer?.status === 'complete' && (!priorTransfer.complete || priorTransfer.until > Date.now());
+    const contextual = live.get('transfer') || live.get('file');
+    const currentOrder = activityScene.inspect().items.map(item => item.id);
+    const ordered = [...configured.items].sort((left, right) => {
+      const rank = id => currentOrder.includes(id) ? currentOrder.indexOf(id) : 3 + configured.items.findIndex(item => item.id === id);
+      return rank(left.id) - rank(right.id);
+    });
+    const selected = (contextual || confirmingTransfer ? ordered : configured.items).slice(0, contextual || confirmingTransfer ? 2 : 3);
+    const values = selected.map(({id}) => {
+      const card = id === 'focus' ? focusCardValues(focus, focusSettings) : null;
+      if (id === 'music') return {id, key: id, label: music.title || t('Musique'), value: time(position()), detail: music.artist || music.source,
+        playing: music.playing && !connectionLost, progress: music.duration ? position() / music.duration : null};
+      if (id === 'focus') return {id, key: id, label: focusLabel(), value: time(card.seconds), detail: focus.task,
+        playing: !!focus.deadline, progress: card.progress};
+      if (id === 'tasks') return {id, key: id, label: t('Tâches'), value: `${focus.tasks.filter(task => task.done).length} / ${focus.tasks.length}`, detail: focus.task, playing: false, progress: null};
+      if (id === 'weather') {const next = getWeatherSummary().narrative; return {id, key: id, label: t('Météo'), value: next.temperature, detail: next.city, progress: null, playing: false};}
+      return {id, key: id, label: t('Étagère'), value: localSendCount(shelfItems.length), detail: shelfItems[0]?.name || t('Ouvrir l’Étagère'), progress: null, playing: false};
+    });
+    if (contextual) values.push({...contextual, key: contextual.id === 'transfer' ? nearby.incoming?.id || nearby.transfer?.id : fileJob.jobId});
+    return values;
+  }
+  function ensureActivityStage() {
+    if (activityStage) return;
+    activityStage = document.createElement('div'); activityStage.className = 'activity-stage'; activityStage.id = 'activity-stage';
+    activityMain = document.createElement('div'); activityMain.className = 'activity-main activity-card'; activityMain.tabIndex = -1; activityMain.setAttribute('role', 'group');
+    activitySide = document.createElement('aside'); activitySide.className = 'activity-rail-cards'; activitySide.setAttribute('aria-label', t('Activités en cours'));
+    activityStage.append(activityMain, activitySide);
+    activityStage.addEventListener('click', activitySceneCommand);
+  }
+  function activitySummaryCard(id) {
+    if (activityCards.has(id)) return activityCards.get(id);
+    if (id === 'music') {activityCards.set(id, player); return player;}
+    if (id === 'tasks') {tasksPlayer.classList.add('activity-card', 'activity-card-secondary'); activityCards.set(id, tasksPlayer); return tasksPlayer;}
+    const card = document.createElement('article'); card.className = 'activity-card activity-card-secondary'; card.dataset.activity = id; card.dataset.module = id === 'transfer' ? 'localsend' : id === 'file' ? 'shelf' : id; card.setAttribute('role', 'group');
+    if (id === 'focus') {
+      card.classList.add('focus-summary');
+      card.innerHTML = '<header class="focus-summary-heading"><button type="button" data-scene-promote="focus" class="focus-summary-phase"></button><button type="button" data-scene-command="focus-configure" class="focus-summary-configure"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button></header><div class="focus-summary-clock focus-clock" role="timer" aria-live="off"></div><button type="button" data-scene-command="focus-link-task" class="focus-summary-task"></button><div class="focus-summary-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div><footer class="focus-summary-controls"><button type="button" data-scene-command="focus-complete-task" class="focus-summary-done"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button><button type="button" data-scene-command="focus-toggle" class="focus-summary-toggle"><svg viewBox="0 0 24 24" aria-hidden="true"><path/></svg></button></footer>';
+      activityCards.set(id, card); return card;
+    }
+    card.innerHTML = '<button type="button" class="activity-promote" data-scene-promote="' + id + '"><span class="activity-card-body"><span class="activity-card-art" aria-hidden="true"><img alt="" hidden><svg viewBox="0 0 24 24"><use href="#localsend-icon-share"/></svg></span><span class="activity-card-copy"><span class="activity-card-eyebrow"></span><strong class="activity-card-title"></strong><span class="activity-card-detail"></span></span><span class="activity-card-ring" aria-hidden="true"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="26"/><circle class="activity-card-ring-fill" cx="30" cy="30" r="26" pathLength="1"/></svg></span></span><span class="activity-card-value"></span></button><div class="activity-card-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div><div class="activity-card-times"><span></span><span></span></div><div class="activity-card-actions"><button type="button" class="activity-card-action"><svg viewBox="0 0 24 24" aria-hidden="true"><path/></svg></button></div><div class="activity-card-completion" role="status" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><span></span></div>';
+    const status = document.createElement('span'); status.className = 'activity-card-status-label'; card.querySelector('.activity-card-eyebrow').append(status);
+    if (id === 'weather' || id === 'shelf') {
+      card.classList.add('activity-module-summary');
+      const preview = document.createElement('span'); preview.className = 'activity-module-preview'; card.querySelector('.activity-promote').append(preview);
+      if (id === 'weather') {const design = document.createElement('span'); design.className = 'weather-design'; card.querySelector('.activity-promote').append(design);}
+      if (id === 'shelf') card.querySelector('.activity-card-art svg').innerHTML = '<path d="M3 6h7l2 3h9v11H3Z"/>';
+    }
+    if (id === 'music') {
+      card.querySelector('.activity-card-art svg').innerHTML = '<path d="M9 18V5l11-2v13M9 9l11-2"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>';
+      const spectrum = document.createElement('span'); spectrum.className = 'activity-spectrum'; spectrum.setAttribute('aria-hidden', 'true'); spectrum.innerHTML = '<i></i><i></i><i></i>'; card.querySelector('.activity-card-eyebrow').prepend(spectrum);
+      for (const [command, label, path] of [['previous', 'Morceau précédent', 'M18 5v14l-9-7ZM5 5h3v14H5Z'], ['next', 'Morceau suivant', 'M6 5v14l9-7ZM16 5h3v14h-3Z']]) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'activity-card-skip'; button.dataset.sceneCommand = 'music-' + command; button.setAttribute('aria-label', t(label));
+        button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + path + '"/></svg>';
+        const actions = card.querySelector('.activity-card-actions'); if (command === 'previous') actions.prepend(button); else actions.append(button);
+      }
+    }
+    card.querySelector('img').addEventListener('error', event => {event.target.hidden = true;});
+    activityCards.set(id, card); return card;
+  }
+  function renderActivitySceneValues() {
+    if (!activityStage || byId('nook-layout').dataset.layout !== 'activities') return;
+    if (activityMain.dataset.activity === 'music') text(player.querySelector('.music-playing-label'), t(music.playing && !connectionLost ? 'EN LECTURE' : 'Musique'));
+    const values = new Map(sceneActivities().map(item => [item.id, item]));
+    for (const snapshot of activityScene.inspect().items) {
+      const item = snapshot.complete ? snapshot : values.get(snapshot.id) || snapshot, card = activityCards.get(item.id);
+      if (!card || !activityStage.contains(card)) continue;
+      if (item.id === 'music') continue; // The same live player owns every music placement.
+      if (item.id === 'tasks') {tasksComponent.render(); continue;}
+      if (item.id === 'focus') {renderFocusSummary(card); continue;}
+      const isMusic = item.id === 'music', isFocus = item.id === 'focus', isTransfer = item.id === 'transfer', isWeather = item.id === 'weather', isShelf = item.id === 'shelf', playing = item.playing;
+      const weatherCopy = isWeather ? getWeatherSummary().narrative : null;
+      const transferName = isTransfer && (nearby.incoming?.files?.[0]?.name || nearby.transfer?.files?.[0]?.name || (nearby.transfer?.fileCount ? localSendCount(nearby.transfer.fileCount) : 'LocalSend'));
+      const title = isMusic ? music.title || t('Aucun morceau') : isFocus ? focus.task || focusLabel() : isWeather ? weatherCopy.city : isShelf ? t('Étagère') : isTransfer ? transferName + (item.detail ? ' → ' + item.detail : '') : item.detail || t(item.label);
+      const detail = isMusic ? music.artist || music.source || t('Ouvrir le lecteur') : isFocus ? t(playing ? 'En cours' : focusIsActive() ? 'Prêt à reprendre' : 'Prêt à commencer') : isWeather ? weather.condition ? t(weather.condition) : weatherCopy.status || t('conditions indisponibles') : isShelf ? shelfError || (shelfLoaded ? shelfItems.length ? shelfItems[0].name : t('Déposer des fichiers') : t('Chargement…')) : isTransfer ? nearby.transfer?.totalBytes ? localSendSize(nearby.transfer.totalBytes) : t(item.label) : fileJob.source?.name || t('Fichier en cours');
+      card.dataset.complete = String(!!item.complete); card.dataset.playing = String(!!playing); card.dataset.indeterminate = String(item.progress === null);
+      card.style.setProperty('--activity-progress', String(item.progress ?? 0)); card.setAttribute('aria-label', [t(item.label), detail].filter(Boolean).join(' · '));
+      text(card.querySelector('.activity-card-status-label'), isMusic ? t(playing ? 'EN LECTURE' : 'Musique') : isFocus ? t(focus.pomodoro?.phase === 'break' ? 'PAUSE' : 'FOCUS') + ' · ' + t('CYCLE') + ' ' + (focus.pomodoro?.session || 1) + '/' + (focus.pomodoro?.total || focusSettings.total) : isWeather ? t('Météo') : isShelf ? t('Fichiers gardés') : isTransfer ? 'LOCALSEND · ' + t(item.label).toLocaleUpperCase(i18n.locale()) : t('Fichier en cours'));
+      text(card.querySelector('.activity-card-title'), title); text(card.querySelector('.activity-card-detail'), detail);
+      text(card.querySelector('.activity-card-value'), isMusic || isFocus ? '' : isWeather ? weatherCopy.temperature : isShelf ? shelfLoaded ? localSendCount(shelfItems.length) : '—' : item.value);
+      const promote = card.querySelector('.activity-promote'); promote.setAttribute('aria-label', t('Afficher l’activité') + ' · ' + title + (isFocus ? ' · ' + item.value : ''));
+      if (isFocus) text(card.querySelector('.activity-card-ring-time'), item.value);
+      const progress = card.querySelector('.activity-card-progress'); progress.hidden = isFocus || isWeather || isShelf; progress.setAttribute('aria-label', t(isMusic ? 'Progression de la lecture' : 'Progression du transfert'));
+      if (item.progress === null) progress.removeAttribute('aria-valuenow'); else progress.setAttribute('aria-valuenow', String(Math.round(item.progress * 100)));
+      const times = card.querySelector('.activity-card-times'); times.hidden = !isMusic;
+      if (isMusic) {text(times.children[0], time(position())); text(times.children[1], music.duration ? time(music.duration) : '—:—');}
+      const image = card.querySelector('img'); image.hidden = !isMusic || !music.cover; if (!image.hidden && image.getAttribute('src') !== music.cover) image.src = music.cover;
+      card.querySelector('.activity-card-art').hidden = isFocus; card.querySelector('.activity-card-ring').hidden = !isFocus;
+      if (isWeather) {
+        card.querySelector('.activity-card-art svg').replaceChildren(byId('weather-condition-icon').querySelector('path').cloneNode(true));
+        text(card.querySelector('.activity-module-preview'), [t('ressenti') + ' ' + weatherCopy.feelsLike, weatherCopy.rain + ' ' + weatherCopy.rainQualifier].join(' · '));
+        renderWeatherDesign(card.querySelector('.weather-design'), card.dataset.presentation);
+      } else if (isShelf) {
+        const preview = card.querySelector('.activity-module-preview'), signature = JSON.stringify(shelfItems.slice(0, 3).map(file => [file.id, file.name]));
+        if (preview.dataset.files !== signature) {preview.dataset.files = signature; preview.replaceChildren(...shelfItems.slice(0, 3).map(file => {const name = document.createElement('span'); name.textContent = file.name; return name;}));}
+      }
+      const action = card.querySelector('.activity-card-action'), path = action.querySelector('path');
+      action.dataset.sceneCommand = isFocus ? 'focus-toggle' : isMusic ? 'music-toggle' : isWeather ? 'weather-open' : isShelf ? 'shelf-open' : isTransfer ? 'transfer-cancel' : 'file-open';
+      action.disabled = !!item.complete || (isMusic ? commandBusy || connectionLost || !music.canToggle : isFocus ? false : isWeather || isShelf ? false : isTransfer ? nearbyBusy || !['preparing', 'waiting', 'sending', 'receiving'].includes(nearby.transfer?.status) : fileBusy);
+      action.setAttribute('aria-label', t(isMusic || isFocus ? playing ? 'Mettre en pause' : isFocus && !focusIsActive() ? 'Démarrer Focus' : 'Reprendre' : isTransfer ? 'Annuler le transfert' : 'Ouvrir'));
+      if (isMusic) for (const [command, capability, label] of [['previous', 'canPrevious', 'Morceau précédent'], ['next', 'canNext', 'Morceau suivant']]) {
+        const button = card.querySelector('[data-scene-command="music-' + command + '"]'); button.disabled = !!item.complete || commandBusy || connectionLost || !music[capability]; button.setAttribute('aria-label', t(label));
+      }
+      path.setAttribute('d', isMusic || isFocus ? playing ? 'M6 5h4v14H6ZM14 5h4v14h-4Z' : 'M8 5v14l11-7Z' : isTransfer ? 'M6 6l12 12M18 6L6 18' : 'M8 5l8 7-8 7');
+      const completion = card.querySelector('.activity-card-completion'); completion.hidden = !item.complete;
+      text(completion.querySelector('span'), t(isTransfer ? nearby.transfer?.direction === 'receive' ? 'Reçu' : 'Envoyé' : 'Terminé'));
+    }
+    activitySide.setAttribute('aria-label', t('Activités en cours'));
+  }
+  function renderFocusSummary(card) {
+    const value = focusComponent.summary(), linked = focus.tasks.find(task => task.id === focus.activeTaskId && !task.done);
+    card.dataset.complete = String(!!focus.complete); card.dataset.playing = String(!!focus.deadline);
+    card.dataset.focusBreak = focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind : 'none';
+    const phase = t(focus.pomodoro?.phase === 'break' ? 'PAUSE' : 'FOCUS') + ' · ' + (focus.pomodoro?.session || 1) + '/' + value.total;
+    text(card.querySelector('.focus-summary-phase'), phase); card.querySelector('.focus-summary-phase').setAttribute('aria-label', t('Afficher l’activité') + ' · ' + phase);
+    const clock = card.querySelector('.focus-summary-clock');
+    FocusAPI.renderClock(clock, value.seconds, {motion: motionEnabled() && state === 'open' && !document.hidden});
+    clock.setAttribute('aria-label', t('{minutes} minutes {seconds} secondes', {minutes: Math.floor(value.seconds / 60), seconds: value.seconds % 60}));
+    const task = card.querySelector('.focus-summary-task'); text(task, linked?.title || t('Focus libre')); task.title = linked?.title || t('Focus libre');
+    task.setAttribute('aria-label', t(linked ? 'Changer la tâche liée : {task}' : 'Lier une tâche', {task: linked?.title}));
+    const progress = card.querySelector('.focus-summary-progress'); progress.style.setProperty('--focus-progress', value.progress); progress.setAttribute('aria-label', t('Progression de la session')); progress.setAttribute('aria-valuenow', String(Math.round(value.progress * 100)));
+    card.querySelector('[data-scene-command="focus-configure"]').setAttribute('aria-label', t('Régler le Pomodoro'));
+    const done = card.querySelector('.focus-summary-done'); done.disabled = !linked; done.setAttribute('aria-label', t('Terminée'));
+    const toggle = card.querySelector('.focus-summary-toggle'); toggle.setAttribute('aria-label', t(value.active ? value.paused ? 'Reprendre Focus' : 'Mettre Focus en pause' : 'Démarrer Focus'));
+    toggle.querySelector('path').setAttribute('d', focus.deadline ? 'M6 5h4v14H6ZM14 5h4v14h-4Z' : 'M8 5v14l11-7Z');
+  }
+  function renderActivityScene() {
+    const home = byId('nook-layout'), eligible = view === 'nook' && !getModuleEditorActive() && islandPage !== 'essential';
+    if (!eligible) return false;
+    const configuration = JSON.stringify(getHomeSlots());
+    if (configuration !== sceneConfigurationSignature) {activityScene.reset(); sceneConfigurationSignature = configuration;}
+    const completed = [];
+    if (isModuleEnabled('focus') && (focus.complete || focus.pomodoro?.finished)) completed.push('focus');
+    if (nearby.transfer?.status === 'complete') completed.push('transfer');
+    if (isModuleEnabled('shelf') && fileJob.status === 'complete') completed.push('file');
+    const snapshot = activityScene.update(sceneActivities(), {completed, preserveOrder: true});
+    window.clearTimeout(activityExpiryTimer); activityExpiryTimer = 0;
+    const expiry = snapshot.items.filter(item => item.complete).map(item => item.until);
+    if (expiry.length) activityExpiryTimer = window.setTimeout(() => {activityExpiryTimer = 0; if (!disposed) renderHomeLayout();}, Math.max(1, Math.min(...expiry) - Date.now()));
+    ensureActivityStage();
+    home.dataset.layout = 'activities'; home.dataset.grid = 'activities'; home.dataset.scenario = ''; home.dataset.primary = snapshot.primary || ''; home.dataset.sceneComplete = String(!!snapshot.items[0]?.complete); home.dataset.activityCount = String(snapshot.items.length);
+    homeLayout = {mode: 'activities', primary: snapshot.primary, rail: [...snapshot.rail], items: snapshot.items.map((item, index) => ({id: item.id, complete: !!item.complete, presentation: snapshot.items.length === 1 ? 'full' : snapshot.items.length === 3 && index ? 'rail' : 'scene'}))};
+    if (!snapshot.items.length) {
+      for (const definition of Object.values(moduleDefinitions)) {const element = byId(definition.element); if (element.parentElement !== panel) panel.append(element); element.hidden = true;}
+      activityStage.remove(); byId('home-main').hidden = true; byId('home-side').hidden = true; byId('home-empty').hidden = false; home.inert = false; renderMusicQueue(); musicQueueLifecycle(); return true;
+    }
+    const primary = snapshot.items[0], component = moduleDefinitions[primary.id] && ['music', 'focus', 'tasks'].includes(primary.id) && !primary.complete ? byId(moduleDefinitions[primary.id].element) : null;
+    for (const definition of Object.values(moduleDefinitions)) {
+      const element = byId(definition.element), parent = element === component ? activityMain : ['music', 'tasks'].includes(definition.id) && snapshot.rail.includes(definition.id) ? activitySide : panel;
+      if (element.parentElement !== parent) parent.append(element);
+      element.hidden = !builtinVisible(definition.id); element.dataset.module = definition.id;
+    }
+    const presentation = snapshot.items.length === 1 ? 'full' : 'scene';
+    activityMain.dataset.activity = primary.id; activityMain.dataset.module = primary.id === 'transfer' ? 'localsend' : primary.id === 'file' ? 'shelf' : primary.id; activityMain.dataset.presentation = presentation;
+    const primaryDescription = [primary.id === 'music' ? primary.label : t(primary.label), primary.detail].filter(Boolean).join(' · ');
+    activityMain.setAttribute('aria-label', primaryDescription); activityMain.title = primaryDescription;
+    const primaryContent = component || activitySummaryCard(primary.id);
+    primaryContent.dataset.presentation = presentation; primaryContent.dataset.module = activityMain.dataset.module; primaryContent.dataset.activity = primary.id;
+    if (primary.id === 'tasks') tasksComponent.render();
+    if (activityMain.firstElementChild !== primaryContent || activityMain.children.length !== 1) activityMain.replaceChildren(primaryContent);
+    for (const id of snapshot.rail) {const card = activitySummaryCard(id); card.dataset.presentation = snapshot.items.length === 2 ? 'scene' : 'rail'; card.dataset.activity = id; if (id === 'music') {card.classList.add('activity-card', 'activity-card-secondary'); card.hidden = false;} if (id === 'tasks') {card.hidden = false; tasksComponent.render();} if (card.parentElement !== activitySide) activitySide.append(card);}
+    for (const card of [...activitySide.children]) if (!snapshot.rail.includes(card.dataset.activity)) card.remove();
+    snapshot.rail.forEach((id, index) => {const card = activitySummaryCard(id); if (activitySide.children[index] !== card) activitySide.insertBefore(card, activitySide.children[index] || null);});
+    activitySide.hidden = !snapshot.rail.length;
+    if (activityStage.parentElement !== home) home.append(activityStage);
+    for (const child of [...home.children]) if (![activityStage, byId('home-main'), byId('home-side'), byId('home-empty')].includes(child)) child.remove();
+    byId('home-main').hidden = true; byId('home-side').hidden = true; byId('home-empty').hidden = true; home.inert = false;
+    renderActivitySceneValues(); renderMusicQueue(); musicQueueLifecycle(); return true;
+  }
+  function animateActivityPromotion() {
+    if (!activityMain || state !== 'open' || document.hidden) return;
+    const previous = contentAnimations.get(activityMain), current = getComputedStyle(activityMain);
+    const from = previous ? {opacity: current.opacity, translate: current.translate} : {opacity: .88, translate: '8px 0px'};
+    for (const animation of previous || []) animation.cancel();
+    contentAnimations.delete(activityMain);
+    if (!motionEnabled() || typeof activityMain.animate !== 'function') return;
+    const animation = activityMain.animate([from, {opacity: 1, translate: '0px 0px'}], {duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)'});
+    const animations = [animation]; contentAnimations.set(activityMain, animations);
+    const finish = () => {if (contentAnimations.get(activityMain) === animations) contentAnimations.delete(activityMain);};
+    animation.finished.then(finish, finish);
+  }
+  function activitySceneCommand(event) {
+    const promote = event.target.closest('[data-scene-promote]'), action = event.target.closest('[data-scene-command]');
+    if (disposed || (promote || action)?.disabled) return;
+    if (promote?.dataset.scenePromote === activityScene.inspect().primary) {
+      if (promote.dataset.scenePromote === 'transfer') {
+        if (nearby.incoming) openLocalSend('receive', nearby.incoming);
+        else {selectViewButton({dataset: {view: localSendContext ? 'localsend' : 'tray'}}); setState('open');}
+      } else if (promote.dataset.scenePromote === 'file') {selectViewButton({dataset: {view: 'files'}}); setState('open');}
+      else if (['weather', 'shelf'].includes(promote.dataset.scenePromote)) {selectViewButton({dataset: {view: moduleDefinitions[promote.dataset.scenePromote].view}}); setState('open');}
+      return;
+    }
+    if (promote?.dataset.scenePromote && activityScene.promote(promote.dataset.scenePromote)) {
+      renderHomeLayout(); renderMusic(); renderFocus();
+      activityStage.scrollTop = 0;
+      if (keyboardNavigation) activityMain.focus({preventScroll: true}); animateActivityPromotion(); return;
+    }
+    if (!action) return;
+    if (action.dataset.sceneCommand === 'focus-toggle') focusComponent.command(focusIsActive() ? 'toggle' : 'start');
+    else if (action.dataset.sceneCommand === 'focus-complete-task') focusComponent.command('complete-task');
+    else if (['focus-link-task', 'focus-configure'].includes(action.dataset.sceneCommand)) {
+      activityScene.promote('focus'); renderHomeLayout(); renderFocus();
+      activityStage.scrollTop = 0;
+      focusComponent.command(action.dataset.sceneCommand === 'focus-link-task' ? 'link-task' : 'configure');
+    }
+    else if (['music-toggle', 'music-previous', 'music-next'].includes(action.dataset.sceneCommand)) void performMusicCommand({command: action.dataset.sceneCommand.slice(6)});
+    else if (action.dataset.sceneCommand === 'transfer-cancel' && nearby.transfer?.id) void nearbyRequest({command: 'cancel', id: nearby.transfer.id});
+    else if (action.dataset.sceneCommand === 'file-open') {selectViewButton({dataset: {view: 'files'}}); setState('open');}
+    else if (['weather-open', 'shelf-open'].includes(action.dataset.sceneCommand)) {selectViewButton({dataset: {view: moduleDefinitions[action.dataset.sceneCommand.split('-')[0]].view}}); setState('open');}
+  }
+  function renderHomeLayout({skipUpdate = false} = {}) {
     const home = byId('nook-layout'), main = byId('home-main'), side = byId('home-side'), editing = getModuleEditorActive();
     home.hidden = view !== 'nook' || editing;
+    if (renderActivityScene()) {renderIslandNavigation(); renderHomeSummaries(); if (!skipUpdate) update(); return;}
+    if (!home.hidden) {
+      const slots = getHomeSlots(), plan = nookGridPlan(islandPage, moduleSettings.enabled);
+      home.dataset.grid = islandPage; home.dataset.layout = 'grid'; home.dataset.scenario = ''; home.dataset.primary = ''; home.dataset.activityCount = '0';
+      const children = [];
+      for (const definition of Object.values(moduleDefinitions)) {
+        const component = byId(definition.element), visible = ['music', 'focus'].includes(definition.id) && slots.includes(definition.id);
+        if (component.parentElement !== (visible ? home : panel)) (visible ? home : panel).append(component);
+        component.hidden = !builtinVisible(definition.id); component.dataset.module = definition.id;
+        if (visible) children.push(component);
+      }
+      for (const item of plan) {
+        home.style.setProperty('--nook-' + item.id + '-column', `${item.column} / span ${item.columns}`);
+        home.style.setProperty('--nook-' + item.id + '-row', `${item.row} / span ${item.rows}`);
+        if (['music', 'focus', 'tasks', 'pomodoro'].includes(item.id)) continue;
+        if (!homeCells.has('grid-' + item.id)) {
+          const button = document.createElement('button'); button.type = 'button'; button.dataset.moduleOpen = item.id; button.className = 'home-summary nook-grid-tile';
+          button.append(document.createElement('span'), document.createElement('strong'), document.createElement('small'));
+          homeCells.set('grid-' + item.id, button);
+        }
+        const button = homeCells.get('grid-' + item.id); button.style.gridColumn = `${item.column} / span ${item.columns}`; button.style.gridRow = `${item.row} / span ${item.rows}`; children.push(button);
+      }
+      // Reuse the live components, including the single timer and task list.
+      for (const child of [...home.children]) if (!children.includes(child) && ![main, side, byId('home-empty')].includes(child)) child.remove();
+      for (const child of children) if (child.parentElement !== home) home.append(child);
+      main.hidden = true; side.hidden = true; byId('home-empty').hidden = plan.length > 0; home.inert = false;
+      renderIslandNavigation(); renderHomeSummaries(); if (!skipUpdate) update(); return;
+    }
     const slots = getHomeSlots(), items = homeModuleLayout(slots, 0, 16, homeModuleContext()).items;
     const placed = home.hidden ? [] : items;
     for (const definition of Object.values(moduleDefinitions)) {
@@ -1017,13 +1618,21 @@
     home.dataset.primary = items[0]?.id || ''; home.inert = editing;
     side.hidden = !secondaryCells.length; byId('home-empty').hidden = !!items.length || editing; main.hidden = !primaryCell;
     renderHomeSummaries();
-    update();
+    if (!skipUpdate) update();
   }
   function renderHomeSummaries() {
+    renderActivitySceneValues();
     for (const button of byId('nook-layout').querySelectorAll('[data-module-open]')) {
       const id = button.dataset.moduleOpen;
       if (!id) continue;
       if (id === 'weather') { renderWeatherSummary(button); continue; }
+      if (button.classList.contains('nook-grid-tile')) {
+        text(button.querySelector('span'), t(id === 'shelf' ? 'Fichiers' : id === 'localsend' ? 'LocalSend' : 'Scénarios'));
+        const transfer = nearby.transfer, ongoing = transfer && ['preparing', 'waiting', 'sending', 'receiving'].includes(transfer.status);
+        text(button.querySelector('strong'), id === 'shelf' ? localSendCount(shelfItems.length) : id === 'localsend' ? nearby.incoming ? t('Proposition de réception') : ongoing ? Math.round(transfer.progress || 0) + ' %' : nearby.available ? t('Prêt à recevoir') : t('À proximité') : t(scenarioController?.getPreferences().selected ? {focus:'Focus',ambience:'Ambiance',day:'Journée',complete:'Complet',minimal:'Minimal'}[scenarioController.getPreferences().selected] : 'À ton rythme'));
+        text(button.querySelector('small'), id === 'shelf' ? shelfItems[0]?.name || t('Ouvrir l’Étagère') : id === 'localsend' ? nearby.incoming?.alias || ongoing && transfer.alias || t('Envoyer ou recevoir') : t('Suivre ton activité'));
+        continue;
+      }
       text(button.querySelector('strong'), id === 'music' ? music.available ? music.title : t('Aucun morceau') : id === 'focus' ? focusIsActive() ? time(FocusModel.remaining(focus)) : focus.complete ? t('Terminé') : `${focusSettings.work}:00` : !shelfLoaded ? t('Fichiers gardés') : localSendCount(shelfItems.length));
       text(button.querySelector('small'), id === 'music' ? music.artist || t('Ouvrir le lecteur') : id === 'focus' ? focusIsActive() ? focusLabel() : focus.complete ? t('Cycle terminé') : t('Prêt à commencer') : t('Ouvrir l’Étagère'));
     }
@@ -1031,13 +1640,15 @@
   function openBuiltin(event) {
     const button = event.target.closest('[data-module-open]'); if (!button || disposed) return;
     const id = button.dataset.moduleOpen, route = moduleDefinitions[id]?.view;
+    if (id === 'localsend') {if (nearby.incoming) openLocalSend('receive', nearby.incoming); else {selectViewButton({dataset: {view: 'tray'}}); setState('open');} return;}
+    if (id === 'scenarios') {selectViewButton({dataset: {view: 'scenarios'}}); setState('open'); return;}
     if (id === 'modules') { openModuleEditor(event); return; }
     if (route) { selectViewButton({dataset: {view: route}}); setState('open'); }
   }
   function modulesChanged(previous = {enabled: []}) {
     for (const button of menuButtons) if (button.dataset.view === 'focus' || button.dataset.view === 'tray') button.hidden = !isModuleEnabled(button.dataset.view === 'tray' ? 'shelf' : 'focus');
     const current = Object.values(moduleDefinitions).find(item => item.view === view); if (current && !isModuleEnabled(current.id)) view = 'nook';
-    renderHomeLayout(); musicLifecycle(); renderFocus(); renderShelf(); renderFiles(); renderWeather(); weatherLifecycle(); renderModules(); renderLiveActivities(); nearbyLifecycle();
+    renderHomeLayout(); renderIslandNavigation(); musicLifecycle(); renderFocus(); renderShelf(); renderFiles(); renderWeather(); weatherLifecycle(); renderModules(); renderLiveActivities(); nearbyLifecycle();
     if (moduleFeedback && !isModuleEnabled(moduleFeedback.id)) clearModuleFeedback();
   }
   function moduleEditorLayoutChanged(change) {
@@ -1075,8 +1686,7 @@
   function localSendBand() {
     const value = localSendPresentation();
     if (!nearbyLoaded || fileDragging) return null;
-    const ready = nearby.available && !(isModuleEnabled('music') && music.available && music.playing && !connectionLost) && !(isModuleEnabled('focus') && focusIsActive()) && !moduleFeedback;
-    if (!value) return ready ? {stage:'ready', direction:'receive'} : null;
+    if (!value) return null;
     if (['complete','error','cancelled','rejected'].includes(value.stage) && !moduleFeedback) return null;
     return value;
   }
@@ -1226,7 +1836,7 @@
     byId('shelf-transfer-cancel').hidden = !ongoing;
     text(byId('shelf-transfer-cancel'), receiving ? t('Annuler la réception') : t('Annuler l’envoi'));
     byId('shelf-share').disabled = shelfBusy || nearbyBusy || !selectedFiles.size;
-    renderLocalSend();
+    renderLocalSend(); renderHomeSummaries();
   }
   async function readNearby() {
     if (disposed || nearbyReading) return;
@@ -1243,7 +1853,7 @@
           nearbyIncomingShown = value.incoming.id; openLocalSend('receive', value.incoming);
         }
         if (value.transfer?.direction === 'receive' && value.transfer.status === 'complete' && value.transfer.id !== nearbyReceiveCompleted) {
-          nearbyReceiveCompleted = value.transfer.id; shelfLoaded = false; if (builtinVisible('shelf')) void loadShelf();
+          nearbyReceiveCompleted = value.transfer.id; shelfLoaded = false; if (builtinVisible('shelf') || view === 'nook' && getHomeSlots().includes('shelf')) void loadShelf();
           notifyModuleChange({id: 'shelf', kind: 'received', title: value.transfer.fileCount > 1 ? t('Fichiers reçus') : t('Fichier reçu'), detail: value.transfer.alias || t('Dans l’Étagère')});
         }
         renderLiveActivities(); update();
@@ -1305,7 +1915,7 @@
     filePlayer.hidden = !builtinVisible('files');
     const item = currentFile(), running = fileJob.status === 'running';
     byId('file-content').dataset.mode = fileMode;
-    if (state === 'open' && !filePlayer.hidden && !getModuleEditorActive()) update();
+    if (state !== 'open' || !filePlayer.hidden && !getModuleEditorActive()) update();
     byId('file-empty').hidden = !!item; byId('file-content').hidden = !item;
     textUI(byId('file-status'), fileError || (fileBusy && !item ? t('Préparation du fichier…') : fileBusy && fileMode === 'peers' ? t('Envoi du fichier…') : item && !item.toolsAvailable && (item.image || item.pdf) ? t('LocalSend reste disponible. OCR et conversion : 25 Mo maximum.') : ''));
     byId('file-empty').querySelector('button').disabled = fileBusy;
@@ -1532,6 +2142,45 @@
     const next = localizedWeatherNarrative({...weather, busy: weatherBusy});
     return {title: next.temperature + ' ' + next.when, detail: t('à ') + next.city, narrative: next};
   }
+  function renderWeatherDesign(host, presentation, {interactive = false} = {}) {
+    const values = weatherDesignValues(weather, presentation), next = localizedWeatherNarrative({...weather, busy: weatherBusy});
+    const condition = t(weather.condition || 'Conditions indisponibles'), locale = i18n.locale() === 'en' ? 'en-GB' : 'fr-FR';
+    const signature = JSON.stringify([values, next, condition, weather.icon, weather.isDay, locale, interactive, interactive && weatherPickerOpen]);
+    if (host.dataset.weatherDesign === signature) return;
+    host.dataset.weatherDesign = signature; host.dataset.size = values.size; host.dataset.state = next.state;
+    const make = (className, value, tag = 'span') => {const node = document.createElement(tag); node.className = className; if (value !== undefined) node.textContent = value; return node;};
+    const heading = make('weather-design-heading'), icon = byId('weather-condition-icon').cloneNode(true); icon.removeAttribute('id');
+    const city = make('weather-design-city', next.city + (values.size === 'rail' ? '' : ' · ' + t(weather.isDay === false ? 'CE SOIR' : 'AUJOURD’HUI')), interactive ? 'button' : 'span');
+    if (interactive) {city.type = 'button'; city.id = 'weather-city-button'; city.dataset.weatherCommand = 'picker'; city.setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city})); city.setAttribute('aria-expanded', String(weatherPickerOpen)); city.setAttribute('aria-controls', 'weather-picker');}
+    heading.append(icon, city);
+    const reading = make('weather-design-reading'), temperature = make('weather-design-temperature', next.temperature), detail = make('weather-design-detail');
+    const feels = make('weather-design-feels', t('Ressenti {temperature}', {temperature: next.feelsLike}));
+    const range = [values.max !== null ? t('max {temperature}°', {temperature: values.max}) : '', values.size === 'full' && values.min !== null ? t('min {temperature}°', {temperature: values.min}) : ''].filter(Boolean).join(' · ');
+    const meta = make('weather-design-meta'); meta.append(feels); if (range) meta.append(make('weather-design-range', range));
+    detail.append(make('weather-design-condition', condition), meta); reading.append(temperature, detail);
+    const current = make('weather-design-current'); current.append(heading, reading);
+    const narrative = make('weather-design-narrative');
+    const words = (value, emphasis = false) => narrative.append(make(emphasis ? 'weather-design-emphasis' : '', value, emphasis ? 'strong' : 'span'));
+    if (values.narrative) {
+      words(next.when + t(' à ')); words(next.city, true); words(t(', il fait ')); words(next.temperature, true); words(t(' et ')); words(condition.toLocaleLowerCase(locale), true); words('.');
+      if (values.max !== null) {words(t(' Aujourd’hui, jusqu’à ')); words(values.max + '°', true);}
+      if (values.rainRisk !== null) {words(t(values.max !== null ? ', avec ' : ' Avec ')); words(values.rainRisk + ' %', true); words(t(' de risque de précipitations.'));} else if (values.max !== null) words('.');
+      if (values.size === 'full' && Number.isFinite(weather.feelsLike)) {words(t(' Ressenti ')); words(next.feelsLike, true); words('.');}
+    }
+    const outlook = make('weather-design-outlook'), hourly = make('weather-design-hourly'), hours = make('weather-design-hours'); hours.setAttribute('aria-label', t('Prochaines heures'));
+    for (const hour of values.hours) {const chip = make('weather-design-hour'); chip.append(make('weather-design-hour-time', locale === 'fr-FR' ? hour.time.slice(11, 13) + ' h' : hour.time.slice(11, 16)), make('', hour.temperature + '°', 'strong')); hours.append(chip);}
+    hourly.append(make('weather-design-caption', t('PROCHAINES HEURES')), hours); hourly.hidden = !values.hours.length;
+    const daily = make('weather-design-daily'), days = make('weather-design-days'); days.setAttribute('aria-label', t('3 jours'));
+    for (const day of values.days) {
+      const chip = make('weather-design-day'); chip.append(make('weather-design-day-name', new Intl.DateTimeFormat(locale, {weekday: 'short', timeZone: 'UTC'}).format(new Date(day.date + 'T12:00:00Z'))), make('', day.max + '°', 'strong'), make('weather-design-day-min', day.min + '°'));
+      days.append(chip);
+    }
+    daily.append(make('weather-design-caption', t('3 JOURS')), days); daily.hidden = !values.days.length;
+    outlook.append(hourly, daily); outlook.hidden = !values.hours.length && !values.days.length;
+    const empty = make('weather-design-empty', next.status || t('Choisis une ville ou utilise ta position actuelle.')); empty.hidden = values.available;
+    narrative.hidden = !values.narrative; reading.hidden = !values.available;
+    host.replaceChildren(current, narrative, outlook, empty);
+  }
   function renderWeatherSummary(button) {
     const next = localizedWeatherNarrative({...weather, busy: weatherBusy}), key = JSON.stringify(next);
     if (button.dataset.weatherNarrative === key) return;
@@ -1571,26 +2220,15 @@
     byId('weather-main').dataset.empty = String(unavailable); byId('weather-empty').hidden = !unavailable;
     text(byId('weather-empty-title'), weatherBusy ? t('Actualisation de la météo…') : t('Météo indisponible'));
     textUI(byId('weather-empty-detail'), weatherBusy ? t('Connexion au service météo.') : weather.error || weatherError || t('Vérifie ta connexion ou choisis une ville.'));
-    text(byId('weather-city'), next.city);
-    byId('weather-city-button').title = t('Changer de ville'); byId('weather-city-button').setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city}));
-    byId('weather-city-button').setAttribute('aria-expanded', String(weatherPickerOpen));
     const picker = byId('weather-picker'), returnFocus = !picker.hidden && !weatherPickerOpen && picker.contains(document.activeElement);
-    byId('weather-main').hidden = weatherPickerOpen; byId('weather-picker').hidden = !weatherPickerOpen;
-    if (returnFocus && !weatherPlayer.hidden && state === 'open') byId('weather-city-button').focus({preventScroll: true});
-    text(byId('weather-temperature'), next.temperature); text(byId('weather-feels'), next.feelsLike); text(byId('weather-now'), next.when);
-    text(byId('weather-condition'), typeof weather.condition === 'string' && weather.condition ? t(weather.condition).toLocaleLowerCase(i18n.locale() === 'en' ? 'en-GB' : 'fr-FR') : t('conditions indisponibles'));
-    text(byId('weather-heading-label'), next.city + ' · ' + (weather.isDay === false ? t('CE SOIR') : t('AUJOURD’HUI')));
-    const day = Number.isFinite(weather.max) ? t(' Aujourd’hui, jusqu’à {temperature}°', {temperature: Math.round(weather.max)}) : '';
-    text(byId('weather-day-detail'), day + (Number.isFinite(weather.rainRisk) ? t(day ? ', avec {risk} % de risque de précipitations.' : ' Avec {risk} % de risque de précipitations.', {risk: Math.round(Math.max(0, Math.min(100, weather.rainRisk)))}) : day ? '.' : ''));
+    byId('weather-main').hidden = weatherPickerOpen; picker.hidden = !weatherPickerOpen;
     const conditionPaths = {moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z', sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5', cloud: 'M6 18h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10Z'};
     byId('weather-condition-icon').querySelector('path').setAttribute('d', conditionPaths[weather.icon] || conditionPaths.cloud);
-    const hours = Array.isArray(weather.hours) ? weather.hours.filter(hour => Number.isFinite(hour?.temperature) && typeof hour.time === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(hour.time)).slice(0, 3) : [];
-    const hourSignature = JSON.stringify([i18n.locale(), hours.map(hour => [hour.time, hour.temperature])]);
-    if (byId('weather-hours').dataset.value !== hourSignature) { byId('weather-hours').dataset.value = hourSignature; byId('weather-hours').replaceChildren(...hours.map(hour => { const chip = document.createElement('span'), label = document.createElement('span'), temperature = document.createElement('strong'); label.textContent = i18n.locale() === 'en' ? new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit'}).format(new Date(hour.time)) : hour.time.slice(11, 13) + ' h'; temperature.textContent = Math.round(hour.temperature) + '°'; chip.append(label, temperature); return chip; })); }
-    byId('weather-hours').hidden = !hours.length;
-    text(byId('weather-rain'), next.rain); text(byId('weather-rain-label'), next.rainQualifier); text(byId('weather-horizon'), next.horizon);
-    byId('weather-rain-icon').toggleAttribute('hidden', !next.rainIcon); byId('weather-rain-icon').dataset.kind = next.rain === t('pluie') ? 'rain' : 'precipitation';
-    byId('weather-forecast').setAttribute('aria-label', next.forecastDescription); byId('weather-main').dataset.state = next.state; byId('weather-main').setAttribute('aria-busy', String(next.loading));
+    renderWeatherDesign(byId('weather-design'), weatherPlayer.dataset.presentation || 'full', {interactive: true});
+    byId('weather-design').hidden = unavailable;
+    if (returnFocus && !weatherPlayer.hidden && state === 'open') byId('weather-city-button').focus({preventScroll: true});
+    byId('weather-rain-icon').dataset.kind = next.rain === t('pluie') ? 'rain' : 'precipitation';
+    byId('weather-main').dataset.state = next.state; byId('weather-main').setAttribute('aria-busy', String(next.loading));
     const fetchedAt = Number.isFinite(weather.fetchedAt) && weather.fetchedAt > 0 && weather.fetchedAt <= Date.now() ? new Intl.DateTimeFormat(i18n.locale() === 'en' ? 'en-GB' : 'fr-FR', {hour: '2-digit', minute: '2-digit'}).format(new Date(weather.fetchedAt)) : '';
     const lastUpdate = next.state === 'stale' && fetchedAt ? t(' · Dernière mise à jour : ') + fetchedAt : '';
     text(byId('weather-status'), unavailable && !weatherPickerOpen ? '' : uiMessage(weatherBusy || weatherSearchBusy ? weatherMessage : weatherError || next.status) + lastUpdate);
@@ -1702,6 +2340,7 @@
     byId('shelf-add').disabled = shelfBusy || shelfItems.length >= 20;
     byId('shelf-drop').disabled = shelfBusy || shelfItems.length >= 20;
     syncShelfSelection();
+    renderActivitySceneValues();
   }
 
   function setShelf(value) {
@@ -1712,7 +2351,7 @@
       thumbnail: typeof item.thumbnail === 'string' && item.thumbnail === `/api/shelf/${item.id}?preview=1` ? item.thumbnail : null,
     }));
     shelfLoaded = true;
-    renderShelf();
+    renderShelf(); renderHomeSummaries();
   }
 
   async function shelfRequest(url, options) {
@@ -1841,22 +2480,34 @@
   }
   function time(value) { const seconds = Math.floor(value); return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); }
   function position() { return musicPosition(music, connectionLost ? 0 : window.performance.now() - musicAt); }
-  function clearSpectrum() { for (const bar of spectrumBars) bar.style.setProperty('--level', '0'); }
+  function musicSpectrumVisible() {
+    return state !== 'open' || builtinVisible('music') || view === 'nook' && homeLayout?.mode === 'activities' && homeLayout.items.some(item => item.id === 'music' && !item.complete);
+  }
+  function clearSpectrum() {
+    for (const bar of spectrumBars) bar.style.setProperty('--level', '0');
+    for (const spectrum of [...byId('activity-rail').querySelectorAll('.activity-spectrum'), ...byId('nook-layout').querySelectorAll('.activity-spectrum')]) {
+      delete spectrum.dataset.signal;
+      for (const bar of spectrum.children) bar.style.setProperty('--level', '0');
+    }
+  }
   function receiveSpectrum(values) {
-    if (disposed || document.hidden || fileDragging || !motionEnabled() || !isModuleEnabled('music') || !music.playing || connectionLost || !(state === 'hover' || state === 'open' && builtinVisible('music'))) return;
+    if (disposed || document.hidden || fileDragging || !motionEnabled() || !isModuleEnabled('music') || !music.playing || connectionLost || !musicSpectrumVisible()) return;
     const levels = spectrumLevels(values); if (!levels) return;
-    const bars = state === 'open' ? playerBars : liveBars;
+    const bars = state === 'open' ? playerBars : state === 'hover' ? liveBars : restBars;
     bars.forEach((bar, index) => bar.style.setProperty('--level', String(levels[index])));
+    const secondary = state === 'hover' ? byId('activity-rail') : state === 'open' ? byId('nook-layout') : null;
+    if (secondary) for (const spectrum of secondary.querySelectorAll('.activity-spectrum')) { spectrum.dataset.signal = 'true'; [...spectrum.children].forEach((bar, index) => bar.style.setProperty('--level', String(levels[index]))); }
     if (state === 'hover' && !byId('module-feedback-spectrum').hidden) feedbackBars.forEach((bar, index) => bar.style.setProperty('--level', String(levels[index])));
   }
 
   function renderTime() {
     if (disposed || document.hidden) return;
     const current = seekPreview ?? position(), ratio = music.duration ? current / music.duration : 0;
+    notch.dataset.seeking = String(seekDragging || seekPreview !== null);
     if (notch.style.getPropertyValue('--music-progress') !== String(ratio)) notch.style.setProperty('--music-progress', String(ratio));
     text(byId('music-elapsed'), time(current));
     text(byId('music-live-time'), time(current));
-    text(byId('music-duration'), music.duration ? time(music.duration) : '—:—');
+    text(byId('music-duration'), music.duration ? '−' + time(Math.max(0, music.duration - current)) : '—:—');
     musicSeek.disabled = commandBusy || connectionLost || !music.canSeek;
     musicSeek.max = String(music.duration || 100);
     musicSeek.value = String(Math.floor(current));
@@ -1865,11 +2516,13 @@
     strip.setAttribute('aria-valuemax', String(music.duration || 100));
     strip.setAttribute('aria-valuenow', String(music.duration ? Math.floor(current) : 0));
     strip.setAttribute('aria-valuetext', t('{current} sur {total}', {current: time(current), total: time(music.duration)}));
+    renderCollapsedActivities();
+    renderActivitySceneValues();
   }
 
   function syncClock() {
-    const visible = state !== 'open' || builtinVisible('music');
-    const delay = !disposed && !document.hidden && isModuleEnabled('music') && visible && music.available && music.playing && !connectionLost ? motionEnabled() ? 250 : 1000 : 0;
+    const visible = musicSpectrumVisible();
+    const delay = !disposed && !document.hidden && isModuleEnabled('music') && visible && music.available && music.playing && !connectionLost ? ISLAND_CONFIG.durations.progress : 0;
     if (delay === clockDelay) return;
     window.clearInterval(clock); clock = 0; clockDelay = delay;
     if (delay) clock = window.setInterval(renderTime, delay);
@@ -1878,17 +2531,21 @@
   function renderMusic() {
     if (disposed) return;
     player.hidden = !builtinVisible('music');
+    if (!player.closest('.activity-stage')) player.dataset.presentation = 'full';
+    player.classList.toggle('activity-card-secondary', player.parentElement?.classList?.contains('activity-rail-cards') === true);
+    player.dataset.available = String(music.available);
     renderLiveActivities();
     byId('shelf-drop-hint').hidden = !fileDragging || state !== 'hover';
     byId('music-empty').hidden = music.available;
     byId('music-content').hidden = !music.available;
     notch.dataset.playing = String(music.playing && !connectionLost);
-    for (const badge of notch.querySelectorAll('.music-provider-badge')) badge.hidden = !music.available || !/spotify/i.test(music.source || 'Spotify');
+    for (const badge of notch.querySelectorAll('.music-provider-badge')) badge.hidden = !music.available || !/^spotify$/i.test(music.source);
+    text(player.querySelector('.music-playing-label'), player.parentElement?.classList?.contains('activity-main') ? t(music.playing && !connectionLost ? 'EN LECTURE' : 'Musique') : music.source || t('EN LECTURE'));
     text(byId('music-title'), music.title || t('Titre inconnu'));
     text(byId('music-live-title'), music.title || t('Musique'));
     text(byId('music-live-artist'), music.artist || music.source);
     text(byId('music-artist'), music.artist || t('Artiste inconnu'));
-    text(byId('music-source'), music.source || 'Spotify');
+    text(byId('music-source'), music.source || t('Lecteur multimédia'));
     const description = music.available ? `${music.title || t('Musique')} · ${music.artist || t('lecteur musical')}` : t('Ouvrir l’encoche');
     toggle.setAttribute('aria-label', state === 'open' ? t('Encoche ouverte') : description + (music.available ? t(' · ouvrir le lecteur') : ''));
     for (const image of coverImages) {
@@ -1897,20 +2554,24 @@
       if (music.cover && image.getAttribute('src') !== music.cover) image.src = music.cover;
       else if (!music.cover) image.removeAttribute('src');
     }
-    if (spectrumArtwork !== music.cover) { spectrumArtwork = music.cover; spectrumAnalyzed = ''; notch.style.setProperty('--spectrum-color', '#ffffff'); coverLoaded({target: coverImages[0]}); }
+    if (spectrumArtwork !== music.cover) { spectrumArtwork = music.cover; spectrumAnalyzed = ''; notch.style.setProperty('--spectrum-color', '#ffffff'); applyArtworkPalette(); coverLoaded({target: coverImages[0]}); }
+    byId('music-promote').hidden = !player.parentElement?.classList?.contains('activity-rail-cards');
     const paused = !music.playing || connectionLost;
     byId('music-toggle').setAttribute('aria-label', paused ? t('Lire') : t('Mettre en pause'));
     byId('music-play-icon').setAttribute('d', paused ? 'M8 5v14l11-7Z' : 'M6 5h4v14H6ZM14 5h4v14h-4Z');
+    const miniToggle = byId('music-hover-controls').querySelector('[data-music-command="toggle"]');
+    miniToggle.setAttribute('aria-label', t(paused ? 'Lire' : 'Mettre en pause')); miniToggle.querySelector('path').setAttribute('d', byId('music-play-icon').getAttribute('d'));
+    byId('music-queue-toggle').hidden = !music.available;
     for (const button of commands) {
       const command = button.dataset.musicCommand;
       const capability = {toggle: 'canToggle', next: 'canNext', previous: 'canPrevious', shuffle: 'canShuffle', repeat: 'canRepeat'}[command];
-      button.disabled = commandBusy || command !== 'open' && (connectionLost || !music.available || !music[capability]);
+      button.disabled = commandBusy || (command === 'open' ? music.available && !/^spotify$/i.test(music.source) : connectionLost || !music.available || !music[capability]);
       if (command === 'shuffle') button.setAttribute('aria-pressed', String(music.shuffle === true));
       if (command === 'repeat') { button.setAttribute('aria-pressed', String(music.repeat === 'list' || music.repeat === 'track')); button.dataset.repeat = music.repeat || 'none'; button.setAttribute('aria-label', music.repeat === 'track' ? t('Répéter ce morceau · passer sans répétition') : music.repeat === 'list' ? t('Répéter la liste · passer à un seul morceau') : t('Activer la répétition de la liste')); }
     }
     textUI(byId('music-status'), musicError || music.error || '');
     if (paused || !motionEnabled() || state === 'open' && !builtinVisible('music')) clearSpectrum();
-    renderTime(); syncClock(); renderHomeSummaries();
+    renderTime(); syncClock(); renderHomeSummaries(); renderMusicQueue(); musicQueueLifecycle();
   }
 
   function setMusic(value) {
@@ -1924,7 +2585,7 @@
     musicError = ''; connectionLost = false;
     scenarioController?.observe();
     observeModuleActivity('music', music);
-    renderMusic(); update(); if (oldCopy && motionEnabled()) animateMusicTrack(oldCopy, oldArt); if (getModuleEditorActive()) renderModules(); return true;
+    renderMusic(); update(); syncStream(); if (oldCopy && motionEnabled()) animateMusicTrack(oldCopy, oldArt); if (getModuleEditorActive()) renderModules(); return true;
   }
   function animateMusicTrack(oldCopy, oldArt) {
     for (const [old, host, frames] of [[oldCopy, player.querySelector('.music-copy'), [{opacity: 1, transform: 'translateY(0)'}, {opacity: 0, transform: 'translateY(-16px)'}]], [oldArt, player.querySelector('.music-art'), [{opacity: 1, transform: 'scale(1)'}, {opacity: 0, transform: 'scale(.85)'}]]]) {
@@ -1943,7 +2604,7 @@
       clearSpectrum(); syncClock(); return;
     }
     if (typeof window.EventSource !== 'function') { musicError = t('La connexion au lecteur n’est pas disponible.'); renderMusic(); return; }
-    const wantsSpectrum = !fileDragging && motionEnabled() && (state === 'hover' || state === 'open' && builtinVisible('music'));
+    const wantsSpectrum = !fileDragging && motionEnabled() && musicSpectrumVisible();
     if (stream && streamSpectrum === wantsSpectrum) return;
     // Keep the old subscription until the new one opens, avoiding artwork flicker.
     retiringStream?.close(); retiringStream = stream;
@@ -1964,7 +2625,12 @@
   async function commandMusic(event) {
     const button = event.target.closest('[data-music-command]');
     if (!button || button.disabled || commandBusy || disposed) return;
+    const ownedFocus = document.activeElement === button;
     await performMusicCommand({command: button.dataset.musicCommand});
+    if (ownedFocus && !disposed && [button, document.body].includes(document.activeElement)) {
+      const target = !button.disabled && !button.closest('[hidden],[inert]') && button.getClientRects().length ? button : toggle;
+      if (!target.disabled && target.getClientRects().length) target.focus({preventScroll: true});
+    }
   }
   async function performMusicCommand(value) {
     if (commandBusy || disposed) return;
@@ -1973,7 +2639,7 @@
       const response = await window.fetch('/api/music', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Notchy': '1'}, body: JSON.stringify(value)});
       const data = await response.json();
       if (disposed) return;
-      if (value.command === 'seek' && (music.title !== value.title || music.artist !== value.artist)) return;
+      if (value.command === 'seek' && (music.title !== value.title || music.artist !== value.artist || music.sourceId !== value.sourceId)) return;
       if (!response.ok || data.error) throw new Error(data.error || t('Le lecteur n’a pas pu effectuer cette action.'));
       if (Object.hasOwn(data, 'available')) setMusic(data);
     } catch (error) { if (!disposed) musicError = error.message || t('Le lecteur ne répond pas.'); }
@@ -1981,41 +2647,55 @@
   }
   function previewMusicSeek() {
     if (musicSeek.disabled || disposed) return;
-    seekTrack ||= {title: music.title, artist: music.artist};
+    seekTrack ||= {title: music.title, artist: music.artist, sourceId: music.sourceId || ''};
     seekPreview = Math.min(music.duration, Math.max(0, Number(musicSeek.value))); renderTime();
   }
   async function commitMusicSeek() {
-    if (seekTrack && (seekTrack.title !== music.title || seekTrack.artist !== music.artist)) { seekPreview = null; seekTrack = null; musicError = t('Le morceau a changé. Choisis sa nouvelle position.'); renderMusic(); return; }
+    if (seekTrack && (seekTrack.title !== music.title || seekTrack.artist !== music.artist || seekTrack.sourceId !== (music.sourceId || ''))) { seekPreview = null; seekTrack = null; musicError = t('Le morceau a changé. Choisis sa nouvelle position.'); renderMusic(); return; }
     if (disposed || musicSeek.disabled || seekPreview === null || !seekTrack || state !== 'open' || !builtinVisible('music')) { seekPreview = null; seekTrack = null; renderTime(); return; }
     await performMusicCommand({command: 'seek', position: seekPreview, ...seekTrack});
   }
-  function startMusicSeek() { if (!musicSeek.disabled) { seekDragging = true; seekTrack = {title: music.title, artist: music.artist}; } }
+  function startMusicSeek() { if (!musicSeek.disabled) { seekDragging = true; seekTrack = {title: music.title, artist: music.artist, sourceId: music.sourceId || ''}; } }
   function endMusicSeek(event) { if (!seekDragging) return; seekDragging = false; if (event.type === 'pointercancel') { seekPreview = null; seekTrack = null; renderTime(); } recheckCollapse(); }
   function musicLifecycle() { if (state !== 'open' || !builtinVisible('music')) { seekPreview = null; seekTrack = null; seekDragging = false; } renderMusic(); syncStream(); musicQueueLifecycle(); }
   let spectrumAnalyzed = '';
+  function applyArtworkPalette(accent = '') {
+    for (const [name, value] of Object.entries(artworkPalette(accent))) notch.style.setProperty('--music-card-' + name, value);
+    notch.dataset.mediaArtwork = String(!!accent);
+  }
   function coverLoaded(event) {
     const image = event.target;
     if (disposed || !music.cover || image.getAttribute('src') !== music.cover || !image.complete || !image.naturalWidth || spectrumAnalyzed === music.cover) return;
     try {
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 16;
       const context = canvas.getContext('2d', {willReadFrequently: true}); context.drawImage(image, 0, 0, 16, 16);
-      notch.style.setProperty('--spectrum-color', artworkColor(context.getImageData(0, 0, 16, 16).data)); spectrumAnalyzed = music.cover;
-    } catch { notch.style.setProperty('--spectrum-color', '#ffffff'); }
+      const accent = artworkColor(context.getImageData(0, 0, 16, 16).data);
+      notch.style.setProperty('--spectrum-color', accent); applyArtworkPalette(accent); spectrumAnalyzed = music.cover;
+    } catch { notch.style.setProperty('--spectrum-color', '#ffffff'); applyArtworkPalette(); }
   }
-  function coverError(event) { event.target.hidden = true; event.target.nextElementSibling.removeAttribute('hidden'); if (event.target.getAttribute('src') === music.cover) notch.style.setProperty('--spectrum-color', '#ffffff'); }
+  function coverError(event) { event.target.hidden = true; event.target.nextElementSibling.removeAttribute('hidden'); if (event.target.getAttribute('src') === music.cover) {notch.style.setProperty('--spectrum-color', '#ffffff'); applyArtworkPalette();} }
 
-  function queueVisible() { return queueOpen && view === 'music' && state === 'open' && !moduleEditing && !document.hidden; }
+  function queueVisible() { return !player.hidden && queueOpen && view === 'music' && state === 'open' && !moduleEditing && !document.hidden && (!music.available || /^spotify$/i.test(music.source)); }
   function queueText(value, max = 240) { return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, max) : ''; }
   function queueSnapshot(value) {
     const statuses = ['disconnected','connecting','connected','ok','accepted','scope-required','busy','limited','unauthorized','forbidden','offline','unavailable','error','cancelled','invalid'];
-    const track = item => item && typeof item.name === 'string' ? {name: queueText(item.name), artists: Array.isArray(item.artists) ? item.artists.slice(0, 8).map(name => queueText(name, 100)).filter(Boolean) : [], type: item.type === 'episode' ? 'episode' : 'track', uri: item.type !== 'episode' && typeof item.uri === 'string' && /^spotify:track:[A-Za-z0-9]{22}$/.test(item.uri) ? item.uri : '', artwork: typeof item.artwork === 'string' && item.artwork.length <= 355000 && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(item.artwork) ? item.artwork : null} : null;
+    const track = item => item && typeof item.name === 'string' ? {name: queueText(item.name), artists: Array.isArray(item.artists) ? item.artists.slice(0, 8).map(name => queueText(name, 100)).filter(Boolean) : [], type: item.type === 'episode' ? 'episode' : 'track', uri: item.type !== 'episode' && typeof item.uri === 'string' && /^spotify:track:[A-Za-z0-9]{22}$/.test(item.uri) ? item.uri : '', duration: Number.isSafeInteger(item.duration) && item.duration > 0 && item.duration <= 86400000 ? item.duration : null, artwork: typeof item.artwork === 'string' && item.artwork.length <= 355000 && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(item.artwork) ? item.artwork : null} : null;
     return {status: statuses.includes(value?.status) ? value.status : 'error', canPlay: value?.canPlay === true, message: queueText(value?.message, 600), current: value?.status === 'ok' ? track(value?.current) : null, items: value?.status === 'ok' && Array.isArray(value?.items) ? value.items.slice(0, 50).map(track).filter(Boolean) : [], retryAfter: Number.isFinite(value?.retryAfter) ? Math.min(300, Math.max(1, value.retryAfter)) : 0};
   }
   function renderMusicQueue() {
-    const host = byId('music-queue'); host.hidden = !queueOpen || view !== 'music' || moduleEditing;
-    player.dataset.queueOpen = String(!host.hidden);
+    const host = byId('music-queue'), inline = false, systemOnly = music.available && !/^spotify$/i.test(music.source); host.hidden = !(queueOpen && view === 'music') || moduleEditing;
+    host.dataset.inline = String(inline); host.dataset.hasItems = String(!systemOnly && queueState.status === 'ok' && !!queueState.items.length); player.dataset.queueInline = String(inline); player.dataset.queueOpen = String(!host.hidden);
     const button = byId('music-queue-toggle'); button.setAttribute('aria-expanded', String(queueOpen)); button.setAttribute('aria-label', queueOpen ? t('Fermer À suivre') : t('Afficher À suivre'));
     if (host.hidden) return;
+    host.querySelector('footer > span').textContent = t(systemOnly ? 'La lecture et les commandes restent disponibles.' : 'Lecture sur l’appareil Spotify actif');
+    byId('music-queue-refresh').hidden = systemOnly;
+    if (systemOnly) {
+      text(byId('music-queue-status'), t('Ce lecteur ne partage pas sa file d’attente.'));
+      byId('music-queue-status').hidden = false;
+      for (const id of ['music-queue-connect', 'music-queue-disconnect', 'music-queue-items']) byId(id).hidden = true;
+      byId('music-queue-items').replaceChildren(); queueListSignature = '';
+      return;
+    }
     const messages = {disconnected: t('Connecte Spotify pour afficher sa file.'), connecting: t('Autorise la connexion dans ton navigateur.'), connected: t('La file est prête à être actualisée.'), ok: t('La file est vide.'), unauthorized: t('Reconnecte Spotify pour restaurer la session.'), forbidden: t('Spotify refuse cet accès pour ce compte.'), limited: t('Spotify demande une pause avant de réessayer.'), offline: t('Spotify est momentanément indisponible.'), unavailable: t('La file Spotify est indisponible.'), error: t('Impossible de lire la file pour le moment.'), cancelled: t('Lecture annulée.'), invalid: t('Commande indisponible.')};
     textUI(byId('music-queue-status'), queueBusy ? queueOperation === 'play-track' ? t('Lecture demandée à Spotify…') : t('Chargement de la file…') : queueNotice || queueState.message || messages[queueState.status]);
     byId('music-queue-status').hidden = !queueBusy && !queueNotice && queueState.status === 'ok' && !!queueState.items.length;
@@ -2026,9 +2706,9 @@
     byId('music-queue-connect').disabled = queueBusy;
     byId('music-queue-disconnect').hidden = !['connected','ok','limited','forbidden','offline'].includes(queueState.status);
     byId('music-queue-disconnect').disabled = queueBusy;
-    const list = byId('music-queue-items'), signature = JSON.stringify([i18n.locale(), queueState.items, queueState.canPlay]);
+    const list = byId('music-queue-items'), signature = JSON.stringify([i18n.locale(), queueState.items, queueState.canPlay, inline]);
     if (queueListSignature !== signature) {
-    const nodes = queueState.items.map(item => {
+    const nodes = (inline ? queueState.items.slice(0, 3) : queueState.items).map(item => {
       const row = document.createElement('li'), itemView = document.createElement(item.uri ? 'button' : 'div'); itemView.className = 'music-queue-item';
       if (item.uri) { itemView.type = 'button'; itemView.dataset.musicQueueCommand = 'play-track'; itemView.dataset.uri = item.uri; itemView.setAttribute('aria-label', t('Lire {track} · {artists}', {track: item.name, artists: item.artists.join(' · ')})); itemView.title = t('Lire sur l’appareil Spotify actif · remplace le contexte de lecture'); }
       const art = document.createElement('span'); art.className = 'music-queue-art';
@@ -2036,7 +2716,9 @@
       if (item.artwork) { const image = document.createElement('img'); image.src = item.artwork; image.alt = ''; image.addEventListener('error', () => image.replaceWith(placeholder()), {once: true}); art.append(image); } else art.append(placeholder());
       const copy = document.createElement('span'); copy.className = 'music-queue-copy'; const title = document.createElement('strong'), artist = document.createElement('small');
       title.textContent = item.name || t('Titre indisponible'); title.title = title.textContent; artist.textContent = item.artists.join(' · ') || (item.type === 'episode' ? t('Épisode') : t('Artiste inconnu')); artist.title = artist.textContent;
-      copy.append(title, artist); itemView.append(art, copy); row.append(itemView); return row;
+      copy.append(title, artist); itemView.append(art, copy);
+      if (item.duration) {const duration = document.createElement('span'); duration.className = 'music-queue-duration'; duration.textContent = time(item.duration / 1000); itemView.append(duration);}
+      row.append(itemView); return row;
     });
     list.replaceChildren(...nodes); queueListSignature = signature;
     }
@@ -2065,7 +2747,7 @@
   function closeMusicQueue(restore = true, focus = true) {
     queueOpen = queueActive = queueBusy = false; queueNotice = queueOperation = ''; queueEpoch++; window.clearTimeout(queueTimer); queueTimer = 0;
     renderMusicQueue();
-    if (restore && queueReturnView === 'nook' && view === 'music') selectViewButton({dataset: {view: 'nook'}});
+    if (restore && queueReturnView === 'nook' && view === 'music') {islandPage = queueReturnPage; selectViewButton({dataset: {view: 'nook'}});}
     update(); if (focus && !byId('music-queue-toggle').closest('[hidden],[inert]')) byId('music-queue-toggle').focus({preventScroll: true});
   }
   function musicQueueLifecycle() {
@@ -2080,9 +2762,9 @@
     const command = button.dataset.musicQueueCommand;
     if (command === 'toggle') {
       if (queueOpen) { closeMusicQueue(); return; }
-      queueReturnView = view; queueOpen = true;
+      queueReturnView = view; queueReturnPage = islandPage; queueOpen = true;
       if (view !== 'music') selectViewButton({dataset: {view: 'music'}});
-      setState('open'); renderMusicQueue(); update(); musicQueueLifecycle(); return;
+      setState('open'); renderMusicQueue(); update(); musicQueueLifecycle(); byId('music-queue-close').focus({preventScroll: true}); return;
     }
     if (command === 'close') { closeMusicQueue(); return; }
     if (command === 'refresh') { queueNotice = ''; void readMusicQueue(true); return; }
@@ -2108,10 +2790,11 @@
     frame = 0;
     if (disposed) return;
     const value = motion.step(now, {snap: !motionEnabled() || document.hidden});
-    const width = Math.max(1, Math.min(value.width, Math.max(1, window.innerWidth - 32)));
-    geometry = shape({...value, width}, window.innerWidth);
+    const width = Math.max(1, Math.min(value.width, ISLAND_CONFIG.states.expanded.width * 1.03, Math.max(1, window.innerWidth - 32 - Math.max(0, value.shoulder) * 2)));
+    const height = Math.min(value.height, Math.max(ISLAND_CONFIG.states.expanded.height, ISLAND_CONFIG.activities.expandedHeight) * 1.03);
+    geometry = shape({...value, width, height}, window.innerWidth);
     const band = Math.max(0, Math.min(value.band, geometry.height));
-    for (const [name, number] of Object.entries({width, height: geometry.height, band, shoulder: geometry.shoulder, 'surface-width': geometry.totalWidth})) {
+    for (const [name, number] of Object.entries({width, height: geometry.height, radius: geometry.radius, band, shoulder: geometry.shoulder, 'surface-width': geometry.totalWidth})) {
       notch.style.setProperty('--' + name, number + 'px');
     }
     surface.setAttribute('viewBox', `0 0 ${geometry.totalWidth} ${geometry.height}`);
@@ -2126,80 +2809,73 @@
 
   function update() {
     if (disposed) return;
-    const localSend = view === 'localsend' ? localSendPresentation() : null, transferBand = localSendBand();
-    const format = appearanceFormats[appearance.format];
-    const editorLayout = getModuleEditorActive() ? moduleEditorPresentation(moduleDraft, modulePicked) : null;
-    const editorWidth = editorLayout?.width || 0;
-    const expandedMusic = queueOpen && view === 'music';
-    const homeActive = view === 'nook' && !getModuleEditorActive();
-    const scale = format.width / appearanceFormats.balanced.width;
-    const context = homeModuleContext();
-    let homeWidth = format.width, homeHeight = format.height;
-    if (homeActive) {
-      const home = byId('nook-layout'), style = getComputedStyle(home);
-      const horizontalPadding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
-      const verticalPadding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
-      const gap = 16, slots = getHomeSlots();
-      const maximumWidth = Math.max(1, window.innerWidth - (window.innerWidth <= 640 ? 32 : 80));
-      const preferred = homeModuleLayout(slots, Math.max(0, maximumWidth - horizontalPadding), gap, context);
-      const single = preferred.items.length === 1 ? moduleDefinitions[preferred.items[0].id].size.width : 0;
-      const preferredWidth = preferred.items.length ? (single || preferred.preferredWidth + horizontalPadding) * scale : format.width;
-      homeWidth = Math.min(Math.max(preferred.minWidth + horizontalPadding, preferredWidth), maximumWidth);
-      homeLayout = homeModuleLayout(slots, Math.max(0, homeWidth - horizontalPadding), gap, context);
-      homeHeight = Math.max(164, homeLayout.contentHeight) + verticalPadding + (byId('scenario-home-notice')?.hidden === false ? 32 : 0);
-      home.dataset.layout = homeLayout.mode;
-      home.dataset.scenario = homeLayout.mode === 'day' ? 'day' : '';
+    const core = islandCoreView(), layout = ISLAND_CONFIG.layout;
+    const activities = getCollapsedActivities();
+    const closed = closedBandSize(state, {activities, feedback: !!moduleFeedback && isModuleEnabled(moduleFeedback.id)});
+    closed.width = Math.min(closed.width, Math.max(1, window.innerWidth - layout.side * 2 - closed.shoulder * 2));
+    renderCollapsedActivities(activities);
+    if (view === 'nook' && !getModuleEditorActive()) {
+      const home = byId('nook-layout'), gap = layout.gap;
+      renderHomeLayout({skipUpdate: true});
+      if (home.dataset.layout !== 'activities') homeLayout = {mode: 'grid', items: nookGridPlan(islandPage, getHomeSlots().filter(Boolean))};
       home.style.setProperty('--home-gap', gap + 'px');
-      if (homeLayout.mode === 'day') {
-        home.style.setProperty('--day-left-width', homeLayout.items[0].width + 'px'); home.style.setProperty('--day-right-width', homeLayout.items[1].width + 'px');
-        home.style.setProperty('--day-first-height', homeLayout.rowHeights[0] + 'px'); home.style.setProperty('--day-second-height', homeLayout.rowHeights[1] + 'px');
-      }
-      for (const item of homeLayout.items) {
-        const cell = homeCells.get(item.id); if (!cell) continue;
-        cell.dataset.row = String(item.row); cell.dataset.column = String(item.column);
-        cell.style.setProperty('--module-width', item.width + 'px');
-        cell.style.setProperty('--module-height', item.height + 'px');
-        cell.style.setProperty('--module-min-width', item.minWidth + 'px');
-        cell.style.setProperty('--module-min-height', item.minHeight + 'px');
-      }
     }
-    const hasMusic = musicInBand(), hasFocus = isModuleEnabled('focus') && focusIsActive();
-    const quiet = state === 'open' ? sizes.open : closedBandSize(state, {music: hasMusic, focus: hasFocus, transfer: !!transferBand, feedback: moduleFeedback && notch.dataset.feedback});
-    const definition = view === 'nook' ? moduleDefinitions[homePrimary()] : Object.values(moduleDefinitions).find(item => item.view === view);
-    const directWidth = localSend ? localSend.direction === 'receive' ? 440 : 520 : view === 'settings' ? 600 * scale : view === 'scenarios' ? 900 * scale : view === 'focus' && context.focusConfig ? 440 * scale : view === 'files' ? 520 * scale : definition ? definition.size.width * scale : format.width;
-    const size = {...quiet, ...(state === 'open' ? {width: fileDragging ? 360 : view === 'welcome' ? 320 : getModuleEditorActive() ? Math.min(editorWidth, Math.max(1, window.innerWidth - 32)) : homeActive ? homeWidth : expandedMusic ? Math.min(directWidth + 284 * scale, Math.max(1, window.innerWidth - 80)) : directWidth, radius: appearance.radius} : {})};
-    if (state === 'open' && (view === 'welcome' || localSend)) size.band = 0;
-    if (state === 'open' && fileDragging) size.band = 0;
-    menu.hidden = state !== 'open' || view === 'welcome' || view === 'localsend' || fileDragging; menu.inert = menu.hidden;
-    if (localSend) size.radius = 18;
-    const directItem = definition ? homeModuleLayout([definition.id], directWidth, 16, context).items[0] : null;
-    let contentHeight = view === 'welcome' ? 246 : definition ? Math.max(definition.size.minHeight, Math.min(Math.max(definition.size.height * scale, (directItem?.minHeight || 0) + 30), definition.size.maxHeight)) : format.height;
-    if (view === 'focus') contentHeight = context.focusConfig ? 244 : 362;
-    if (view === 'settings') contentHeight = settingsNaturalPanelHeight();
-    if (view === 'scenarios') contentHeight = naturalPanelHeight(scenariosPlayer, Math.min(directWidth, Math.max(1, window.innerWidth - 32)));
-    if (view === 'files') contentHeight = ['result', 'ocr', 'preview'].includes(fileMode) ? 264 : 238;
-    if (localSend) contentHeight = localSend.direction === 'send' ? 210 : localSend.stage === 'consent' ? 116 : 158;
-    const shelfDetails = view === 'tray' && !!shelfSelectionItem();
-    if (shelfDetails) contentHeight = Math.max(contentHeight, 288);
-    if (!homeActive && state === 'open' && weatherVisible()) contentHeight = Math.max(contentHeight, Math.min(moduleDefinitions.weather.size.maxHeight, weatherNaturalPanelHeight()));
-    const editorHeight = editorLayout ? editorLayout.height + (window.innerWidth <= 430 ? 134 : window.innerWidth <= 640 ? 152 : 116) : 272;
-    const desiredHeight = fileDragging ? 160 : getModuleEditorActive() ? editorHeight : homeActive ? homeHeight : ['settings', 'scenarios'].includes(view) || shelfDetails ? contentHeight : expandedMusic && window.innerWidth <= 640 ? Math.max(370, contentHeight) : !desktop && window.innerHeight <= 430 ? Math.min(contentHeight, 180) : contentHeight;
-    const maximumHeight = desktop ? desktopMaxHeight - size.band - 8 : window.innerHeight - 96;
-    let panelHeight = Math.max(0, Math.min(desiredHeight, maximumHeight));
+    // The content has its final dimensions throughout the surface spring.
+    const scene = view === 'nook' && !getModuleEditorActive() && homeLayout?.mode === 'activities', sceneLayout = ISLAND_CONFIG.activities;
+    notch.dataset.activityScene = String(scene);
+    islandFooter.hidden = !core || scene;
+    const activityHeight = scene ? homeLayout.items.length > 2 ? sceneLayout.expandedHeight : sceneLayout.sceneHeight : ISLAND_CONFIG.states.expanded.height;
+    const welcomeSize = view === 'welcome' ? welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest : welcomeStage === 'logo' ? {width: ISLAND_CONFIG.welcome.introWidth, height: ISLAND_CONFIG.welcome.introHeight} : ISLAND_CONFIG.welcome : {width: ISLAND_CONFIG.formats[appearance.format], height: activityHeight};
+    const width = Math.min(welcomeSize.width, Math.max(1, window.innerWidth - layout.side * 2));
+    const height = Math.max(closed.band, Math.min(welcomeSize.height, desktop ? desktopMaxHeight - 8 : window.innerHeight - 96));
+    const showHeader = view !== 'welcome' && view !== 'localsend' && !fileDragging;
+    const band = showHeader ? scene ? sceneLayout.sceneTop : layout.header : 0;
+    const panelHeight = Math.max(0, height - band - (scene ? sceneLayout.bottom : layout.bottom) - (core && !scene ? layout.footer : 0));
+    notch.style.setProperty('--island-side', (scene ? sceneLayout.side : layout.side) + 'px');
+    notch.style.setProperty('--scene-gap', sceneLayout.gap + 'px');
+    notch.style.setProperty('--island-header-height', layout.header + 'px');
+    menu.hidden = state !== 'open' || !showHeader; menu.inert = menu.hidden || !!closingTo;
     notch.style.setProperty('--panel-height', panelHeight + 'px');
-    const target = {...size, width: Math.min(size.width, Math.max(1, window.innerWidth - 32)), height: size.band + (state === 'open' ? panelHeight : 0)};
+    notch.style.setProperty('--island-body-height', panelHeight + 'px');
+    notch.style.setProperty('--expanded-band', band + 'px');
+    notch.style.setProperty('--content-width', width + 'px');
+    notch.style.setProperty('--closed-width', closed.width + 'px');
+    notch.style.setProperty('--closed-height', closed.band + 'px');
+    expandedLayer.style.width = width + 'px'; expandedLayer.style.height = height + 'px';
+    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : ISLAND_CONFIG.states.expanded.radius + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
     protectLayoutResize(target.width, target.height);
     motion.setTarget(target, {snap: !motionEnabled() || document.hidden});
-    paint();
-    renderLocalSend();
-    recheckCollapse();
+    paint(); renderLocalSend(); recheckCollapse();
   }
 
   function setState(next) {
     if (disposed || !Object.hasOwn(sizes, next)) return false;
+    if (next === 'open' && closingTo) {
+      window.clearTimeout(contentExitTimer); contentExitTimer = 0; closingTo = null;
+      window.clearTimeout(hoverTimer); hoverTimer = 0;
+      animateIslandLayer(expandedLayer, true); renderIslandNavigation(); update(); return true;
+    }
+    if (state === 'open' && next !== 'open' && !document.hidden) {
+      if (closingTo) {closingTo = next; return true;}
+      const restoreKeyboardFocus = keyboardNavigation && expandedLayer.contains(document.activeElement);
+      closingTo = next; animateIslandLayer(expandedLayer, false); islandFooter.inert = true;
+      contentExitTimer = window.setTimeout(() => {
+        const target = closingTo; closingTo = null; contentExitTimer = 0; applyState(target);
+        if (restoreKeyboardFocus && document.activeElement === document.body) toggle.focus({preventScroll: true});
+      }, ISLAND_CONFIG.durations.contentExit);
+      return true;
+    }
+    return applyState(next);
+  }
+  function applyState(next) {
+    if (disposed || !Object.hasOwn(sizes, next)) return false;
+    const wasOpen = state === 'open', wasCompact = state === 'hover';
+    const keyboardOpening = next === 'open' && !wasOpen && keyboardNavigation && document.activeElement === toggle;
     window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
+    window.clearTimeout(hoverTimer); hoverTimer = 0;
+    if (next === 'discreet') keyboardNavigation = false;
     if (next !== 'open' || state !== 'open') {layoutResizeClick = null; layoutResizeGraceUntil = 0;}
-    if (next !== 'open' && (menu.contains(document.activeElement) || panel.contains(document.activeElement))) toggle.focus({preventScroll: true});
+    if (next !== 'open' && (menu.contains(document.activeElement) || expandedLayer.contains(document.activeElement) || byId('music-hover-controls').contains(document.activeElement))) toggle.focus({preventScroll: true});
     state = next;
     renderScenarios();
     notch.dataset.state = next;
@@ -2212,6 +2888,7 @@
     menu.hidden = next !== 'open' || view === 'welcome' || view === 'localsend';
     menu.inert = menu.hidden;
     renderMenuSelection();
+    renderIslandNavigation();
     renderLiveActivities();
     update();
     musicLifecycle();
@@ -2221,11 +2898,17 @@
     renderModuleFeedback();
     if (next === 'open' && view === 'nook' && isModuleEnabled('shelf') && !shelfLoaded && !shelfBusy && !fileDragging) void loadShelf();
     if (next === 'open' && view === 'nook' && !getModuleEditorActive()) scenarioController?.morning();
+    if (wasOpen !== (next === 'open')) {
+      animateIslandLayer(expandedLayer, next === 'open');
+      if (keyboardOpening && !menu.hidden) menu.querySelector('button:not([hidden]):not(:disabled)')?.focus({preventScroll: true});
+      animateIslandLayer(toggle, next !== 'open', true);
+    }
+    if (next !== 'open') {const compact = next === 'hover'; if (wasCompact !== compact || wasOpen) {animateIslandLayer(compactContent, compact, true); animateIslandLayer(restContent, !compact, true);}}
     if (next !== 'open') scenarioController?.flush();
     return true;
   }
 
-  let layoutResizeClick = null, layoutResizeGraceUntil = 0;
+  let layoutResizeClick = null, layoutResizeGraceUntil = 0, nativePointerPresence = null;
   function protectLayoutResize(width, height) {
     const now = Date.now(), click = layoutResizeClick;
     if (disposed || state !== 'open' || !click || click.armed || now - click.at > 250 || now < click.at || !Number.isFinite(width) || !Number.isFinite(height)) return;
@@ -2238,11 +2921,12 @@
   }
   function protectedInteraction() {
     const focused = document.hasFocus() ? document.activeElement : null;
-    if (state === 'open' && ['settings', 'scenarios'].includes(view)) return true;
-    return welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]') || keyboardNavigation && state !== 'discreet' && !!focused?.closest('#notch-toggle,#notch-panel,#notch-menu');
+    const editing = focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]');
+    return welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'hover' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'discreet' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
   }
   function scheduleCollapse(deactivated = false) {
     window.clearTimeout(collapseTimer); collapseTimer = 0;
+    if (deactivated) {pointerInside = false; if (nativePointerPresence !== null) nativePointerPresence = false; keyboardNavigation = false; window.clearTimeout(hoverTimer); hoverTimer = 0;}
     if (disposed || state === 'discreet') { collapseDeferred = false; layoutResizeClick = null; layoutResizeGraceUntil = 0; return; }
     collapseDeferred = protectedInteraction();
     if (collapseDeferred) return;
@@ -2251,27 +2935,52 @@
       if (disposed || !(deactivated || !pointerInside)) return;
       collapseDeferred = protectedInteraction();
       if (!collapseDeferred) setState('discreet');
-    }, Math.max(220, state === 'open' ? layoutResizeGraceUntil - Date.now() : 0));
+    }, Math.max(ISLAND_CONFIG.delays.leave, state === 'open' ? layoutResizeGraceUntil - Date.now() : 0));
   }
   function recheckCollapse() { scenarioController?.flush(); if (collapseDeferred && !disposed && !pointerInside && !protectedInteraction()) scheduleCollapse(); }
-  function enter() { pointerInside = true; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false; if (state !== 'open') setState('hover'); }
-  function leave() { pointerInside = false; scenarioController?.flush(); scheduleCollapse(); }
+  function enter(event) {
+    if (event && nativePointerPresence === false) return;
+    pointerInside = true; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
+    if (closingTo) { setState('open'); return; }
+    window.clearTimeout(hoverTimer);
+    if (state === 'discreet') hoverTimer = window.setTimeout(() => {hoverTimer = 0; if (pointerInside && state === 'discreet' && !disposed) setState('hover');}, ISLAND_CONFIG.delays.hover);
+  }
+  function leave() { window.clearTimeout(hoverTimer); hoverTimer = 0; pointerInside = false; scenarioController?.flush(); scheduleCollapse(); }
   function nativePointer(value) {
     const inside = value?.inside;
     if (disposed || document.hidden || typeof inside !== 'boolean') return;
+    if (inside && value.moved === false && !pointerInside) return;
+    nativePointerPresence = inside;
     if (value.moved === true) layoutResizeClick = null;
     if (value.moved === true && keyboardNavigation) {
       keyboardNavigation = false;
       if (!inside) { leave(); return; }
     }
-    if (inside === pointerInside) return;
+    if (inside === pointerInside) {
+      if (!inside && state !== 'discreet' && !collapseTimer && !collapseDeferred) scheduleCollapse();
+      return;
+    }
     if (inside) enter(); else leave();
   }
   function toggleFocus() { if (keyboardNavigation && state === 'discreet') setState('hover'); }
-  function open() { if (welcome?.isActive() && state === 'open') { finishWelcome('discreet'); return; } if (state === 'open') { if (!getModuleEditorActive()) setState('discreet'); return; } if (localSendBand()) { selectViewButton({dataset: {view: localSendBand().stage === 'ready' ? 'tray' : 'localsend'}}); setState('open'); return; } if (moduleFeedback && isModuleEnabled(moduleFeedback.id)) { selectViewButton({dataset: {view: moduleDefinitions[moduleFeedback.id].view}}); setState('open'); return; } if (music.available) selectViewButton(menuButtons.find(button => button.dataset.view === 'nook')); setState('open'); }
+  function surfaceClick() { if (state !== 'open') open(); }
+  function open() {
+    if (closingTo) {setState('open'); return;}
+    if (welcome?.isActive() && state === 'open') { finishWelcome('discreet'); return; }
+    if (state === 'open') { if (!getModuleEditorActive()) setState('discreet'); return; }
+    const transfer = localSendBand();
+    selectViewButton({dataset: {view: transfer && transfer.stage !== 'ready' ? 'localsend' : 'nook'}});
+    setState('open');
+  }
   function focusInteraction() { if (protectedInteraction()) { if (collapseTimer) collapseDeferred = true; window.clearTimeout(collapseTimer); collapseTimer = 0; } }
-  function focusDeparture() { window.queueMicrotask(recheckCollapse); }
-  function keyboardInteraction(event) { if (['Tab', 'Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {keyboardNavigation = true; focusInteraction();} }
+  function focusDeparture() {
+    window.queueMicrotask(() => {
+      if (!document.hasFocus()) scheduleCollapse(true);
+      else if (!pointerInside && state !== 'discreet' && !collapseTimer && !protectedInteraction()) scheduleCollapse();
+      else recheckCollapse();
+    });
+  }
+  function keyboardInteraction(event) { if (event.target?.closest?.('input,textarea,select,[contenteditable="true"]') || ['Tab', 'Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {keyboardNavigation = true; focusInteraction();} }
   function pointerInteraction(event) {
     keyboardNavigation = false;
     layoutResizeClick = state === 'open' && notch.contains(event.target) ? {at: Date.now(), armed: false} : null;
@@ -2281,7 +2990,7 @@
     if (event.pointerType === 'mouse' && (event.movementX || event.movementY)) {
       const wasKeyboard = keyboardNavigation;
       keyboardNavigation = false; layoutResizeClick = null;
-      if (wasKeyboard && !notch.contains(event.target)) scheduleCollapse();
+      if (!notch.contains(event.target)) {if (pointerInside || collapseDeferred) leave(); else if (wasKeyboard) scheduleCollapse();}
     }
   }
   function showFileChooser(input) { fileDialogOpen = true; desktop?.setDialogOpen?.(true); input.click(); }
@@ -2291,6 +3000,7 @@
   function selectView(event) {
     const button = event.target.closest('[data-view]');
     if (disposed || menu.hidden || !button || !menu.contains(button)) return;
+    if (button.dataset.view === 'nook') islandPage = 'music';
     selectViewButton(button);
   }
   function selectViewButton(button) {
@@ -2299,6 +3009,8 @@
       welcome.hide(); try { window.localStorage.setItem(welcomeStorageKey, 'done'); } catch {}
     }
     view = button.dataset.view;
+    if (view === 'music' || view === 'focus' || view === 'tasks') islandPage = view;
+    renderIslandNavigation();
     toggle.tabIndex = state === 'open' && view === 'localsend' ? -1 : 0;
     byId('welcome-player').hidden = view !== 'welcome';
     menu.hidden = state !== 'open' || view === 'welcome' || view === 'localsend'; menu.inert = menu.hidden;
@@ -2317,13 +3029,13 @@
     renderLocalSend();
     update();
     if (state === 'open' && view === 'nook' && !getModuleEditorActive()) scenarioController?.morning();
-    if (builtinVisible('shelf') && !shelfLoaded && !shelfBusy && !fileDragging) void loadShelf();
+    if ((builtinVisible('shelf') || view === 'nook' && getHomeSlots().includes('shelf')) && !shelfLoaded && !shelfBusy && !fileDragging) void loadShelf();
   }
   function renderMenuSelection() {
     for (const item of menuButtons) {
       const definition = Object.values(moduleDefinitions).find(entry => entry.view === item.dataset.view);
-      item.hidden = item.dataset.view === 'scenarios' ? view !== 'scenarios' : !!definition && !isModuleEnabled(definition.id) && !(definition.id === 'shelf' && view === 'tray');
-      const selected = item.dataset.view === view || item.dataset.view === 'nook' && view === 'music';
+      item.hidden = item.dataset.view === 'scenarios' || !!definition && !isModuleEnabled(definition.id) && !(definition.id === 'shelf' && view === 'tray');
+      const selected = item.dataset.view === view || item.dataset.view === 'nook' && view === 'music' || item.dataset.view === 'settings' && view === 'scenarios';
       item.setAttribute('aria-pressed', String(selected)); item.setAttribute('aria-current', selected ? 'page' : 'false');
     }
   }
@@ -2332,10 +3044,14 @@
   notch.addEventListener('pointerleave', leave);
   toggle.addEventListener('focus', toggleFocus);
   toggle.addEventListener('click', open);
+  surface.addEventListener('click', surfaceClick);
+  islandFooter.addEventListener('click', islandNavigation);
   menu.addEventListener('click', selectView);
   byId('welcome-replay').addEventListener('click', replayWelcome);
   byId('module-feedback-actions').addEventListener('click', feedbackCommand);
   panel.addEventListener('click', commandMusic);
+  byId('music-hover-controls').addEventListener('click', commandMusic);
+  byId('focus-task-prompt').addEventListener('click', focusTaskPromptCommand);
   player.addEventListener('click', musicQueueCommand);
   musicSeek.addEventListener('input', previewMusicSeek);
   musicSeek.addEventListener('change', commitMusicSeek);
@@ -2390,7 +3106,7 @@
   document.addEventListener('keydown', key);
   document.addEventListener('visibilitychange', update);
   window.addEventListener('resize', update);
-  reduced.addEventListener('change', update);
+  reduced.addEventListener('change', islandMotionPreference);
   if (desktop) {
     desktop.setInteractive(false);
     document.addEventListener('mousemove', desktopPointer);
@@ -2404,6 +3120,11 @@
   function dispose() {
     if (disposed) return;
     disposed = true;
+    window.clearTimeout(activityExpiryTimer); activityExpiryTimer = 0;
+    activityStage?.removeEventListener('click', activitySceneCommand);
+    window.clearTimeout(hoverTimer); hoverTimer = 0;
+    window.clearTimeout(contentExitTimer); contentExitTimer = 0; closingTo = null;
+    for (const animations of contentAnimations.values()) for (const animation of animations) animation.cancel(); contentAnimations.clear();
     scenarioController?.dispose();
     removeLanguage?.(); document.removeEventListener('change', languageChoice);
     queueEpoch++; queueOpen = queueActive = queueBusy = false; window.clearTimeout(queueTimer); queueTimer = 0;
@@ -2414,7 +3135,8 @@
     window.clearTimeout(nearbyTimer); nearbyTimer = 0;
     window.clearTimeout(filePoll); filePoll = 0;
     desktopRemoveResume?.();
-    focusComponent.dispose(); clearModuleFeedback(false);
+    byId('focus-task-prompt').removeEventListener('click', focusTaskPromptCommand);
+    tasksComponent?.dispose(); focusComponent.dispose(); clearModuleFeedback(false);
     welcome?.dispose();
     window.cancelAnimationFrame(frame);
     window.clearTimeout(collapseTimer); collapseTimer = 0;
@@ -2423,13 +3145,16 @@
     stream?.close(); retiringStream?.close(); stream = null; retiringStream = null;
     notch.removeEventListener('pointerenter', enter);
     notch.removeEventListener('pointerleave', leave);
+    surface.removeEventListener('click', surfaceClick);
     toggle.removeEventListener('focus', toggleFocus);
     toggle.removeEventListener('click', open);
+    islandFooter.removeEventListener('click', islandNavigation);
     menu.removeEventListener('click', selectView);
     byId('welcome-replay').removeEventListener('click', replayWelcome);
     byId('module-feedback-actions').removeEventListener('click', feedbackCommand);
     panel.removeEventListener('click', commandMusic);
     player.removeEventListener('click', musicQueueCommand);
+    byId('music-hover-controls').removeEventListener('click', commandMusic);
     musicSeek.removeEventListener('input', previewMusicSeek);
     musicSeek.removeEventListener('change', commitMusicSeek);
     musicSeek.removeEventListener('pointerdown', startMusicSeek);
@@ -2486,7 +3211,7 @@
     document.removeEventListener('visibilitychange', update);
     window.removeEventListener('resize', update);
     window.removeEventListener('pagehide', dispose);
-    reduced.removeEventListener('change', update);
+    reduced.removeEventListener('change', islandMotionPreference);
   }
 
   window.notchy = Object.freeze({
@@ -2520,7 +3245,7 @@
     }),
   });
   window.addEventListener('pagehide', dispose, {once: true});
-  welcome = window.NotchyWelcome.create({host: byId('welcome-player'), start: () => finishWelcome(), tutorialFinish: () => finishWelcome(), motion: motionEnabled});
+  welcome = window.NotchyWelcome.create({host: byId('welcome-player'), start: () => finishWelcome('discreet'), tutorialFinish: () => finishWelcome('discreet'), stageChanged: stage => {welcomeStage = stage; if (view === 'welcome') update();}, motion: motionEnabled});
   document.addEventListener('change', languageChoice);
   removeLanguage = i18n.onChange(renderLanguage);
   for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();
@@ -2532,6 +3257,7 @@
   scenarioController = createScenarioController({value: scenarioPreferences, activity: scenarioActivity, enabled: configuredModuleOrder, interacting: scenarioInteracting,
     schedule: window.setTimeout.bind(window), unschedule: window.clearTimeout.bind(window), changed: scenarioChanged,
     save: value => {try {window.localStorage.setItem(scenarioStorageKey, JSON.stringify(value));} catch {}}});
+  islandPage = scenarioNookPage(scenarioController.getPreferences().selected) || islandPage;
   renderScenarios();
   renderAppearance(); renderHomeLayout(); renderModules(); renderFocus(); renderFiles(); renderWeather();
   setState('discreet');

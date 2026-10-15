@@ -1,0 +1,41 @@
+{
+  "$schema": "../module-manifest.schema.json",
+  "manifestVersion": 1,
+  "id": "community.reading-log",
+  "version": "0.1.0",
+  "name": {"en": "Reading", "fr": "Lecture"},
+  "description": {
+    "en": "A design proposal for recording reading progress locally. This example does not install a module.",
+    "fr": "Une proposition pour suivre sa lecture localement. Cet exemple n’installe aucun module."
+  },
+  "regions": ["scene", "rail"],
+  "presentations": {
+    "full": {
+      "purpose": {"en": "Show the current book, completed sections and target, with explicit progress controls.", "fr": "Afficher le livre en cours, les sections terminées et l’objectif, avec des commandes explicites."},
+      "content": ["book-title", "completed", "target", "progress"],
+      "actions": ["advance", "reset"]
+    },
+    "scene": {
+      "purpose": {"en": "Keep the current book and progress visible, with one action to record a section.", "fr": "Garder le livre et sa progression visibles, avec une action pour enregistrer une section."},
+      "content": ["book-title", "progress"],
+      "actions": ["advance"]
+    },
+    "rail": {
+      "purpose": {"en": "Show a concise reading summary and preserve access to the essential action.", "fr": "Afficher un résumé de lecture et conserver l’accès à l’action essentielle."},
+      "content": ["book-title", "progress"],
+      "actions": ["advance"]
+    }
+  },
+  "permissions": [],
+  "capabilities": {
+    "progress": {"kind": "determinate", "unit": "ratio", "direction": "increasing", "label": {"en": "Sections completed", "fr": "Sections terminées"}},
+    "actions": [
+      {"id": "advance", "label": {"en": "Record a section", "fr": "Enregistrer une section"}, "role": "primary"},
+      {"id": "reset", "label": {"en": "Reset progress", "fr": "Réinitialiser la progression"}, "role": "destructive"}
+    ],
+    "settings": false,
+    "band": {"discreet": "none", "hover": "none", "changes": []}
+  },
+  "appearance": {"surface": "host-opaque", "accent": "#A6E3B4", "artwork": "none"},
+  "motion": {"preset": "host", "reducedMotion": "static", "pauseWhenHidden": true, "ambient": "none"}
+}

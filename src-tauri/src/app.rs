@@ -127,11 +127,11 @@ struct DesktopState {
 }
 fn initial_geometry() -> Geometry {
     Geometry {
-        width: 267.,
+        width: 128.,
         height: 10.,
         band: 10.,
-        radius: 4.,
-        shoulder: 3.5,
+        radius: 6.,
+        shoulder: 0.,
         state: NotchState::Discreet,
     }
 }
@@ -387,7 +387,9 @@ async fn desktop_command(
                     r["phase"] == "discreet"
                         && r["state"] == "discreet"
                         && r["geometry"]["height"] == 10
-                        && r["geometry"]["radius"] == 4
+                        && r["geometry"]["width"] == 128
+                        && r["geometry"]["radius"] == 6
+                        && r["geometry"]["shoulder"] == 0
                         && r["morphing"] == false
                         && r["visible"] == true
                         && r["topmost"] == true
@@ -491,7 +493,7 @@ pub fn run() {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 if pointer_state.quitting.load(Ordering::Relaxed){break;}
                 let geometry=*pointer_state.geometry.lock().unwrap();
-                let sample=if pointer_state.visible.load(Ordering::Relaxed){desktop::cursor_sample(&pointer_window)}else{None};
+                let sample=if pointer_state.visible.load(Ordering::Relaxed){desktop::cursor_sample(&pointer_window,geometry.state)}else{None};
                 if let Some(event)=observer.update(sample,geometry.state){let _=pointer_window.emit("notchy:pointer",event);}
             }
         });

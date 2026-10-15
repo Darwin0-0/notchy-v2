@@ -199,7 +199,7 @@ test('one-session and maximum twelve-session cycles catch up completely and fini
 test('legacy Focus tasks migrate into the shared list without changing a running deadline', () => {
   const state = focus.restore({minutes: 25, remaining: 812, deadline: 822000, task: '  Finish the draft  ',
     pomodoro: {work: 25, rest: 5, longRest: 15, total: 4, session: 1, phase: 'work'}}, 10000);
-  assert.deepEqual(state.tasks, [{id: 'legacy-task', title: 'Finish the draft', done: false}]);
+  assert.deepEqual(state.tasks, [{id: 'legacy-task', title: 'Finish the draft', done: false, estimatedCycles: 1, completedCycles: 0}]);
   assert.equal(state.activeTaskId, 'legacy-task');
   assert.equal(state.task, 'Finish the draft');
   assert.equal(state.deadline, 822000);
@@ -213,7 +213,7 @@ test('restored task lists discard invalid IDs, duplicate entries and foreign pro
     {id: 'long', title: 'z'.repeat(600)}, null,
   ]});
   assert.equal(state.tasks.length, 3);
-  assert.deepEqual(state.tasks[0], {id: 'a', title: 'First', done: false});
+  assert.deepEqual(state.tasks[0], {id: 'a', title: 'First', done: false, estimatedCycles: 1, completedCycles: 0});
   assert.equal(state.tasks[2].title.length, 500);
   assert.equal(state.activeTaskId, 'b');
   assert.equal(state.task, 'Second');
@@ -228,9 +228,9 @@ test('adding and selecting tasks keeps all running or paused Pomodoro timing int
       pomodoro: {work: 25, rest: 5, longRest: 15, total: 4, session: 1, phase: 'work'}}, 10000);
     const before = {...state, tasks: undefined, activeTaskId: undefined, task: undefined};
     assert.equal(focus.taskAction(state, {type: 'add', title: 'First'}, 'a'), true);
-    assert.equal(state.activeTaskId, 'a');
+    assert.equal(state.activeTaskId, null, 'adding a task keeps free Focus unlinked');
     assert.equal(focus.taskAction(state, {type: 'add', title: 'Second'}, 'b'), true);
-    assert.equal(state.activeTaskId, 'a');
+    assert.equal(state.activeTaskId, null);
     assert.equal(focus.taskAction(state, {type: 'select', id: 'b'}), true);
     assert.equal(state.task, 'Second');
     assert.equal(focus.taskAction(state, {type: 'toggle', id: 'b'}), true);
@@ -243,7 +243,7 @@ test('adding and selecting tasks keeps all running or paused Pomodoro timing int
     assert.equal(state.task, '');
     assert.deepEqual({...state, tasks: undefined, activeTaskId: undefined, task: undefined}, before);
     const restored = focus.restore(JSON.parse(JSON.stringify(state)), 10000);
-    assert.deepEqual(restored.tasks, [{id: 'a', title: 'First', done: false}]);
+    assert.deepEqual(restored.tasks, [{id: 'a', title: 'First', done: false, estimatedCycles: 1, completedCycles: 0}]);
     assert.equal(restored.deadline, deadline);
   }
 });

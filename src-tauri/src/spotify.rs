@@ -422,6 +422,7 @@ impl Spotify {
                     .directory
                     .to_string_lossy()
                     .trim_start_matches("\\\\?\\")
+                    .replace('/', std::path::MAIN_SEPARATOR_STR)
                     .to_ascii_lowercase()
         {
             return Err(ApiError::new(503, "Stockage Spotify indisponible."));
@@ -907,7 +908,7 @@ impl Spotify {
                 axum::serve(listener, app).with_graceful_shutdown(shutdown.cancelled_owned());
             tokio::select! {_=auth.stop.cancelled()=>{},_=tokio::time::sleep(Duration::from_secs(120))=>{auth.stop.cancel();if let Some(service)=weak.upgrade(){let mut state=service.state.lock().await;if state.generation==auth.generation&&state.auth.as_ref().is_some_and(|active|Arc::ptr_eq(active,&auth)){state.auth=None;state.cache=projection("error",false);}}},_=server=>{}}
         });
-        if open_browser(url.as_str()).is_err() {
+        if crate::desktop::open_uri(url.as_str()).is_err() {
             flow.stop.cancel();
             let mut state = self.state.lock().await;
             if state.generation == flow.generation {
@@ -1066,7 +1067,7 @@ async fn callback(State(context): State<CallbackState>, request: Request) -> Res
         if state.generation != generation || cancelled.is_cancelled() {
             return Err(ApiError::new(499, "Connexion annulée."));
         }
-        service.persist(&tokens).await?;
+        service.persist(&tokens).await.map_err(|_| ApiError::new(503, "Spotify est autorisé, mais Notchy n’a pas pu enregistrer la session."))?;
         let can_play = tokens.can_play();
         state.tokens = Some(tokens);
         state.cache = projection("connected", can_play);
@@ -1076,23 +1077,25 @@ async fn callback(State(context): State<CallbackState>, request: Request) -> Res
     }
     .await;
     context.flow.stop.cancel();
-    if authorized.is_ok() {
-        callback_reply(
+    match authorized {
+        Ok(()) => callback_reply(
             200,
             "Spotify est connecté à Notchy. Tu peux fermer cet onglet.",
-        )
-    } else {
-        let mut state = service.state.lock().await;
-        if state.generation == generation {
-            state.auth = None;
-            state.cache = projection("error", false);
+        ),
+        Err(error) => {
+            let mut state = service.state.lock().await;
+            if state.generation == generation {
+                state.auth = None;
+                state.cache = projection("error", false);
+                state.cache["message"] = error.message.clone().into();
+            }
+            callback_reply(error.status, error.message)
         }
-        callback_reply(400, "La connexion a échoué. Relance-la depuis Notchy.")
     }
 }
 
-fn callback_reply(status: u16, text: &'static str) -> Response {
-    let mut response = (axum::http::StatusCode::from_u16(status).unwrap(), text).into_response();
+fn callback_reply(status: u16, text: impl Into<String>) -> Response {
+    let mut response = (axum::http::StatusCode::from_u16(status).unwrap(), text.into()).into_response();
     for (key, value) in [
         ("cache-control", "no-store"),
         ("referrer-policy", "no-referrer"),
@@ -1101,24 +1104,6 @@ fn callback_reply(status: u16, text: &'static str) -> Response {
         response.headers_mut().insert(key, value.parse().unwrap());
     }
     response
-}
-
-fn open_browser(url: &str) -> Result<()> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("explorer.exe")
-            .arg(url)
-            .creation_flags(0x08000000)
-            .spawn()
-            .map_err(|_| ApiError::new(503, "Impossible d’ouvrir le navigateur."))?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = url;
-        Err(ApiError::new(503, "Cette connexion nécessite Windows."))
-    }
 }
 
 #[cfg(windows)]
@@ -1345,6 +1330,112 @@ mod tests {
         assert_eq!(configured_client_id(&path, Some(&id)), Ok(id));
         std::fs::write(&path, vec![b' '; 2049]).unwrap();
         assert_eq!(configured_client_id(&path, None), Err("configuration-invalid"));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn session_persists_with_the_joined_windows_profile_path_and_can_be_reloaded() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(directory.path()).unwrap().to_string_lossy().trim_start_matches("\\\\?\\").to_owned();
+        let path = PathBuf::from(root).join(".desktop-profile/spotify-queue");
+        let service = Spotify::new(path.clone());
+        let tokens = Tokens { access_token: "fixture-access".into(), refresh_token: "fixture-refresh".into(), expires: now() + 3600000, scopes: SCOPES.iter().map(|scope| (*scope).into()).collect() };
+        service.persist(&tokens).await.unwrap();
+        let bytes = fs::read(service.store()).await.unwrap();
+        assert!(bytes.starts_with(STORE_HEADER));
+        assert!(!bytes.windows(tokens.access_token.len()).any(|part| part == tokens.access_token.as_bytes()));
+        let restored = Spotify::new(path);
+        restored.load().await;
+        let state = restored.state.lock().await;
+        assert_eq!(state.tokens.as_ref().unwrap().access_token, tokens.access_token);
+        assert_eq!(state.tokens.as_ref().unwrap().refresh_token, tokens.refresh_token);
+    }
+
+    async fn pending_callback(service: &Arc<Spotify>) -> (CallbackState, Request) {
+        let mut state = service.state.lock().await;
+        state.tokens = None;
+        state.generation += 1;
+        let flow = Arc::new(AuthFlow {
+            nonce: "fixture-state".into(), verifier: "v".repeat(64), generation: state.generation,
+            consumed: AtomicBool::new(false), stop: CancellationToken::new(),
+        });
+        state.auth = Some(flow.clone());
+        state.cache = projection("connecting", false);
+        (CallbackState { spotify: Arc::downgrade(service), flow }, Request::builder().uri("/callback?state=fixture-state&code=fixture-code").body(axum::body::Body::empty()).unwrap())
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn oauth_callback_exchanges_pkce_and_persists_a_real_encrypted_fixture_session() {
+        let mut f = fixture(&SCOPES, |call| {
+            assert_eq!((call.method.as_str(), call.path.as_str()), ("POST", "/token"));
+            let fields: HashMap<_, _> = url::form_urlencoded::parse(call.body.as_str().unwrap().as_bytes()).into_owned().collect();
+            assert_eq!(fields.len(), 5);
+            assert_eq!(fields["grant_type"], "authorization_code");
+            assert_eq!(fields["code"], "fixture-code");
+            assert_eq!(fields["redirect_uri"], REDIRECT);
+            assert_eq!(fields["code_verifier"], "v".repeat(64));
+            assert_eq!(fields["client_id"], "a".repeat(32));
+            (200, json!({"access_token":"callback-access","refresh_token":"callback-refresh","expires_in":3600,"scope":SCOPES.join(" ")}), None)
+        }, None).await;
+        let root = std::fs::canonicalize(f._directory.path()).unwrap().to_string_lossy().trim_start_matches("\\\\?\\").to_owned();
+        let service = Arc::get_mut(&mut f.service).unwrap();
+        service.directory = PathBuf::from(root).join(".desktop-profile/spotify-queue");
+        service.memory_store = false;
+        let (context, request) = pending_callback(&f.service).await;
+        let response = callback(State(context), request).await;
+        assert_eq!(response.status(), 200);
+        let state = f.service.state.lock().await;
+        assert_eq!(state.cache["status"], "connected");
+        assert_eq!(state.cache["canPlay"], true);
+        assert!(state.auth.is_none());
+        drop(state);
+        let data = fs::read(f.service.store()).await.unwrap();
+        assert!(data.starts_with(STORE_HEADER));
+        assert!(!data.windows("callback-access".len()).any(|part| part == b"callback-access"));
+        let mut restored = Spotify::new(f.service.directory.clone());
+        restored.client_id = Ok("a".repeat(32));
+        assert_eq!(Arc::new(restored).command(json!("status")).await.unwrap()["status"], "connected");
+        assert_eq!(f.mock.calls.lock().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn callback_reports_only_safe_local_errors_and_rejects_a_replayed_code() {
+        let f = fixture(&SCOPES, |_| (401, json!({"error":"invalid_client","error_description":"private-code private-state private-token"}), None), None).await;
+        let (context, request) = pending_callback(&f.service).await;
+        let repeated = CallbackState { spotify: context.spotify.clone(), flow: context.flow.clone() };
+        let response = callback(State(context), request).await;
+        assert_eq!(response.status(), 401);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        assert_eq!(std::str::from_utf8(&body).unwrap(), "Spotify refuse la connexion.");
+        let public = f.service.command(json!("status")).await.unwrap();
+        assert_eq!(public["message"], "Spotify refuse la connexion.");
+        assert!(!public.to_string().contains("private-"));
+        let response = callback(State(repeated), Request::builder().uri("/callback?state=fixture-state&code=fixture-code").body(axum::body::Body::empty()).unwrap()).await;
+        assert_eq!(response.status(), 400);
+        assert_eq!(f.mock.calls.lock().await.len(), 1);
+        assert!(!f.service.store().exists());
+    }
+
+    #[tokio::test]
+    async fn callback_distinguishes_a_local_storage_failure_without_exposing_oauth_values() {
+        let mut f = fixture(&SCOPES, |_| (200, json!({"access_token":"private-access","refresh_token":"private-refresh","expires_in":3600}), None), None).await;
+        let blocked = f._directory.path().join("blocked");
+        fs::write(&blocked, b"preserve").await.unwrap();
+        let service = Arc::get_mut(&mut f.service).unwrap();
+        service.directory = blocked.clone();
+        service.memory_store = false;
+        let (context, request) = pending_callback(&f.service).await;
+        let response = callback(State(context), request).await;
+        assert_eq!(response.status(), 503);
+        let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        assert_eq!(std::str::from_utf8(&body).unwrap(), "Spotify est autorisé, mais Notchy n’a pas pu enregistrer la session.");
+        let public = f.service.command(json!("status")).await.unwrap().to_string();
+        assert!(!public.contains("private-"));
+        assert!(!public.contains("fixture-"));
+        assert!(f.service.state.lock().await.tokens.is_none());
+        assert_eq!(fs::read(blocked).await.unwrap(), b"preserve");
     }
 
     #[tokio::test]

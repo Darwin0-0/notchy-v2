@@ -1,0 +1,25 @@
+/* Head geometry comes from the V1 robot renderer; only its two white eyes loop. */
+#welcome-player[data-welcome-design="mimo-head"] .welcome-brand { top: 20px; height: 56px; gap: 12px; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mascot { display: block; flex: 0 0 56px; width: 56px; height: 56px; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mascot { transform-origin: center; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo { display: block; width: 56px; height: 56px; overflow: hidden; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-wordmark { font-size: 26px; line-height: 32px; letter-spacing: -.03em; }
+#welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"]:is([data-mimo-beat="wake"],[data-mimo-beat="awake"],[data-mimo-beat="curious"]) .welcome-wordmark { opacity: 0; }
+#welcome-player[data-welcome-design="mimo-head"] :is(.welcome-mimo-features,.welcome-mimo-eyelids) { transform-box: view-box; transform-origin: 32px 32px; }
+#welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"][data-mimo-beat="wake"] .welcome-mimo-eyelids { transform: scaleY(.12); }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-title { top: 88px; font-size: 17px; line-height: 23px; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-description { top: 118px; width: min(292px,calc(100% - 36px)); color: #c3c3ca; line-height: 18px; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-intro > .welcome-actions { top: 170px; gap: 10px; }
+#welcome-player[data-welcome-design="mimo-head"] button { height: 36px; border-radius: 8px; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-language select { border-radius: 6px; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions button { border-radius: 8px; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-eye { transform-box: fill-box; transform-origin: center; animation: none; }
+#welcome-player[data-welcome-design="mimo-head"][data-welcome-motion="true"] .welcome-mimo-eye { animation: mimo-head-blink 6.8s ease-in-out infinite; }
+#welcome-player[data-welcome-design="mimo-head"] :is(.welcome-ripple,.welcome-file-nudge,.welcome-arrow-nudge) { animation: none!important; }
+@keyframes mimo-head-blink {
+  0%,35%,38%,78%,81%,100% { transform: scaleY(1); }
+  36.1%,79.1% { transform: scaleY(.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-eye { animation: none; transform: none; }
+}

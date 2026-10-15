@@ -16,7 +16,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 fn empty() -> Value {
-    json!({"available":false,"title":"","artist":"","cover":null,"playing":false,"position":0,"duration":0,"canSeek":false,"canToggle":false,"canNext":false,"canPrevious":false,"canShuffle":false,"canRepeat":false,"shuffle":null,"repeat":null,"source":"Spotify"})
+    json!({"available":false,"title":"","artist":"","cover":null,"playing":false,"position":0,"duration":0,"canSeek":false,"canToggle":false,"canNext":false,"canPrevious":false,"canShuffle":false,"canRepeat":false,"shuffle":null,"repeat":null,"source":"","sourceId":""})
 }
 fn clean_text(value: &Value, max: usize) -> String {
     value
@@ -33,6 +33,8 @@ pub fn normalize(value: &Value, previous: &Value) -> Value {
     }
     let title = clean_text(&value["title"], 512);
     let artist = clean_text(&value["artist"], 512);
+    let source = clean_text(&value["source"], 80);
+    let source_id = clean_text(&value["sourceId"], 256);
     let duration = value["duration"]
         .as_f64()
         .filter(|n| n.is_finite())
@@ -43,7 +45,7 @@ pub fn normalize(value: &Value, previous: &Value) -> Value {
         .filter(|n| n.is_finite())
         .unwrap_or(0.)
         .clamp(0., duration);
-    let mut result = json!({"available":true,"title":title,"artist":artist,"playing":value["playing"]==true,"position":position,"duration":duration,"source":"Spotify"});
+    let mut result = json!({"available":true,"title":title,"artist":artist,"playing":value["playing"]==true,"position":position,"duration":duration,"source":if source.is_empty(){"Windows Media"}else{&source},"sourceId":source_id});
     for key in [
         "canSeek",
         "canToggle",
@@ -87,7 +89,11 @@ pub fn normalize(value: &Value, previous: &Value) -> Value {
     };
     result["cover"] = if let Some(cover) = value.get("cover") {
         valid_cover(cover).unwrap_or(Value::Null)
-    } else if result["title"] == previous["title"] && result["artist"] == previous["artist"] {
+    } else if result["title"] == previous["title"]
+        && result["artist"] == previous["artist"]
+        && result["source"] == previous["source"]
+        && result["sourceId"] == previous["sourceId"]
+    {
         previous["cover"].clone()
     } else {
         Value::Null
@@ -295,15 +301,19 @@ impl Music {
             .ok_or_else(|| ApiError::new(400, "Commande musicale invalide."))?;
         let name = value["command"].as_str().unwrap_or("");
         if name == "open" && object.len() == 1 {
+            let current = self.snapshot().await;
+            if current["available"] == true && current["source"] != "Spotify" {
+                return Err(ApiError::new(409, "Ce lecteur ne fournit pas de lien d’ouverture."));
+            }
             crate::desktop::open_uri("spotify:")?;
             return Ok(json!({"ok":true}));
         }
         let seek = name == "seek";
         if !(seek
-            && object.len() == 4
+            && object.len() == 5
             && object
                 .keys()
-                .all(|k| ["command", "position", "title", "artist"].contains(&k.as_str()))
+                .all(|k| ["command", "position", "title", "artist", "sourceId"].contains(&k.as_str()))
             && value["position"]
                 .as_f64()
                 .map(|n| n.is_finite() && (0.0..=604800.).contains(&n))
@@ -314,6 +324,10 @@ impl Music {
                     .map(|s| s.chars().count() <= 240 && !s.chars().any(|c| c.is_control()))
                     .unwrap_or(false)
             })
+            && value["sourceId"]
+                .as_str()
+                .map(|s| !s.is_empty() && s.chars().count() <= 256 && !s.chars().any(|c| c.is_control()))
+                .unwrap_or(false)
             || object.len() == 1
                 && ["toggle", "next", "previous", "shuffle", "repeat"].contains(&name))
         {
@@ -334,12 +348,13 @@ impl Music {
             if current["canSeek"] != true {
                 return Err(ApiError::new(
                     409,
-                    "Spotify ne permet pas le déplacement dans ce morceau.",
+                    "Le lecteur Windows ne permet pas de déplacer la lecture.",
                 ));
             }
             if ["title", "artist"]
                 .iter()
                 .any(|key| clean_text(&current[key], 240) != value[key].as_str().unwrap_or(""))
+                || current["sourceId"] != value["sourceId"]
             {
                 return Err(ApiError::new(409, "Le morceau a changé. Réessaie."));
             }
@@ -354,7 +369,7 @@ impl Music {
             return Err(ApiError::new(409, "Panneau musical inactif."));
         }
         let payload = if seek {
-            json!({"command":"seek","position":value["position"]})
+            json!({"command":"seek","position":value["position"],"sourceId":value["sourceId"]})
         } else {
             json!({"command":name})
         };
@@ -365,7 +380,7 @@ impl Music {
         let ok = reply["available"] == true && reply["ok"] != false && reply["error"].is_null();
         self.publish(reply).await;
         if !ok {
-            return Err(ApiError::new(409, "Commande indisponible dans Spotify."));
+            return Err(ApiError::new(409, "Commande indisponible dans ce lecteur."));
         }
         let mut result = self.snapshot().await;
         result["ok"] = json!(true);
@@ -404,5 +419,60 @@ mod tests {
             )["canSeek"],
             false
         );
+    }
+
+    #[test]
+    fn native_music_keeps_the_real_source_and_never_shares_artwork_between_players() {
+        let cover = "data:image/png;base64,YQ==";
+        let spotify = normalize(&json!({"available":true,"title":"Song","artist":"Artist","source":"Spotify","sourceId":"Spotify.exe","cover":cover}), &empty());
+        let browser = json!({"available":true,"title":"Song","artist":"Artist","source":"Microsoft Edge","sourceId":"msedge.exe","duration":120,"canToggle":true,"canNext":false,"canSeek":true});
+        let edge = normalize(&browser, &spotify);
+        assert_eq!(edge["source"], "Microsoft Edge");
+        assert_eq!(edge["sourceId"], "msedge.exe");
+        assert_eq!(edge["cover"], Value::Null);
+        assert_eq!(edge["canToggle"], true);
+        assert_eq!(edge["canNext"], false);
+        assert_eq!(edge["canSeek"], true);
+
+        let mut with_cover = browser.clone();
+        with_cover["cover"] = json!(cover);
+        let same_player = normalize(&with_cover, &empty());
+        assert_eq!(normalize(&browser, &same_player)["cover"], cover);
+        let mut other_session = browser.clone();
+        other_session["sourceId"] = json!("another-edge-session");
+        assert_eq!(normalize(&other_session, &same_player)["cover"], Value::Null);
+    }
+
+    #[test]
+    fn native_music_does_not_invent_spotify_and_bounds_source_metadata() {
+        assert_eq!(empty()["source"], "");
+        assert_eq!(empty()["sourceId"], "");
+        assert_eq!(normalize(&json!({"available":true}), &empty())["source"], "Windows Media");
+        let value = normalize(&json!({"available":true,"source":"VLC\n\u{0000}","sourceId":"x".repeat(300)}), &empty());
+        assert_eq!(value["source"], "VLC");
+        assert_eq!(value["sourceId"].as_str().unwrap().len(), 256);
+        assert_eq!(normalize(&json!({"available":true,"source":"VLC","error":"offline"}), &value), empty());
+    }
+
+    #[tokio::test]
+    async fn seeking_requires_the_original_bounded_player_identity() {
+        let music = Arc::new(Music::new(PathBuf::new()));
+        let valid = json!({"command":"seek","position":42,"title":"Song","artist":"Artist","sourceId":"Spotify.exe"});
+        // A valid command reaches the inactive-player guard without starting a native bridge.
+        assert_eq!(music.command(valid.clone()).await.unwrap_err().status, 409);
+        for source in [Value::Null, json!(""), json!("x".repeat(257)), json!("Spotify\n.exe"), json!(true)] {
+            let mut invalid = valid.clone();
+            invalid["sourceId"] = source;
+            assert_eq!(music.command(invalid).await.unwrap_err().status, 400);
+        }
+        let mut missing = valid.clone();
+        missing.as_object_mut().unwrap().remove("sourceId");
+        assert_eq!(music.command(missing).await.unwrap_err().status, 400);
+        let mut extra = valid;
+        extra["extra"] = json!(true);
+        assert_eq!(music.command(extra).await.unwrap_err().status, 400);
+        for name in ["get", "toggle", "next", "previous", "shuffle", "repeat"] {
+            assert_eq!(music.command(json!({"command":name,"sourceId":"Spotify.exe"})).await.unwrap_err().status, 400);
+        }
     }
 }

@@ -24,7 +24,7 @@ test('scenario preferences restore only known plans, booleans and safe persisten
 
 test('scenario plans only use existing enabled modules and Minimal keeps configured module order', () => {
   const enabled = ['music', 'focus', 'weather', 'shelf'], before = JSON.stringify(enabled);
-  assert.deepEqual(scenarioModulePlan('focus', enabled), ['focus', 'music']); assert.deepEqual(scenarioModulePlan('ambience', enabled), ['music', 'weather']);
+  assert.deepEqual(scenarioModulePlan('focus', enabled), ['music', 'focus']); assert.deepEqual(scenarioModulePlan('ambience', enabled), ['music', 'weather']);
   assert.deepEqual(scenarioModulePlan('day', enabled), ['music', 'focus', 'weather']); assert.deepEqual(scenarioModulePlan('complete', enabled), enabled);
   assert.deepEqual(scenarioModulePlan('complete', ['focus', 'disabled', 'focus']), ['focus']); assert.deepEqual(scenarioModulePlan('focus', []), []);
   assert.deepEqual(scenarioModulePlan('__proto__', enabled), []);
@@ -123,9 +123,9 @@ test('Minimal stays on one configured module in manual mode and respects the int
 
 test('Day stacks Focus and Weather beside unstretched Music only when both minimum columns fit', () => {
   const ids = ['music', 'focus', 'weather'], layout = homeModuleLayout(ids, 904, 16, {dayScenario: true});
-  assert.equal(layout.mode, 'day'); assert.deepEqual(layout.rowHeights, [340, 208]); assert.equal(layout.contentHeight, 564); assert.equal(layout.preferredWidth, 904);
+  assert.equal(layout.mode, 'day'); assert.deepEqual(layout.rowHeights, [264, 208]); assert.equal(layout.contentHeight, 488); assert.equal(layout.preferredWidth, 736);
   assert.deepEqual(layout.items.map(item => [item.id, item.row, item.column]), [['music', 0, 0], ['focus', 0, 1], ['weather', 1, 1]]);
-  assert.equal(layout.items[0].rowSpan, 2); assert.equal(layout.items[0].minHeight, 176); assert.equal(layout.items[0].height, 564);
+  assert.equal(layout.items[0].rowSpan, 2); assert.equal(layout.items[0].minHeight, 176); assert.equal(layout.items[0].height, 488);
   for (const item of layout.items) assert(item.width >= item.minWidth && item.width <= item.maxWidth);
   assert.equal(homeModuleLayout(ids, 636, 16, {dayScenario: true}).mode, 'day');
   assert.notEqual(homeModuleLayout(ids, 635, 16, {dayScenario: true}).mode, 'day');

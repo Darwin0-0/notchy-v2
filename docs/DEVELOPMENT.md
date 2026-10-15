@@ -1,6 +1,6 @@
 # Development
 
-Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. Its frontend uses four scripts (`i18n.js`, `notch.js`, `focus.js`, `welcome.js`) and one stylesheet (`notch.css`).
+Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. Its frontend uses four scripts (`i18n.js`, `notch.js`, `focus.js`, `welcome.js`) and two stylesheets (`notch.css`, `welcome.css`).
 
 ## Build and run on Windows
 
@@ -9,7 +9,7 @@ Prerequisites:
 - Windows 10/11 x64, WebView2 and .NET Framework 4.x.
 - Rust with the MSVC x64 toolchain.
 - Visual Studio C++ build tools with a Windows SDK.
-- Node.js for JavaScript tests only.
+- Node.js for JavaScript tests and optional installer packaging.
 
 Clone the repository and open a **64-bit PowerShell** in its folder:
 
@@ -23,7 +23,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Build-Notchy.ps1 -Release
 
 After building, double-click `Notchy V2.cmd`. It prefers a release build, otherwise uses the debug build, and enables LocalSend. This launcher passes the repository folder as the data root. A release executable without `--data-root` uses the Windows application-data folder; a debug executable defaults to the repository folder.
 
-There is no installer or signed application package yet. WebView2 is a shared Windows runtime, separate from Notchy’s files. Close the executable and its helpers before rebuilding the same output folder.
+Close the executable and its helpers before rebuilding the same output folder. The build above creates the portable application. WebView2 is a shared Windows runtime, separate from Notchy’s files.
+
+### Package a Windows installer
+
+After the release build above, package it with the pinned Tauri CLI:
+
+```powershell
+npm exec --yes --ignore-scripts --package=@tauri-apps/cli@2.12.3 -- tauri build --bundles nsis --ci -- --locked
+```
+
+The NSIS installer is written to `src-tauri/target/release/bundle/nsis/` unless `CARGO_TARGET_DIR` is set. The first packaging run downloads the CLI and the NSIS tools. Build from a clean source checkout; the resource list in `src-tauri/tauri.conf.json` includes only the compiled helpers and required notices and licences. Personal profiles, credentials and Shelf files are not package resources.
+
+This package is unsigned. WebView2 is not embedded in the installer: setup can download its bootstrapper if the runtime is missing, so that download is separate from the reported installer size. A local package does not imply that a GitHub release has been published.
+
+### Use a separate development profile
 
 For development, use a separate data folder and launch the debug build explicitly:
 
@@ -65,9 +79,17 @@ The check command also expands the Windows temporary directory to its full path 
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the file map and review expectations, and [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) for sizing and interaction contracts.
 
+## Automatic Windows music
+
+Notchy listens to the Windows Global System Media Transport Controls sessions without a personal API key or account connection. It follows the current playing session, falls back to another playing session when the Windows selection is paused, and keeps a paused session available for resuming. Session and playback events update the selected player when applications start, pause or close.
+
+Title, artist, artwork, timeline and available commands come from the player. Play/pause, previous/next, seeking, shuffle and repeat only work when that session exposes the corresponding capability. A browser session may identify Microsoft Edge or Google Chrome rather than the website playing inside it; Notchy does not infer a streaming platform from a song title.
+
+The Windows session API does not provide a universal queue or playlist collection. See the [Microsoft session API](https://learn.microsoft.com/en-us/uwp/api/windows.media.control.globalsystemmediatransportcontrolssession) and [session manager](https://learn.microsoft.com/en-us/uwp/api/windows.media.control.globalsystemmediatransportcontrolssessionmanager) for the supported metadata, commands and events.
+
 ## Optional Spotify queue
 
-Windows playback controls and the audio spectrum work without a personal API client ID. The **Up next** queue and Spotify-specific actions require your own Spotify application configuration and account authorisation. The Windows player must expose a capability for a native command to be available.
+Windows playback controls and the audio spectrum work without a personal API client ID. The **Up next** queue and Spotify-specific actions use the separate, optional Spotify Web API connection. The [Spotify queue endpoint](https://developer.spotify.com/documentation/web-api/reference/get-queue) requires account authorisation; [PKCE](https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow) avoids embedding a client secret but still requires a registered application client ID. This development build accepts your own application configuration and does not ship a shared account or credentials.
 
 Configure the redirect URI as `http://127.0.0.1:43821/callback`. Set the client ID in the environment before launching Notchy:
 
