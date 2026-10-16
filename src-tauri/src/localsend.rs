@@ -820,6 +820,14 @@ impl LocalSend {
         json!({"status":state.status,"available":state.available,"error":state.error,"peers":state.peers.values().filter(|p| now().saturating_sub(p.seen_at) < PEER_TTL).map(Peer::public).collect::<Vec<_>>(),"transfer":state.transfer,"incoming":incoming})
     }
 
+    pub async fn start_on_launch(self: &Arc<Self>, checking: bool) -> Result<(), ApiError> {
+        // Start once per process, so a deliberate Stop remains effective until the next launch.
+        if checking { return Ok(()); }
+        self.start().await?;
+        self.announce(true).await;
+        Ok(())
+    }
+
     async fn snapshot_error(&self, message: &str) -> Value {
         let mut value = self.snapshot().await;
         value["error"] = message.into();
@@ -2352,7 +2360,7 @@ mod tests {
         assert_eq!(connections.available_permits(), 1);
     }
 
-    async fn fixture() -> (tempfile::TempDir, Arc<LocalSend>, reqwest::Client, String) {
+    async fn unstarted_fixture() -> (tempfile::TempDir, Arc<LocalSend>) {
         let directory = tempfile::Builder::new()
             .prefix("notchy-rust-localsend-")
             .tempdir()
@@ -2371,6 +2379,11 @@ mod tests {
                 .await
                 .unwrap(),
         );
+        (directory, service)
+    }
+
+    async fn fixture() -> (tempfile::TempDir, Arc<LocalSend>, reqwest::Client, String) {
+        let (directory, service) = unstarted_fixture().await;
         service.start().await.unwrap();
         let peer = Peer::parse(
             &service.information(),
@@ -2392,6 +2405,78 @@ mod tests {
         .await
         .unwrap();
         (directory, service, client, base)
+    }
+
+    #[tokio::test]
+    async fn launch_starts_receiving_without_an_optional_flag_and_a_stop_lasts_until_next_launch() {
+        let (directory, service) = unstarted_fixture().await;
+        assert_eq!(service.snapshot().await["available"], false);
+        service.start_on_launch(false).await.unwrap();
+        assert_eq!(service.snapshot().await["available"], true);
+        assert!(service.network.lock().await.is_some());
+        let peer = Peer::parse(&service.information(), "127.0.0.1".parse().unwrap(), true, false).unwrap();
+        let client = service.client(&peer).unwrap();
+        let url = format!("https://127.0.0.1:{}{}info", peer.port, PREFIX);
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if client.get(&url).send().await.is_ok_and(|response| response.status().is_success()) { break; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
+        let identity = service.identity.fingerprint.clone();
+        service.stop().await;
+        for _ in 0..3 {
+            assert_eq!(service.snapshot().await["available"], false, "Status polling must not restart a stopped session");
+            assert!(service.network.lock().await.is_none());
+        }
+        let shelf = service.shelf.clone();
+        let options = service.options.clone();
+        service.dispose().await;
+        let next_launch = Arc::new(LocalSend::with_options(directory.path().join("identity"), shelf, options).await.unwrap());
+        assert_eq!(next_launch.identity.fingerprint, identity, "An existing installation keeps its local identity");
+        next_launch.start_on_launch(false).await.unwrap();
+        assert_eq!(next_launch.snapshot().await["available"], true, "The next process starts sharing again after a prior session Stop");
+        next_launch.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn checking_launch_never_opens_local_sharing_network_or_listener_tasks() {
+        let (_directory, service) = unstarted_fixture().await;
+        service.start_on_launch(true).await.unwrap();
+        let state = service.snapshot().await;
+        assert_eq!(state["available"], false);
+        assert_eq!(state["status"], "off");
+        assert!(service.network.lock().await.is_none());
+        assert_eq!(service.port.load(Ordering::Relaxed), 0, "No listener selected an ephemeral port");
+        service.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn launch_listener_failure_is_retained_for_the_interface_without_claiming_readiness() {
+        let (_directory, mut service) = unstarted_fixture().await;
+        let occupied = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawSocket;
+            #[link(name = "ws2_32")]
+            extern "system" { fn setsockopt(socket: usize, level: i32, name: i32, value: *const i8, length: i32) -> i32; }
+            let exclusive = 1i32;
+            // Windows otherwise allows SO_REUSEADDR to bind over a socket that did not opt in.
+            assert_eq!(unsafe { setsockopt(occupied.as_raw_socket() as usize, 0xffff, !4, (&exclusive as *const i32).cast(), 4) }, 0);
+        }
+        occupied.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into()).unwrap();
+        let port = occupied.local_addr().unwrap().as_socket().unwrap().port();
+        let options = &mut Arc::get_mut(&mut service).unwrap().options;
+        options.discovery_port = port;
+        options.multicast = true;
+        // Only an ephemeral test port is occupied; multicast fails at bind, before any announcement.
+        assert!(service.start_on_launch(false).await.is_err());
+        let state = service.snapshot().await;
+        assert_eq!(state["available"], false);
+        assert_eq!(state["status"], "error");
+        assert_eq!(state["error"], "LocalSend ne peut pas écouter le réseau local. Vérifie le réseau et les autorisations Windows.");
+        assert!(service.network.lock().await.is_none());
+        service.dispose().await;
     }
 
     fn offer_body(files: Value) -> Value {

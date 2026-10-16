@@ -426,7 +426,7 @@
       rain: 'M6 15h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM8 18l-1 3m6-3-1 3m6-3-1 3',
       drizzle: 'M6 15h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM8 19v1m4-2v1m4 0v1',
       snow: 'M6 15h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM8 18v4m-2-2h4m6-2v4m-2-2h4',
-      fog: 'M6 13h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM4 17h16M6 21h12',
+      fog: 'M6 14h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM4 18h16M6 21h12',
       thunder: 'M6 15h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM12 14l-3 5h4l-2 4',
     };
     return Object.hasOwn(paths, icon) ? paths[icon] : cloud;
@@ -563,6 +563,13 @@
   const islandFooter = document.getElementById('island-footer');
   const menu = document.getElementById('notch-menu');
   const menuButtons = [...menu.querySelectorAll('[data-view]')];
+  let detailReturn = null, detailView = '';
+  const detailBack = document.createElement('button'); detailBack.type='button'; detailBack.className='activity-detail-back'; detailBack.hidden=true; panel.prepend(detailBack);
+  detailBack.addEventListener('click', () => {const origin=detailReturn; detailReturn=null; detailView=''; restoreFocusRoute(origin);});
+  function renderDetailReturn() {
+    detailBack.hidden = !detailReturn || view !== detailView || state !== 'open';
+    detailBack.textContent = '← ' + t('Revenir à Nook'); panel.dataset.detailReturn=String(!detailBack.hidden);
+  }
   const surface = document.getElementById('notch-surface');
   const contour = document.getElementById('notch-shape');
   const bandCut = document.getElementById('notch-band-cut');
@@ -613,7 +620,6 @@
     if (!button.dataset.islandPage || button.disabled) return;
     if (button.dataset.islandPage === 'music' && !musicInBand()) {islandPage = 'music'; selectViewButton({dataset: {view: 'music'}}); renderIslandNavigation(); update(); return;}
     islandPage = button.dataset.islandPage; selectViewButton({dataset: {view: 'nook'}});
-    if (['music', 'focus'].includes(islandPage) && activityScene.promote(islandPage)) renderHomeLayout();
     renderIslandNavigation(); update();
     if (motionEnabled() && typeof panel.animate === 'function') panel.animate([{opacity: 0}, {opacity: 1}], {duration: ISLAND_CONFIG.durations.contentExit, easing: 'ease-out'});
   }
@@ -1204,7 +1210,7 @@
     if (button.dataset.settingsCommand === 'modules') {openModuleEditor(); return;}
     if (button.dataset.settingsCommand === 'library') {showModuleLibrary(); return;}
     if (button.dataset.settingsCommand === 'focus') {
-      selectViewButton({dataset: {view: 'focus'}}); focusComponent.command('configure'); update();
+      focusComponent.command('configure'); update();
     } else if (button.dataset.settingsCommand === 'weather') {
       weatherPickerOpen = true; selectViewButton({dataset: {view: 'weather'}}); renderWeather(); weatherCityInput.focus({preventScroll: true});
     } else if (button.dataset.settingsCommand === 'localsend') selectViewButton({dataset: {view: 'tray'}});
@@ -1212,16 +1218,18 @@
   }
   function renderExperience() {
     renderSearchRoute();
+    renderDetailReturn();
     byId('module-library-player').hidden = view !== 'module-library' || state !== 'open'; moduleLibrary?.refresh();
     if (!experience || disposed) return;
     byId('health-player').hidden = view !== 'health' || moduleEditing;
     const tray = view === 'tray' && !moduleEditing;
+    const nearbyFailure = nearbyError || nearby.error || '';
     notch.dataset.experienceTray = String(tray);
     byId('sharing-experience').hidden = !tray;
     if (view === 'health') {
       const positioned = !!(weather.selectedCity?.name || weather.city);
       experience.renderHealth({items: [
-        {id:'network', label:t('Réseau'), status:nearbyBusy ? 'busy' : nearby.available ? 'ready' : 'unknown', detail:t(nearby.available ? 'LocalSend actif' : 'Partage local arrêté'), actionLabel:t('Activer'), action:'network'},
+        {id:'network', label:t('Réseau'), status:nearbyBusy ? 'busy' : nearbyFailure ? 'error' : nearby.available ? 'ready' : 'unknown', detail:nearbyFailure ? uiMessage(nearbyFailure) : t(nearby.available ? 'LocalSend actif' : 'Partage local arrêté'), actionLabel:t('Activer'), action:'network'},
         {id:'firewall', label:t('Pare-feu'), status:'unknown', detail:t('À vérifier sur ce réseau'), actionLabel:t('Aide'), action:'firewall'},
         {id:'location', label:t('Position'), status:weatherBusy ? 'busy' : positioned ? 'ready' : 'unknown', detail:weather.selectedCity?.name || weather.city || t('Choisir une ville'), actionLabel:t('Choisir'), action:'location'},
         {id:'spotify', label:'Spotify', status:queueBusy ? 'busy' : ['ok','connected','ready'].includes(queueState.status) ? 'ready' : 'unknown', detail:t(['ok','connected','ready'].includes(queueState.status) ? 'Connecté' : 'Non connecté'), actionLabel:t('Connecter'), action:'spotify'},
@@ -1230,7 +1238,7 @@
       ]});
     }
     if (tray && sharingExperience) {
-      sharingExperience.render({files:shelfItems.map(item => {const file = acceptedFile(item,'shelf'); return {...item, canOcr:(file.image || file.pdf) && file.toolsAvailable, canConvert:file.image && file.toolsAvailable, canSend:true, canOpen:true, canDownload:true, canRemove:true};}), selectedIds:[...selectedFiles], busy:shelfBusy || nearbyBusy, status:{message:nearbyError,error:!!nearbyError}, fileStatus:{message:shelfError,error:shelfDownloadError}, peers:nearby.peers || [], favorites:peerFavorites, available:nearby.available, transfer:nearby.transfer, incoming:nearby.incoming});
+      sharingExperience.render({files:shelfItems.map(item => {const file = acceptedFile(item,'shelf'); return {...item, canOcr:(file.image || file.pdf) && file.toolsAvailable, canConvert:file.image && file.toolsAvailable, canSend:true, canOpen:true, canDownload:true, canRemove:true};}), selectedIds:[...selectedFiles], busy:shelfBusy || nearbyBusy, status:{message:uiMessage(nearbyFailure),error:!!nearbyFailure}, fileStatus:{message:shelfError,error:shelfDownloadError}, peers:nearby.peers || [], favorites:peerFavorites, available:nearby.available, transfer:nearby.transfer, incoming:nearby.incoming});
     }
   }
   async function experienceAction(action) {
@@ -1316,7 +1324,7 @@
   }
   function scenarioInteracting() {
     const focused = document.hasFocus() ? document.activeElement : null;
-    return document.hidden || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || welcome?.isActive() || state === 'open' && pointerInside ||
+    return document.hidden || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || welcome?.isActive() || state === 'open' && pointerInside || state === 'open' && (['tasks','focus'].includes(view) || !!detailReturn && view === detailView) ||
       state === 'open' && (keyboardNavigation && !!focused?.closest('#notch-panel,#notch-menu,#island-footer') || !!focused?.closest('input,textarea,select,[contenteditable="true"]')) ||
       state === 'open' && view === 'localsend' && ['consent', 'waiting', 'progress'].includes(localSendPresentation()?.stage);
   }
@@ -1397,25 +1405,56 @@
 
   const focusPlayer = byId('focus-player'), focusStrip = byId('focus-discreet-progress');
   let focus = FocusModel.defaults(), focusSettings = focusConfiguration(), tasksComponent = null;
+  let focusToolReturn = null, focusConfigurationReturn = null;
+  function restoreFocusRoute(origin) {
+    if (!origin) return;
+    if (origin.page) islandPage = origin.page;
+    selectViewButton({dataset:{view:origin.view}}); setState('open');
+    const control = origin.control;
+    if (control?.isConnected && !control.closest('[hidden],[inert]')) control.focus({preventScroll:true});
+    else (origin.view === 'tasks' ? tasksPlayer.querySelector('.tasks-start') : origin.view === 'focus' ? focusPlayer.querySelector('#focus-toggle:not([hidden]),#focus-start:not([hidden])') : menu.querySelector('[data-view="nook"]'))?.focus({preventScroll:true});
+  }
+  function openActivityDetail(route) {
+    if (view === 'nook') {
+      const origin={view,page:islandPage,control:document.activeElement};
+      if (route==='focus') focusToolReturn=origin;
+      else {detailReturn=origin;detailView=route;}
+    }
+    selectViewButton({dataset:{view:route}}); setState('open');
+  }
   const focusComponent = FocusAPI.create({host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus, openTasks() {
-    selectViewButton({dataset: {view: 'tasks'}}); setState('open'); tasksComponent.focusInput();
+    openActivityDetail('tasks'); tasksComponent.focusInput();
   }, openConfiguration() {
-    selectViewButton({dataset: {view: 'focus'}});
+    if (!focusComponent.inspect().configOpen) focusConfigurationReturn = {view,page:islandPage,control:document.activeElement};
+    if (view !== 'focus') selectViewButton({dataset: {view: 'focus'}});
+  }, closeConfiguration() {
+    const origin = focusConfigurationReturn; focusConfigurationReturn = null;
+    restoreFocusRoute(origin);
   }, restoreTaskFocus() {
     restoreFocusTaskControl();
   }});
   focus = focusComponent.getState(); focusSettings = focusComponent.getSettings();
   const tasksPlayer = byId('tasks-player');
-  tasksComponent = FocusAPI.createTasks({host: tasksPlayer, focus: focusComponent, expand() {
-    selectViewButton({dataset: {view: 'tasks'}}); setState('open'); tasksComponent.focusInput();
+  const focusToolBack = document.createElement('button'); focusToolBack.type='button'; focusToolBack.className='focus-tool-back'; focusToolBack.hidden=true; focusPlayer.prepend(focusToolBack);
+  focusToolBack.addEventListener('click', () => {const origin=focusToolReturn; focusToolReturn=null; restoreFocusRoute(origin);});
+  tasksComponent = FocusAPI.createTasks({host: tasksPlayer, focus: focusComponent, prepare(control) {
+    focusToolReturn = {view,page:islandPage,control}; selectViewButton({dataset:{view:'focus'}}); setState('open'); focusComponent.command('prepare');
+  }, expand() {
+    openActivityDetail('tasks'); tasksComponent.focusInput();
   }});
   moduleActivityStates.set('focus', moduleActivitySnapshot('focus', focus));
+  function renderFocusRouteBack() {
+    focusToolBack.hidden = view !== 'focus' || !focusToolReturn || focusComponent.inspect().configOpen;
+    focusToolBack.textContent = '← ' + t(focusToolReturn?.view === 'tasks' ? 'Revenir aux tâches' : 'Revenir à Nook');
+    focusPlayer.dataset.focusToolReturn = String(!focusToolBack.hidden);
+  }
   function focusIsActive() { return !focus.pomodoro?.finished && (focus.sessionActive || !!focus.deadline); }
   function focusLabel() { return focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind === 'long' ? t('Pause longue') : t('Pause courte') : t('Concentration'); }
   function syncFocus(value) {
     if (disposed) return;
     const previousCompletion = focus.sessionSummary?.at;
     focus = value.state; focusSettings = value.settings;
+    renderFocusRouteBack();
     const completionChanged = focus.sessionSummary && focus.sessionSummary.at !== previousCompletion;
     tasksComponent?.render();
     renderFocusTaskPrompt();
@@ -1437,6 +1476,7 @@
       focusComponent.lifecycle({enabled: focusCoreEnabled(), hidden: document.hidden, visible: state === 'open' && !focusPlayer.hidden && !getModuleEditorActive()});
       if (view === 'tasks') tasksPlayer.dataset.presentation = 'full';
       tasksComponent?.render();
+      renderFocusRouteBack();
       renderFocusTaskPrompt();
     }
   }
@@ -1739,6 +1779,7 @@
     if (activityStage.parentElement !== home) home.append(activityStage);
     for (const child of [...home.children]) if (![activityStage, byId('home-main'), byId('home-side'), byId('home-empty')].includes(child)) child.remove();
     byId('home-main').hidden = true; byId('home-side').hidden = true; byId('home-empty').hidden = true; home.inert = false;
+    byId('music-promote').hidden = !player.parentElement?.classList?.contains('activity-rail-cards');
     renderActivitySceneValues(); renderMusicQueue(); musicQueueLifecycle(); return true;
   }
   function animateActivityPromotion() {
@@ -1756,25 +1797,24 @@
   function activitySceneCommand(event) {
     const promote = event.target.closest('[data-scene-promote]'), action = event.target.closest('[data-scene-command]');
     if (disposed || (promote || action)?.disabled) return;
-    if (promote?.dataset.scenePromote === activityScene.inspect().primary) {
-      if (promote.dataset.scenePromote === 'transfer') {
+    if (promote?.dataset.scenePromote) {
+      const id=promote.dataset.scenePromote;
+      if (id === 'transfer') {
         if (nearby.incoming) openLocalSend('receive', nearby.incoming);
         else {selectViewButton({dataset: {view: localSendContext ? 'localsend' : 'tray'}}); setState('open');}
-      } else if (promote.dataset.scenePromote === 'file') {selectViewButton({dataset: {view: 'files'}}); setState('open');}
-      else if (['weather', 'shelf'].includes(promote.dataset.scenePromote)) {selectViewButton({dataset: {view: moduleDefinitions[promote.dataset.scenePromote].view}}); setState('open');}
+      } else if (id === 'file') {selectViewButton({dataset: {view: 'files'}}); setState('open');}
+      else if (moduleDefinitions[id]?.view && moduleDefinitions[id].view !== 'nook') {
+        const origin={view,page:islandPage,control:document.activeElement}, target=moduleDefinitions[id].view;
+        if (id==='focus') focusToolReturn=origin; else {detailReturn=origin;detailView=target;}
+        selectViewButton({dataset:{view:target}}); setState('open');
+      }
       return;
-    }
-    if (promote?.dataset.scenePromote && activityScene.promote(promote.dataset.scenePromote)) {
-      renderHomeLayout(); renderMusic(); renderFocus();
-      activityStage.scrollTop = 0;
-      if (keyboardNavigation) activityMain.focus({preventScroll: true}); animateActivityPromotion(); return;
     }
     if (!action) return;
     if (action.dataset.sceneCommand === 'focus-toggle') focusComponent.command(focusIsActive() ? 'toggle' : 'start');
     else if (action.dataset.sceneCommand === 'focus-complete-task') focusComponent.command('complete-task');
     else if (['focus-link-task', 'focus-configure'].includes(action.dataset.sceneCommand)) {
-      activityScene.promote('focus'); renderHomeLayout(); renderFocus();
-      activityStage.scrollTop = 0;
+      if (action.dataset.sceneCommand === 'focus-link-task') {focusToolReturn={view,page:islandPage,control:document.activeElement}; selectViewButton({dataset:{view:'focus'}}); setState('open');}
       focusComponent.command(action.dataset.sceneCommand === 'focus-link-task' ? 'link-task' : 'configure');
     }
     else if (['music-toggle', 'music-previous', 'music-next'].includes(action.dataset.sceneCommand)) void performMusicCommand({command: action.dataset.sceneCommand.slice(6)});
@@ -2405,6 +2445,7 @@
     host.dataset.weatherDesign = signature; host.dataset.size = values.size; host.dataset.state = next.state;
     const make = (className, value, tag = 'span') => {const node = document.createElement(tag); node.className = className; if (value !== undefined) node.textContent = value; return node;};
     const heading = make('weather-design-heading'), icon = byId('weather-condition-icon').cloneNode(true); icon.removeAttribute('id');
+    icon.querySelector('path').setAttribute('d', weatherConditionPath(weather.icon));
     const city = make('weather-design-city', next.city + (values.size === 'rail' ? '' : ' · ' + t(weather.isDay === false ? 'CE SOIR' : 'AUJOURD’HUI')), interactive ? 'button' : 'span');
     if (interactive) {city.type = 'button'; city.id = 'weather-city-button'; city.dataset.weatherCommand = 'picker'; city.setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city})); city.setAttribute('aria-expanded', String(weatherPickerOpen)); city.setAttribute('aria-controls', 'weather-picker');}
     if (values.size === 'rail') heading.append(make('weather-design-eyebrow',t('MÉTÉO')));
@@ -3634,7 +3675,7 @@
   sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction});
   ia = window.NotchyIA.create({document,t,
     onTab(tab) {if (getModuleEditorActive() && tab !== 'modules') closeModuleEditor(false); const route=tab==='general'?'settings':tab; menu.querySelector('[data-view="'+route+'"]').click();},
-    onRoute(route) {menu.querySelector('[data-view="'+route+'"]')?.click();},
+    onRoute: openActivityDetail,
     onNativeHealth: () => window.NotchyIA.invokeCore('health_run',{}),
     async onScan() {const result=await window.NotchyIA.invokeCore('discovery_scan',{}); if (result) await readNearby(); return result;}
   });

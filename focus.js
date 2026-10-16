@@ -142,7 +142,18 @@
   delete p.finished;state.minutes=phaseMinutes(p);state.remaining=state.minutes*60;state.deadline=now+state.remaining*1000;state.complete=false;state.sessionActive=true;state.sessionSummary=null;return true;
  }
  function dismissCompletion(state){if(!state?.sessionSummary)return false;state.sessionSummary=null;return true;}
- return Object.freeze({defaults, restore, remaining, nextPhase, tick, taskAction, completionChoice, dismissCompletion});
+ function adjustConfiguration(state, input, now = Date.now()) {
+  const p = cycle(state?.pomodoro);
+  if (!p || p.finished || state.deadline || !state.sessionActive || state.complete) return {ok:false, reason:'pause'};
+  if (!input || !integer(input.work,1,180) || !integer(input.rest,1,60) || !integer(input.longRest,1,180) || !integer(input.total,p.session,12)) return {ok:false, reason:'settings'};
+  const next = {...p, work:input.work, rest:input.rest, longRest:input.longRest, total:input.total};
+  const elapsed = Math.max(0, state.minutes * 60 - remaining(state, now)), minutes = phaseMinutes(next);
+  if (minutes * 60 <= elapsed) return {ok:false, reason:'duration'};
+  state.pomodoro = next; state.minutes = minutes; state.remaining = minutes * 60 - elapsed;
+  state.sessionSummary = null;
+  return {ok:true};
+ }
+ return Object.freeze({defaults, restore, remaining, nextPhase, tick, taskAction, completionChoice, dismissCompletion, adjustConfiguration});
   })();
 
   function focusConfiguration(value = {}) {
@@ -197,7 +208,7 @@
     });
     clock.dataset.value = value;
   }
-  function create({host, changed = () => {}, openTasks = null, openConfiguration = null, restoreTaskFocus = null, motion = true, storage, presentation = 'default', now = Date.now, setTimeout: schedule, clearTimeout: unschedule} = {}) {
+  function create({host, changed = () => {}, openTasks = null, openConfiguration = null, closeConfiguration = null, restoreTaskFocus = null, motion = true, storage, presentation = 'default', now = Date.now, setTimeout: schedule, clearTimeout: unschedule} = {}) {
     const document = host?.ownerDocument;
     if (!document) throw new TypeError('Focus nécessite un élément hôte.');
     const window = document.defaultView, reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -206,6 +217,7 @@
     schedule ||= window.setTimeout.bind(window); unschedule ||= window.clearTimeout.bind(window);
     if (storage === undefined) {try {storage = window.localStorage;} catch {storage = null;}}
     let model = FocusModel.defaults(), settings = focusConfiguration(), enabled = true, hidden = false, visible = !host.hidden, disposed = false, configOpen = false, taskPickerOpen = false, pickerSignature = '', timer = 0, drag = null, taskSignature = '', taskStatusSource = '';
+    let configurationDraft = null, configurationError = '';
     const animations = new Set(), transportAnimations = new Set(); let lastRunning = null, lastCompletion = null;
     try {const raw = storage?.getItem(STORAGE_KEY); if (raw && raw.length <= 131072) {const saved = JSON.parse(raw); model = FocusModel.restore(saved?.state, now()); settings = focusConfiguration(saved?.settings);}} catch {}
     host.innerHTML = markup;
@@ -271,6 +283,7 @@
     const configActions = document.createElement('div'); configActions.className = 'focus-config-actions';
     configActions.innerHTML = '<button type="button" data-focus-command="stop" aria-label="Arrêter Focus">Arrêter</button><button type="button" data-focus-command="skip" aria-label="Passer à la prochaine phase">Passer</button>';
     $('focus-setup').querySelector('.focus-config-footer').append(configActions);
+    $('focus-config-status').setAttribute('role', 'status'); $('focus-config-status').setAttribute('aria-live', 'polite');
     const staticCopy = [];
     const words = document.createTreeWalker(host, 4);
     for (let node = words.nextNode(); node; node = words.nextNode()) if (node.textContent.trim()) staticCopy.push({node, source: node.textContent.trim(), leading: node.textContent.match(/^\s*/)[0], trailing: node.textContent.match(/\s*$/)[0]});
@@ -282,6 +295,7 @@
     };
     translateStatic();
     const active = () => !model.pomodoro?.finished && (model.sessionActive || !!model.deadline);
+    const editingSettings = () => configurationDraft || settings;
     const label = () => t(model.pomodoro?.phase === 'break' ? model.pomodoro.breakKind === 'long' ? 'Pause longue' : 'Pause courte' : 'Concentration');
     const usable = () => enabled && !hidden && !document.hidden && !disposed;
     const motionEnabled = () => (typeof motion === 'function' ? motion() : motion) !== false && !reduced.matches;
@@ -322,6 +336,7 @@
       (list.querySelector('[aria-selected="true"]') || list.firstElementChild)?.focus({preventScroll: true});
     }
     function pickerKeydown(event) {
+      if (configOpen && event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); command('back'); return;}
       if (event.key === 'Escape' && model.sessionSummary && completion.contains(event.target)) {event.preventDefault(); event.stopPropagation(); command('completion-dismiss'); return;}
       if (!taskPickerOpen || !host.contains(event.target)) return;
       if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); closeTaskPicker(true); render(); return;}
@@ -440,17 +455,20 @@
         track(animate(previousIcon,NOTCH_TOKENS.motion.iconOut,NOTCH_TOKENS.dur.progress),()=>previousIcon.remove());
         track(animate(ring,NOTCH_TOKENS.motion.ringPulse,NOTCH_TOKENS.dur.spring));
       }
-      put('focus-config-status', t(active ? 'Les durées restent fixes pendant le cycle en cours.' : 'Les pauses s’enchaînent automatiquement.'));
-      for (const input of $('focus-setup').querySelectorAll('input')) input.disabled = active;
-      host.querySelector('#focus-setup [data-focus-command="start"]').disabled = active;
+      put('focus-config-status', t(configurationError || (active ? model.deadline ? 'Mets le cycle en pause pour modifier ses durées.' : 'Le temps déjà écoulé est conservé. Enregistrer laisse le cycle en pause.' : 'Les pauses s’enchaînent automatiquement.')));
+      for (const input of $('focus-setup').querySelectorAll('input')) input.disabled = active && !!model.deadline;
+      const apply = host.querySelector('#focus-setup .focus-config-footer > button');
+      apply.dataset.focusCommand = active ? model.deadline ? 'pause-edit' : 'apply-settings' : 'start'; apply.disabled = false;
+      apply.textContent = t(active ? model.deadline ? 'Mettre en pause pour modifier' : 'Enregistrer et revenir' : 'Démarrer');
       configActions.querySelector('[data-focus-command="stop"]').disabled = !active && !model.complete;
       configActions.querySelector('[data-focus-command="skip"]').disabled = !active || !model.pomodoro;
-      $('focus-duration').value = String(settings.work); $('focus-duration').setAttribute('aria-valuetext', t('{minutes} minutes', {minutes: settings.work})); put('focus-duration-value', settings.work + ' min');
-      for (const input of host.querySelectorAll('[data-focus-setting]')) input.value = settings[input.dataset.focusSetting];
+      const formSettings = editingSettings();
+      $('focus-duration').value = String(formSettings.work); $('focus-duration').setAttribute('aria-valuetext', t('{minutes} minutes', {minutes: formSettings.work})); put('focus-duration-value', formSettings.work + ' min');
+      for (const input of host.querySelectorAll('[data-focus-setting]')) input.value = formSettings[input.dataset.focusSetting];
       const ticks = $('focus-ticks');
-      if (ticks.dataset.value !== String(settings.work)) {
-        ticks.dataset.value = settings.work; ticks.replaceChildren();
-        for (let minute = settings.work - 12; minute <= settings.work + 12; minute++) {const tick = document.createElement('i'); tick.className = minute % 5 === 0 ? 'major' : ''; if (minute <= settings.work) tick.classList.add('past'); if (minute < 1 || minute > 180) tick.style.visibility = 'hidden'; if (minute % 5 === 0) {const label = document.createElement('span'); label.textContent = minute; tick.append(label);} ticks.append(tick);}
+      if (ticks.dataset.value !== String(formSettings.work)) {
+        ticks.dataset.value = formSettings.work; ticks.replaceChildren();
+        for (let minute = formSettings.work - 12; minute <= formSettings.work + 12; minute++) {const tick = document.createElement('i'); tick.className = minute % 5 === 0 ? 'major' : ''; if (minute <= formSettings.work) tick.classList.add('past'); if (minute < 1 || minute > 180) tick.style.visibility = 'hidden'; if (minute % 5 === 0) {const label = document.createElement('span'); label.textContent = minute; tick.append(label);} ticks.append(tick);}
       }
       queue();
       if (notify) changed({state: copy(model), settings: {...settings}, card, ...(event ? {event} : {})});
@@ -458,6 +476,7 @@
     }
     function command(value) {
       if (disposed) return false;
+      const wasConfiguring = configOpen;
       const boundary = FocusModel.tick(model, now());
       if (boundary.changed) {save(); render();}
       // A click at an expired phase must not skip the new phase a second time.
@@ -475,8 +494,17 @@
         if (!accepted) return false;
         stopTimer(); save(); render(); $('focus-task-link').focus({preventScroll: true}); return true;
       }
-      if (value === 'configure') {closeTaskPicker(); if (typeof openConfiguration === 'function') openConfiguration(); configOpen = true; stopAnimations(); render(); $('focus-config-back').focus({preventScroll: true}); return true;}
-      if (value === 'back') {configOpen = false; render(); $('focus-configure').focus({preventScroll: true}); return true;}
+      if (value === 'prepare' && active()) {configurationDraft = null; configurationError = ''; configOpen = false; closeTaskPicker(); render(); $('focus-toggle').focus({preventScroll:true}); return true;}
+      if (value === 'configure' || value === 'prepare') {closeTaskPicker(); if (!configOpen) configurationDraft = focusConfiguration(active() ? model.pomodoro : settings); configurationError = ''; if (typeof openConfiguration === 'function') openConfiguration(); configOpen = true; stopAnimations(); render(); $('focus-config-back').focus({preventScroll: true}); return true;}
+      if (value === 'back') {configurationDraft = null; configurationError = ''; configOpen = false; render(); if (typeof closeConfiguration === 'function') closeConfiguration(); else $('focus-configure').focus({preventScroll: true}); return true;}
+      if (value === 'pause-edit' && active() && model.deadline) {model.remaining = FocusModel.remaining(model, now()); model.deadline = null; stopTimer(); save(); render(); $('focus-duration').focus({preventScroll:true}); return true;}
+      if (value === 'apply-settings') {
+        if (![...$('focus-setup').querySelectorAll('input')].every(input => input.reportValidity())) return false;
+        const accepted = FocusModel.adjustConfiguration(model, editingSettings(), now());
+        if (!accepted.ok) {configurationError = accepted.reason === 'duration' ? 'La durée doit dépasser le temps déjà écoulé.' : accepted.reason === 'settings' ? 'Garde au moins le nombre de sessions déjà commencées.' : 'Mets le cycle en pause avant de modifier ses durées.'; render(); return false;}
+        settings = {...editingSettings()}; configurationDraft = null; configurationError = ''; configOpen = false; stopTimer(); save(); render();
+        if (typeof closeConfiguration === 'function') closeConfiguration(); else $('focus-configure').focus({preventScroll:true}); return true;
+      }
       if (value === 'link-task') {openTaskPicker(); return true;}
       if (value === 'complete-task') {
         const initiatedHere = document.activeElement?.matches?.('#focus-task-complete,[data-scene-command="focus-complete-task"]') === true;
@@ -495,7 +523,7 @@
       }
       if (value === 'start' && !active()) {
         if (![...$('focus-setup').querySelectorAll('input')].every(input => input.reportValidity())) return false;
-        settings = focusConfiguration({work: Number($('focus-duration').value), ...Object.fromEntries([...host.querySelectorAll('[data-focus-setting]')].map(input => [input.dataset.focusSetting, Number(input.value)]))});
+        settings = focusConfiguration({work: Number($('focus-duration').value), ...Object.fromEntries([...host.querySelectorAll('[data-focus-setting]')].map(input => [input.dataset.focusSetting, Number(input.value)]))}); configurationDraft = null; configurationError = '';
         model = {...FocusModel.defaults(), tasks: model.tasks, activeTaskId: model.activeTaskId, task: model.task, taskPrompt: model.taskPrompt, minutes: settings.work, remaining: settings.work * 60, sessionActive: true, deadline: now() + settings.work * 60000, pomodoro: {...settings, phase: 'work', session: 1}}; configOpen = false;
       } else if (value === 'toggle' && active()) {if (model.deadline) {model.remaining = FocusModel.remaining(model, now()); model.deadline = null;} else model.deadline = now() + model.remaining * 1000;}
       else if (value === 'skip' && active() && model.pomodoro) {
@@ -508,6 +536,7 @@
       else return false;
       stopTimer(); save(); render();
       if (value === 'start') $('focus-toggle').focus({preventScroll: true}); else if (value === 'stop' || value === 'skip' && !active()) $(configOpen ? 'focus-config-back' : 'focus-start').focus({preventScroll: true});
+      if (value === 'start' && wasConfiguring && typeof closeConfiguration === 'function') closeConfiguration();
       return true;
     }
     function tasks(action) {
@@ -534,15 +563,16 @@
       const button = event.target.closest('[data-focus-command]'); if (button && host.contains(button) && !button.disabled) command(button.dataset.focusCommand);
     }
     function input(event) {
-      if (disposed || active()) return;
+      if (disposed || active() && model.deadline) return;
       const key = event.target.id === 'focus-duration' ? 'work' : event.target.dataset.focusSetting;
       if (!key || !event.target.checkValidity()) return;
-      settings = focusConfiguration({...settings, [key]: Number(event.target.value)}); save(); render();
+      configurationError = ''; if (configOpen) configurationDraft = focusConfiguration({...editingSettings(), [key]: Number(event.target.value)});
+      else {settings = focusConfiguration({...settings, [key]: Number(event.target.value)}); save();} render();
     }
-    function wheel(event) {if (disposed || active()) return; event.preventDefault(); settings.work = Math.max(1, Math.min(180, settings.work + Math.sign(event.deltaY))); save(); render();}
-    function pointerDown(event) {if (disposed || active() || event.button !== 0) return; event.preventDefault(); drag = {x: event.clientX, work: settings.work, id: event.pointerId}; event.target.setPointerCapture(event.pointerId);}
-    function pointerMove(event) {if (!drag || drag.id !== event.pointerId) return; const value = Math.max(1, Math.min(180, drag.work - Math.round((event.clientX - drag.x) / 8))); if (value !== settings.work) {settings.work = value; render();}}
-    function pointerUp(event) {if (!drag || drag.id !== event.pointerId) return; drag = null; save();}
+    function wheel(event) {if (disposed || active() && model.deadline) return; event.preventDefault(); editingSettings().work = Math.max(1, Math.min(180, editingSettings().work + Math.sign(event.deltaY))); configurationError = ''; if (!configurationDraft) save(); render();}
+    function pointerDown(event) {if (disposed || active() && model.deadline || event.button !== 0) return; event.preventDefault(); drag = {x: event.clientX, work: editingSettings().work, id: event.pointerId}; event.target.setPointerCapture(event.pointerId);}
+    function pointerMove(event) {if (!drag || drag.id !== event.pointerId) return; const value = Math.max(1, Math.min(180, drag.work - Math.round((event.clientX - drag.x) / 8))); if (value !== editingSettings().work) {editingSettings().work = value; configurationError = ''; render();}}
+    function pointerUp(event) {if (!drag || drag.id !== event.pointerId) return; drag = null; if (!configurationDraft) save();}
     function lifecycle(value = {}) {
       if (disposed) return;
       if (typeof value.enabled === 'boolean') enabled = value.enabled; if (typeof value.hidden === 'boolean') hidden = value.hidden; if (typeof value.visible === 'boolean') visible = value.visible;
@@ -584,7 +614,7 @@
     return Object.freeze({render, lifecycle, setPage, summary, preview, dispose, command, tasks, getState: () => copy(model), getSettings: () => ({...settings}),
       inspect: () => ({page: host.dataset.focusPage, active: active(), running: !!model.deadline, seconds: FocusModel.remaining(model, now()), phase: model.pomodoro ? {...model.pomodoro} : null, configuration: {...settings}, complete: model.complete, timerActive: !!timer, configOpen, taskPickerOpen, tasksCount: model.tasks.length, activeTaskId: model.activeTaskId, disposed})});
   }
-  function createTasks({host, focus, expand = () => {}} = {}) {
+  function createTasks({host, focus, expand = () => {}, prepare = null} = {}) {
     const document = host?.ownerDocument;
     if (!document || !focus?.getState || !focus?.tasks) throw new TypeError('Tâches nécessite le modèle Focus partagé.');
     const i18n = document.defaultView.NotchyI18n;
@@ -633,8 +663,10 @@
       $('.tasks-cycle-description').textContent = current ? t('{completed} sur {estimated} cycles estimés', {completed: current.completedCycles || 0, estimated: current.estimatedCycles || 1}) : '';
       const start = $('.tasks-start'); start.disabled = !current; start.dataset.taskId = current?.id || '';
       const paused = focus.summary().paused;
-      start.querySelector('span').textContent = t(paused ? 'Reprendre' : presentation === 'full' ? 'Démarrer un focus' : 'Démarrer');
-      start.setAttribute('aria-label', current ? t(paused ? 'Reprendre Focus : {task}' : 'Démarrer un focus : {task}', {task: current.title}) : t('Démarrer un focus'));
+      const preparing = typeof prepare === 'function', activeFocus = focus.summary().active;
+      const startLabel = preparing ? activeFocus ? 'Voir le minuteur' : 'Préparer Focus' : paused ? 'Reprendre' : presentation === 'full' ? 'Démarrer un focus' : 'Démarrer';
+      start.querySelector('span').textContent = t(startLabel);
+      start.setAttribute('aria-label', current ? t(preparing ? activeFocus ? 'Voir le minuteur : {task}' : 'Préparer Focus : {task}' : paused ? 'Reprendre Focus : {task}' : 'Démarrer un focus : {task}', {task: current.title}) : t(startLabel));
       $('.tasks-small-add').setAttribute('aria-label', t('Ajouter une tâche')); $('.tasks-current-title').setAttribute('aria-label', t('Afficher les tâches'));
       const input = $('[data-tasks-input]'); input.placeholder = t('Ajouter une tâche'); input.setAttribute('aria-label', t('Nouvelle tâche')); input.disabled = state.tasks.length >= 100;
       $('[data-tasks-form] button').disabled = input.disabled; $('[data-tasks-form] button').setAttribute('aria-label', t('Ajouter la tâche'));
@@ -672,7 +704,7 @@
       if (action === 'add') {if (host.dataset.presentation === 'rail') expand(); $('[data-tasks-input]').focus({preventScroll: true}); return;}
       if (action === 'expand') {expand(); return;}
       if (action === 'start') {
-        if (focus.tasks({type: 'select', id})) {const card = focus.summary(); if (!card.active) focus.command('start'); else if (card.paused) focus.command('toggle');}
+        if (focus.tasks({type: 'select', id})) {if (typeof prepare === 'function') {prepare(button); return;} const card = focus.summary(); if (!card.active) focus.command('start'); else if (card.paused) focus.command('toggle');}
       }
       else if (action === 'estimate') {const task = focus.getState().tasks.find(task => task.id === id); if (task) focus.tasks({type: 'estimate', id, estimatedCycles: (task.estimatedCycles || 1) % 12 + 1});}
       else focus.tasks({type: action, id});

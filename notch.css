@@ -1817,7 +1817,7 @@ body[data-motion="false"] #music-player .music-progress > span { transition: non
 .weather-design[hidden],.weather-design [hidden] { display: none!important; }
 .weather-design-current { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; min-height: 0; }
 .weather-design-heading { display: flex; align-items: center; gap: var(--measure-6-px); min-width: 0; min-height: var(--measure-14-px); color: var(--color-ebebf599); font-size: var(--measure-9-px); font-weight: 600; line-height: var(--measure-13-px); letter-spacing: .07em; text-transform: uppercase; }
-.weather-design-heading > svg { display: block; flex: 0 0 var(--measure-14-px); width: var(--measure-14-px); height: var(--measure-14-px); fill: none; stroke: var(--color-64d2ff); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.weather-design-heading > svg { display: block; flex: 0 0 var(--measure-16-px); width: var(--measure-16-px); height: var(--measure-16-px); fill: none; stroke: var(--color-fff); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .weather-design-city { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .weather-design-reading,.weather-design-detail { display: flex; flex-direction: column; min-width: 0; }
 .weather-design-temperature { display: block; color: var(--color-fff); font-size: var(--measure-70-px); font-weight: 300; line-height: 1; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
@@ -1876,7 +1876,6 @@ body[data-motion="false"] #music-player .music-progress > span { transition: non
 @container activity-card (max-width: 160px) {
  .weather-design[data-size="rail"] .weather-design-temperature { font-size: var(--measure-50-px); }
  .weather-design[data-size="rail"] .weather-design-heading { gap: var(--space-1); font-size: var(--measure-8-px); letter-spacing: .03em; }
- .weather-design[data-size="rail"] .weather-design-heading > svg { flex-basis: var(--measure-12-px); width: var(--measure-12-px); height: var(--measure-12-px); }
 }
 #nook-layout[data-activity-count="3"] .activity-rail-cards .activity-module-summary .activity-card-body { padding-right: var(--space-8); gap: var(--space-2); }
 #nook-layout[data-activity-count="3"] .activity-rail-cards .activity-module-summary .activity-card-art { display: none; }

@@ -754,9 +754,8 @@ pub fn run() {
         let startup_status=startup.initialize(data_override.is_none());
         let labels=tray_labels(preferences.get("notchy-language-v1").map(String::as_str).unwrap_or("fr"));
         let services=Arc::new(tauri::async_runtime::block_on(Services::new(data.clone(),native.clone()))?);
-        if !checking&&std::env::args().any(|argument|argument=="--localsend"){
-            let _=tauri::async_runtime::block_on(services.nearby.command(json!({"command":"discover"}),&services.files));
-        }
+        // Listener failures remain in the service snapshot and are shown by Tray and Health.
+        let _=tauri::async_runtime::block_on(services.nearby.start_on_launch(checking));
         let search_roots = if checking || data_override.is_some() {
             data.file_name().map(|name| vec![data.with_file_name(format!("{}-search-fixtures", name.to_string_lossy()))]).unwrap_or_default()
         } else { notchy::search::default_roots() };

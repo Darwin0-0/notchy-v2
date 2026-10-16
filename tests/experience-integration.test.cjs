@@ -98,7 +98,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
     localSendContext: null, moduleEditing: false, state: 'open', view, islandPage: 'essential', weather: {}, weatherBusy: false, queueBusy: false, queueState: {status: 'disconnected'}, music: {available: false},
     startupBusy: false, startupEnabled: false, desktop: {startup: {supported: false}}, weatherPickerOpen: false, queueOpen: false, welcome: null, scenarioController: null, search: null, searchShortcut: 'Ctrl+Space', moduleLibrary:null,
     moduleDefinitions: {}, toggle: nodes.get('notch-toggle'), menu: nodes.get('notch-menu'), panel: nodes.get('notch-panel'), notch: {dataset: {}}, settingsPlayer: nodes.get('settings-player'),
-    shelfInput: {value: ''}, shelfPlayer: nodes.get('shelf-player'), weatherCityInput: nodes.get('weather-city-input'), t: translate,
+    shelfInput: {value: ''}, shelfPlayer: nodes.get('shelf-player'), weatherCityInput: nodes.get('weather-city-input'), t: translate, uiMessage: translate,
     text(node, value) {node.textContent = value;}, textUI(node, value) {node.textContent = value;},
     byId(id) {assert(nodes.has(id), `fixture has actual requested element ${id}`); return nodes.get(id);},
     setState(value) {scope.state = value;},
@@ -110,7 +110,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
     shelfFileAction: async (command, item) => calls.picker.push({command, item}),
     nearbyLifecycle() {}, renderLiveActivities() {}, update() {}, protectedInteraction: () => false, notifyModuleChange() {}, gestureFeedback() {},
     performMusicCommand: async value => calls.music.push(value), startupInput: async () => {}, musicQueueCommand: async event => calls.music.push(event.target.dataset.musicQueueCommand),
-    renderMusicQueue() {}, musicQueueLifecycle() {},
+    renderMusicQueue() {}, musicQueueLifecycle() {}, renderDetailReturn() {},
   };
   for (const name of ['renderIslandNavigation', 'renderMenuSelection', 'renderHomeLayout', 'musicLifecycle', 'renderFocus', 'renderFiles', 'filesLifecycle', 'renderWeather', 'weatherLifecycle', 'renderSettings', 'renderScenarios', 'renderModules', 'renderModuleFeedback', 'renderLocalSend', 'renderHomeSummaries', 'loadShelf']) scope[name] = () => {};
   scope.renderShelf = () => scope.renderExperience();

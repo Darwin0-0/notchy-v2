@@ -10,7 +10,7 @@ The first visible launch plays Mimo's entrance before the welcome screen. A hidd
 
 A normal release registers itself to start at Windows sign-in on its first launch. **Start with Windows** in Settings changes the current user's startup registration, without administrator access, a background service or a Notchy delay. A saved opt-out is preserved. Removing the Windows startup entry also leaves it disabled until the user enables it again. Uninstall removes only the matching installed copy's registration; an update or a separate portable profile is preserved.
 
-Debug builds and `--desktop-check` never register themselves. A release with an explicit `--data-root` also avoids automatic registration, but its user can enable startup explicitly in Settings; the registered command preserves that profile and its LocalSend option. The dedicated `.desktop-profile/startup.json` stores a boolean preference, while the interface reads the actual registration status.
+Debug builds and `--desktop-check` never register themselves. A release with an explicit `--data-root` also avoids automatic registration, but its user can enable startup explicitly in Settings; the registered command preserves that profile and any legacy LocalSend flag. The dedicated `.desktop-profile/startup.json` stores a boolean preference, while the interface reads the actual registration status. Local sharing starts on every normal application launch, independently of the Windows startup setting or the arguments saved in an existing registration.
 
 ## Build and run on Windows
 
@@ -31,7 +31,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Build-Notchy.ps1 -Release
 
 [Build-Notchy.ps1](../Build-Notchy.ps1) first compiles the helpers from [native/](../native/) using the Windows .NET Framework compiler, then builds Rust with `Cargo.lock`. The portable application and its helpers are placed in `build/release/`. Omit `-Release` for `build/debug/`.
 
-After building, double-click `Notchy V2.cmd`. It prefers a release build, otherwise uses the debug build, and enables LocalSend. This launcher passes the repository folder as the data root. A release executable without `--data-root` uses the Windows application-data folder; a debug executable defaults to the repository folder.
+After building, double-click `Notchy V2.cmd`. It prefers a release build, otherwise uses the debug build. LocalSend starts automatically with either. This launcher passes the repository folder as the data root. A release executable without `--data-root` uses the Windows application-data folder; a debug executable defaults to the repository folder.
 
 Close the executable and its helpers before rebuilding the same output folder. The build above creates the portable application. WebView2 is a shared Windows runtime, separate from Notchy’s files.
 
@@ -130,7 +130,9 @@ Replace the placeholder with your own 32-character hexadecimal client ID. Do not
 
 Weather uses Open-Meteo without a personal key. Current-location access depends on Windows permissions; a city can be chosen manually.
 
-The launcher enables LocalSend with `--localsend`. Devices must be able to reach each other on the local network, and Windows Firewall may require permission. LocalSend has no artificial byte-size cap per file or transfer. Available disk space, Shelf file-count limits and preview/OCR/conversion processing limits are separate constraints.
+LocalSend starts on every normal launch, including an existing Windows startup command that contains only `--autostart`; opening Tray is not required for reception or discovery. The older `--localsend` flag remains compatible but is no longer required. A deliberate **Stop** keeps sharing off for that process; restarting Notchy starts it again. `--desktop-check` never starts LocalSend or opens its network listeners automatically. A listen failure leaves the application usable and appears in Tray and Health, where the user can retry.
+
+Devices must be able to reach each other on the local network, and Windows Firewall may require permission. Incoming files still require explicit acceptance. LocalSend has no artificial byte-size cap per file or transfer. Available disk space, Shelf file-count limits and preview/OCR/conversion processing limits are separate constraints.
 
 ## Keep runtime data private
 

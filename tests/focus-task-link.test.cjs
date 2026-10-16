@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
-const {FocusModel} = require('../focus.js');
+const {FocusModel,focusConfiguration} = require('../focus.js');
 
 const started = (extra = {}) => FocusModel.restore({minutes:1, remaining:60, deadline:70000, sessionActive:true,
   activeTaskId:'a', tasks:[{id:'a',title:'Write the draft',estimatedCycles:2},{id:'b',title:'Read the draft'}],
@@ -95,7 +95,7 @@ test('the actual component settles the old task boundary before selection, compl
 test('opening task linking or configuration at the boundary persists the credit before returning', () => {
   const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function command(value)'), end=source.indexOf('    function tasks(action)',begin);
   for(const action of ['link-task','configure','unknown']) {
-    const state=started(), writes=[], scope={FocusModel,model:state,disposed:false,now:()=>70000,save(){writes.push(JSON.parse(JSON.stringify(state)));},render(){},stopAnimations(){},closeTaskPicker(){},openTaskPicker(){},active:()=>true,openTasks(){},$:()=>({focus(){}})};
+    const state=started(), writes=[], scope={FocusModel,focusConfiguration,model:state,disposed:false,configOpen:false,now:()=>70000,save(){writes.push(JSON.parse(JSON.stringify(state)));},render(){},stopAnimations(){},closeTaskPicker(){},openTaskPicker(){},active:()=>true,openTasks(){},$:()=>({focus(){}})};
     vm.runInNewContext(`${source.slice(begin,end)}this.run=command;`,scope);
     scope.run(action);
     assert.equal(state.tasks[0].completedCycles,1); assert(writes.length>0);
