@@ -1197,7 +1197,7 @@ body[data-focus-lab] > .focus-player { width: min(var(--measure-420-px),calc(100
 .focus-player[data-focus-page="tasks"] .focus-task-empty { flex: 1; min-height: 0; }
 
 /* Nook follows the supplied four-by-four compositions; detailed routes stay unchanged. */
-.notch[data-nook-grid="true"] #nook-layout { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); grid-template-rows: repeat(4,minmax(0,1fr)); align-items: stretch; align-content: stretch; gap: var(--island-gap,var(--space-2)); padding: 0; height: var(--island-body-height); overflow: hidden; }
+.notch[data-nook-grid="true"] #nook-layout:not([hidden]) { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); grid-template-rows: repeat(4,minmax(0,1fr)); align-items: stretch; align-content: stretch; gap: var(--island-gap,var(--space-2)); padding: 0; height: var(--island-body-height); overflow: hidden; }
 .notch[data-nook-grid="true"] #nook-layout #home-empty { grid-area: 1 / 1 / -1 / -1; }
 .notch[data-nook-grid="true"] #nook-layout > .music-player { grid-column: var(--nook-music-column); grid-row: var(--nook-music-row); min-width: 0; min-height: 0; padding: var(--space-3); border-radius: var(--ui-radius-card); background: var(--color-17171a); }
 .notch[data-nook-grid="true"] #nook-layout > .music-player .music-content { align-content: center; }
@@ -1597,8 +1597,8 @@ body[data-motion="false"] #activity-rail *,body[data-motion="false"] #activity-r
 /* 19.1: one live scene, with at most two stable activity cards beside it. */
 .activity-primary[data-activity="focus"] > .activity-glyph { width: var(--measure-22-px); height: var(--measure-22-px); }
 .activity-glyph .activity-focus-ring { position: static; width: var(--measure-22-px); height: var(--measure-22-px); }
-.notch[data-nook-grid="true"] #nook-layout[data-layout="activities"] { display: block; height: 100%; min-width: 0; }
-#nook-layout[data-layout="activities"] > :is(.home-main,.home-side,.home-empty) { display: none; }
+.notch[data-nook-grid="true"] #nook-layout[data-layout="activities"]:not([hidden]) { display: block; height: 100%; min-width: 0; }
+#nook-layout[data-layout="activities"] > :is(.home-main,.home-side) { display: none; }
 .activity-stage { display: grid; grid-template-columns: minmax(0,1fr); gap: var(--scene-gap,var(--space-3)); width: 100%; height: 100%; min-height: 0; font-family: var(--font-ui); }
 #nook-layout[data-activity-count="2"] .activity-stage,#nook-layout[data-activity-count="3"] .activity-stage { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .activity-card { position: relative; min-width: 0; min-height: 0; border-radius: var(--ui-radius-card); background: var(--color-141416); overflow: hidden; color: var(--color-fff); container: activity-card / size; }

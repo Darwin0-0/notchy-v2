@@ -39,7 +39,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 - **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
 - **LocalSend in Tray.** Accept incoming files, send to nearby devices, and follow the transfer without leaving the notch.
 - **Find it, keep your flow.** Open local search from the magnifying glass or **Ctrl+Space**. Find a file or folder by name, reveal it in Explorer, or choose a nearby device to send it with LocalSend. Your search stays on your PC.
-- **Make space for your own ideas.** Browse the included module selection, preview three layouts, or import a local JSON module from **Settings → Module library**. Your module data stays on this device.
+- **Make space for your own ideas.** Browse the included module selection, preview three layouts, or import a local JSON module from **Settings → Modules → Library**. Your module data stays on this device.
 
 ![Local search inside Notchy, with sample files and keyboard controls](assets/previews/search.png)
 
