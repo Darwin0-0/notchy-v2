@@ -11,7 +11,7 @@ test('editor preview roles follow the actual primary even when saved slots have 
       return {dataset:{moduleSlotBox:String(index)},classes,classList:{toggle(name,value){value?classes.add(name):classes.delete(name);}},setAttribute(){},
         querySelector(selector){if(!children.has(selector))children.set(selector,{dataset:{},replaceChildren(){},setAttribute(){}});return children.get(selector);}};
     });
-    const nodes=new Map(), scope={disposed:false,moduleEditing:true,moduleDraft:{enabled:['music','focus'],slots},modulePicked:null,moduleSelected:0,
+    const nodes=new Map(), scope={experience:null,disposed:false,moduleEditing:true,moduleDraft:{enabled:['music','focus'],slots},modulePicked:null,moduleSelected:0,
       moduleEditorPresentation,moduleLabels:{music:'Music',focus:'Focus'},moduleMessage:'',document:{activeElement:null},t:value=>value,animateModuleChange(){},
       modulesPlayer:{querySelectorAll:selector=>selector==='[data-module-slot-box]'?frames:[]},
       byId(id){if(!nodes.has(id))nodes.set(id,{dataset:{},append(){}});return nodes.get(id);},

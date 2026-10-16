@@ -16,7 +16,7 @@ test('module contracts have unique routes, bounded sizes and declared band capab
 test('module editor keeps three visible destinations inside the panel and preserves the legacy reserve',()=>{
  const two={enabled:['music','shelf','focus','weather'],slots:['music','shelf',null,null]},before=JSON.stringify(two);
  const placed=moduleEditorPresentation(two),adding=moduleEditorPresentation(two,'focus');
- assert.deepEqual(placed.indices,[0,1,2]);assert.equal(placed.width,594);assert.equal(placed.height,256);
+ assert.deepEqual(placed.indices,[0,1,2]);assert.equal(placed.width,594);assert.equal(placed.height,260);
  assert.deepEqual(placed.slots,['music','shelf',null]);assert.deepEqual(placed.presentations,['scene','rail','rail']);
  assert.deepEqual(adding,placed,'choosing a catalogue module never grows the editor or hides another destination');
  const four=assignModuleSlot(assignModuleSlot(two,2,'focus'),3,'weather'), full=moduleEditorPresentation(four);

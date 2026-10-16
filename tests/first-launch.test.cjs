@@ -12,7 +12,7 @@ function fixture(saved = new Map()) {
   const lifecycle = source.slice(source.indexOf('  let welcome = null;'), source.indexOf('  let moduleFeedback = null,'));
   const create = source.match(/^  welcome = window\.NotchyWelcome\.create\(.+$/m)[0];
   const firstLaunch = source.slice(source.indexOf('  let welcomeDone = false;'), source.lastIndexOf('})(typeof window'));
-  vm.runInNewContext(`let disposed=false,view='nook',state='discreet',welcomeStage='idle';
+  vm.runInNewContext(`let disposed=false,view='nook',state='rest',welcomeStage='idle';
     const panel={scrollTop:100,scrollLeft:50};
     const selectViewButton=button=>{view=button.dataset.view;}; const setState=value=>{state=value;};
     ${lifecycle}
@@ -26,12 +26,12 @@ test('a new profile plays the welcome and only explicit completion persists it a
   const f = fixture();
   assert.equal(f.controller.active, true); assert.equal(f.api.inspect().view, 'welcome');
   assert.equal(f.api.inspect().top, 0); assert.equal(f.api.inspect().left, 0);
-  f.api.finishWelcome('discreet');
+  f.api.finishWelcome('rest');
   assert.equal(f.saved.has(key), false, 'an outside click or Escape during the logo must not consume first launch');
   const retry = fixture(f.saved); assert.equal(retry.controller.active, true);
   retry.options.start(); assert.equal(f.saved.get(key), 'done');
-  assert.equal(retry.api.inspect().state, 'discreet'); assert.equal(retry.api.inspect().view, 'nook');
-  const next = fixture(f.saved); assert.equal(next.controller.active, false); assert.equal(next.api.inspect().state, 'discreet');
+  assert.equal(retry.api.inspect().state, 'rest'); assert.equal(retry.api.inspect().view, 'nook');
+  const next = fixture(f.saved); assert.equal(next.controller.active, false); assert.equal(next.api.inspect().state, 'rest');
   next.api.replayWelcome(); assert.equal(next.controller.active, true, 'the settings preview is still replayable');
 });
 

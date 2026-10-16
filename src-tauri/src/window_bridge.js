@@ -80,6 +80,7 @@
     setDialogOpen: value => typeof value === 'boolean' && void request('dialog', value),
     copyText: value => request('copy-text', value),
     openShelfItem: value => request('shelf-open', value), revealShelfItem: value => request('shelf-reveal', value),
+    exportShelfItems: value => request('shelf-export', value),
     onResume: callback => listen('notchy:resume', callback),
     onDeactivate: callback => listen('notchy:deactivate', callback),
     onPointer: callback => listen('notchy:pointer', callback),
@@ -109,10 +110,10 @@
           desktop:window.notchyDesktop.isDesktop, node:typeof require, scripts:[...document.scripts].map(script=>new URL(script.src||location.href).pathname),
           body:getComputedStyle(document.body).backgroundColor, surfaceFill:getComputedStyle(document.querySelector('#notch-surface > use')).fill, captureAvailable:typeof window.notchyDesktop.captureBackdrop==='function', errors:window.__notchyCheckErrors});
         document.activeElement?.blur();
-        window.notchy?.setState('discreet');
-        const closingMs=await settle('discreet',6000);
+        window.notchy?.setState('rest');
+        const closingMs=await settle('rest',6000);
         const discreet = window.notchy?.inspect();
-        await request('diagnostic', {phase:'discreet', ready:!!discreet, state:discreet?.state, morphing:discreet?.morphing, closingMs, geometry:discreet?.geometry, errors:window.__notchyCheckErrors});
+        await request('diagnostic', {phase:'rest', ready:!!discreet, state:discreet?.state, morphing:discreet?.morphing, closingMs, geometry:discreet?.geometry, errors:window.__notchyCheckErrors});
       } catch (error) {await request('diagnostic', {phase:'error', error:String(error).slice(0,1000)});}
     }, 600));
   }

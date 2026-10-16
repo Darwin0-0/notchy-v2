@@ -1,29 +1,8 @@
 (function (window) {
   'use strict';
 
-  const OPEN_SURFACE_SCALE = 1.35;
-  const ISLAND_CONFIG = Object.freeze({
-    states: Object.freeze({
-      rest: Object.freeze({width: 128, height: 10, radius: 6}),
-      compact: Object.freeze({width: 240, height: 40, radius: 10}),
-      expanded: Object.freeze({width: 440 * OPEN_SURFACE_SCALE, height: 240 * OPEN_SURFACE_SCALE, radius: 14}),
-    }),
-    spring: Object.freeze({stiffness: 400, damping: 30, mass: 1,
-      easing: 'linear(0, 0.0702, 0.2262, 0.4081, 0.5808, 0.7266, 0.8394, 0.9202, 0.9736, 1.0056, 1.022, 1.0279, 1.0276, 1.0239, 1.0189, 1.0138, 1.0093, 1.0057, 1.0031, 1.0013, 1.0001, 0.9995, 0.9992, 0.9992, 1)'}),
-    durations: Object.freeze({surface: 500, contentEnter: 300, contentExit: 150, contentSpring: 500, navigation: 400, color: 250, progress: 1000, reduced: 150}),
-    delays: Object.freeze({content: 80, hover: 120, leave: 280}),
-    accents: Object.freeze({music: '#F28B96', focus: '#5AC8FA', tasks: '#A6E3B4'}),
-    activities: Object.freeze({widths: Object.freeze([240, 300, 360]), height: 42, radius: 6, shoulder: 8, peekScale: 1, sceneHeight: 330, expandedHeight: 330, headerTop: 8, headerHeight: 32, sceneTop: 64, side: 20, bottom: 20, gap: 12}),
-    notification: Object.freeze({width: 300, height: 72, radius: 8, shoulder: 8, duration: 2800}),
-    rest: Object.freeze({marker: 4, handleWidth: 28, handleHeight: 2, progressLeft: 14, progressWidth: 70, equalizerBars: 4, equalizerWidth: 2, equalizerHeight: 6, equalizerGap: 2, equalizerInset: 18}),
-    welcome: Object.freeze({introWidth: 300, introHeight: 88, introRadius: 14, width: 380, height: 232, radius: 14}),
-    compact: Object.freeze({coverSize: 20, coverRadius: 6, equalizerBars: 4, equalizerWidth: 3, equalizerHeight: 14,
-      equalizerMinScale: .28, equalizerDuration: 900, equalizerDelays: Object.freeze([0, -150, -300, -600])}),
-    expanded: Object.freeze({playSize: 40, navigationSize: 6, navigationActiveWidth: 18}),
-    formats: Object.freeze({compact: 400 * OPEN_SURFACE_SCALE, balanced: 420 * OPEN_SURFACE_SCALE, comfortable: 440 * OPEN_SURFACE_SCALE}),
-    layout: Object.freeze({header: 48, side: 20, bottom: 20, footer: 32, gap: 8, columns: 4, rows: 4}),
-    shadow: '0 18px 40px -16px rgba(0,0,0,.45)',
-  });
+  const NOTCH_TOKENS = typeof module === 'object' && module.exports ? require('./tokens.js') : window.NOTCH_TOKENS;
+  const ISLAND_CONFIG = NOTCH_TOKENS.island;
 
   // An exact spring solution carries the current velocity through reversals.
   function createSurfaceMotion() {
@@ -70,7 +49,11 @@
       return {...values};
     }
 
-    return Object.freeze({setTarget, step, isActive: () => active});
+    function pulse(velocity = ISLAND_CONFIG.completion.surfaceVelocity) {
+      if (!initialized || !Number.isFinite(velocity) || Math.abs(velocity) > 200) return false;
+      velocities.height += velocity; elapsed = 0; active = true; return true;
+    }
+    return Object.freeze({setTarget, step, pulse, isActive: () => active});
   }
 
   function shape({width, height, radius, shoulder = 0}, viewportWidth) {
@@ -127,13 +110,13 @@
       bin.weight += weight; bin.r += r * weight; bin.g += g * weight; bin.b += b * weight; bins.set(key, bin);
     }
     const dominant = [...bins.values()].sort((a, b) => b.weight - a.weight)[0];
-    if (!dominant) return '#ffffff';
+    if (!dominant) return NOTCH_TOKENS.palette.white;
     const rgb = ['r', 'g', 'b'].map(key => Math.round(dominant[key] / dominant.weight));
     const lift = Math.max(0, 145 - Math.max(...rgb));
     return '#' + rgb.map(value => Math.min(255, value + lift).toString(16).padStart(2, '0')).join('');
   }
   function artworkPalette(accent = '') {
-    if (typeof accent !== 'string' || !/^#[a-f0-9]{6}$/i.test(accent)) return {base: '#202024', highlight: '#38383e', shadow: '#0a0a0d'};
+    if (typeof accent !== 'string' || !/^#[a-f0-9]{6}$/i.test(accent)) return {...NOTCH_TOKENS.palette.artworkFallback};
     const rgb = [1, 3, 5].map(offset => parseInt(accent.slice(offset, offset + 2), 16));
     const luminance = factor => rgb.map(value => value * factor / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((total, value, index) => total + value * [.2126, .7152, .0722][index], 0);
     const color = target => {
@@ -146,24 +129,18 @@
 
   const openPanelLimits = Object.freeze({width: ISLAND_CONFIG.states.expanded.width, height: ISLAND_CONFIG.states.expanded.height});
   // Each module declares its content size and band behavior; the notch owns geometry.
-  const moduleLayouts = {
-    music: {minWidth: 300, basis: 360, maxWidth: 440, height: 176, panelWidth: 440},
-    focus: {minWidth: 320, basis: 360, maxWidth: 420, height: 264, panelWidth: 404},
-    tasks: {minWidth: 160, basis: 320, maxWidth: 440, height: 222, panelWidth: 440},
-    weather: {minWidth: 288, basis: 320, maxWidth: 384, height: 208, panelWidth: 424},
-    shelf: {minWidth: 300, basis: 360, maxWidth: 480, height: 208, panelWidth: 560},
-  };
+  const moduleLayouts = NOTCH_TOKENS.modules.layouts;
   const moduleDefinitions = Object.freeze(Object.fromEntries([
-    ['music', 'Musique', 'music-player', 'music', 160, 154, 'progress', 'spectrum', ['track'], 0],
-    ['focus', 'Focus & tâches', 'focus-player', 'focus', 320, 244, 'progress', 'ring', ['phase', 'complete', 'task-complete'], 1],
-    ['tasks', 'Tâches', 'tasks-player', 'tasks', 160, 164, 'none', 'none', ['phase', 'complete', 'task-complete'], null],
-    ['shelf', 'Étagère', 'shelf-player', 'tray', 160, 148, 'none', 'none', ['sent', 'received', 'complete', 'kept'], null],
-    ['weather', 'Météo', 'weather-player', 'weather', 168, 164, 'none', 'none', [], 2],
+    ['music', 'Musique', 'music-player', 'music', ...NOTCH_TOKENS.modules.minimum.music, 'progress', 'spectrum', ['track'], 0],
+    ['focus', 'Focus & tâches', 'focus-player', 'focus', ...NOTCH_TOKENS.modules.minimum.focus, 'progress', 'ring', ['phase', 'complete', 'task-complete'], 1],
+    ['tasks', 'Tâches', 'tasks-player', 'tasks', ...NOTCH_TOKENS.modules.minimum.tasks, 'none', 'none', ['phase', 'complete', 'task-complete'], null],
+    ['shelf', 'Étagère', 'shelf-player', 'tray', ...NOTCH_TOKENS.modules.minimum.shelf, 'none', 'none', ['sent', 'received', 'complete', 'kept'], null],
+    ['weather', 'Météo', 'weather-player', 'weather', ...NOTCH_TOKENS.modules.minimum.weather, 'none', 'none', [], 2],
   ].map(([id, label, element, view, minWidth, minHeight, discreet, hover, changes, initialSlot]) => [id, Object.freeze({
     id, label, element, view, defaultInstalled: true, initialSlot, directOpen: ['shelf', 'weather'].includes(id),
-    size: Object.freeze({width: moduleLayouts[id].panelWidth, height: moduleLayouts[id].height + 30, minWidth, minHeight, maxHeight: id === 'focus' ? 420 : 300}),
+    size: Object.freeze({width: moduleLayouts[id].panelWidth, height: moduleLayouts[id].height + NOTCH_TOKENS.modules.metrics.detailInset, minWidth, minHeight, maxHeight: id === 'focus' ? NOTCH_TOKENS.modules.metrics.focusMax : NOTCH_TOKENS.modules.metrics.detailMax}),
     layout: Object.freeze({...moduleLayouts[id], minHeight: moduleLayouts[id].height}),
-    editor: Object.freeze({basis: moduleLayouts[id].basis + 24, maxWidth: moduleLayouts[id].maxWidth + 24, height: id === 'focus' ? 180 : moduleLayouts[id].height + 24, grow: id === 'music' ? 1.3 : 1}),
+    editor: Object.freeze({basis: moduleLayouts[id].basis + NOTCH_TOKENS.modules.metrics.editorInset, maxWidth: moduleLayouts[id].maxWidth + NOTCH_TOKENS.modules.metrics.editorInset, height: id === 'focus' ? NOTCH_TOKENS.modules.metrics.focusEditorHeight : moduleLayouts[id].height + NOTCH_TOKENS.modules.metrics.editorInset, grow: id === 'music' ? NOTCH_TOKENS.modules.metrics.musicGrow : 1}),
     band: Object.freeze({discreet, hover, changes: Object.freeze(changes)}),
   })])));
   function getModuleDefinitions() { return JSON.parse(JSON.stringify(Object.values(moduleDefinitions))); }
@@ -539,16 +516,16 @@
   }
 
   function closedBandSize(state, {activities = [], feedback = false} = {}) {
-    if (state === 'hover' && feedback) {
-      const {width, height, radius, shoulder} = ISLAND_CONFIG.notification;
+    if (state === 'compact' && feedback) {
+      const {width, height, radius, shoulder} = feedback?.compact ? ISLAND_CONFIG.confirmation : ISLAND_CONFIG.notification;
       return {width, band: height, radius, shoulder, progress: 0};
     }
     const count = Math.min(3, activities.length);
-    if (count && state === 'hover') {
+    if (count && state === 'compact') {
       const sizes = ISLAND_CONFIG.activities, scale = sizes.peekScale;
       return {width: sizes.widths[count - 1] * scale, band: sizes.height * scale, radius: sizes.radius * scale, shoulder: sizes.shoulder * scale, progress: 0};
     }
-    const size = ISLAND_CONFIG.states[state === 'compact' || state === 'hover' ? 'compact' : 'rest'];
+    const size = ISLAND_CONFIG.states[state === 'compact' || state === 'compact' ? 'compact' : 'rest'];
     return {width: size.width, band: size.height, radius: size.radius, shoulder: 0, progress: 0};
   }
 
@@ -576,11 +553,11 @@
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   const motion = createSurfaceMotion();
   const sizes = {
-    discreet: closedBandSize('discreet'),
-    hover: closedBandSize('hover'),
+    rest: closedBandSize('rest'),
+    compact: closedBandSize('compact'),
     open: {width: ISLAND_CONFIG.states.expanded.width, band: 0, radius: ISLAND_CONFIG.states.expanded.radius, progress: 1},
   };
-  let state = 'discreet', view = 'nook', frame = 0, disposed = false, geometry, collapseTimer = 0, collapseDeferred = false, fileDialogOpen = false;
+  let state = 'rest', view = 'nook', frame = 0, disposed = false, geometry, collapseTimer = 0, collapseDeferred = false, fileDialogOpen = false;
   let islandPage = 'music', scenarioReturnPage = null, closingTo = null, contentExitTimer = 0, hoverTimer = 0, welcomeStage = 'idle';
   const contentAnimations = new Map();
   const compactContent = document.getElementById('island-compact-content');
@@ -591,7 +568,8 @@
     if (!node) return;
     const current = getComputedStyle(node), from = {opacity: current.opacity, filter: current.filter, transform: current.transform};
     for (const animation of contentAnimations.get(node) || []) animation.cancel();
-    const reducedMotion = !motionEnabled(), target = {opacity: entering ? '1' : '0', filter: reducedMotion || entering ? 'blur(0px)' : 'blur(10px)', transform: reducedMotion || entering ? 'translateY(0px) scale(1)' : compact ? 'translateY(5px) scale(.9)' : 'translateY(20px) scale(.95)'};
+    const content = NOTCH_TOKENS.motion.content;
+    const reducedMotion = !motionEnabled(), target = {opacity: entering ? '1' : '0', filter: reducedMotion || entering ? content.clearFilter : content.exitFilter, transform: reducedMotion || entering ? content.clearTransform : compact ? content.compactExit : content.expandedExit};
     node.style.pointerEvents = entering ? 'auto' : 'none'; node.inert = !entering;
     if (reducedMotion) {from.filter = target.filter = 'none'; from.transform = target.transform = 'none'; node.style.filter = 'none'; node.style.transform = 'none';}
     if (typeof node.animate !== 'function' || document.hidden) {Object.assign(node.style, target); return;}
@@ -660,10 +638,18 @@
   for (const [key, value] of Object.entries(ISLAND_CONFIG.rest)) notch.style.setProperty('--island-rest-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()), value + 'px');
   const player = byId('music-player'), live = byId('music-live'), strip = byId('music-discreet-progress');
   const commands = [...notch.querySelectorAll('[data-music-command]')];
-  player.dataset.musicDesign = 'revision-2';
+
   const musicTools = document.createElement('div'); musicTools.className = 'music-queue-tools';
   musicTools.append(byId('music-source'), ...['shuffle', 'repeat'].map(command => player.querySelector(`[data-music-command="${command}"]`)));
   byId('music-queue').querySelector('.music-queue-heading').after(musicTools);
+  player.querySelector('.music-controls').prepend(player.querySelector('[data-music-command="shuffle"]'));
+  const musicFavorite = document.createElement('button'); musicFavorite.type='button'; musicFavorite.className='music-favorite'; musicFavorite.disabled=true;
+  musicFavorite.setAttribute('aria-label',t('Les favoris ne sont pas partagés par le lecteur Windows')); musicFavorite.title=musicFavorite.getAttribute('aria-label');
+  musicFavorite.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg>';
+  player.querySelector('.music-controls').append(musicFavorite);
+  const musicEmpty = document.createElement('div'); musicEmpty.className='music-empty-reference';
+  musicEmpty.innerHTML='<svg viewBox="0 0 56 56" aria-hidden="true"><rect x="10" y="24" width="6" height="16" rx="3"/><rect x="20" y="14" width="6" height="26" rx="3"/><rect x="30" y="9" width="6" height="31" rx="3"/><rect x="40" y="20" width="6" height="20" rx="3"/></svg><strong></strong><p></p><button type="button" data-music-command="open"></button>';
+  player.append(musicEmpty);
   player.querySelector('.music-main').append(byId('music-queue-toggle'));
   for (const [command, path] of [['previous', 'M11 6v12L2 12zM22 6v12l-9-6z'], ['next', 'M13 6v12l9-6zM2 6v12l9-6z']]) player.querySelector(`[data-music-command="${command}"] path`).setAttribute('d', path);
   for (const bars of notch.querySelectorAll('.music-spectrum')) {while (bars.children.length < ISLAND_CONFIG.compact.equalizerBars) bars.append(document.createElement('i')); while (bars.children.length > ISLAND_CONFIG.compact.equalizerBars) bars.lastElementChild.remove();}
@@ -679,7 +665,7 @@
   let seekPreview = null, seekTrack = null, seekDragging = false;
   const shelfPlayer = byId('shelf-player'), shelfInput = byId('shelf-input'), shelfList = byId('shelf-list');
   const selectedFiles = new Set();
-  let shelfItems = [], shelfLoaded = false, shelfBusy = false, shelfError = '', shelfEpoch = 0, fileDragging = false, dragDepth = 0, fileDragCount = null, fileDragPreviousState = null;
+  let shelfItems = [], shelfLoaded = false, shelfBusy = false, shelfError = '', shelfDownloadError = false, shelfEpoch = 0, fileDragging = false, dragDepth = 0, fileDragCount = null, fileDragPreviousState = null;
   // Original module editor: four independent previews, then the integrated palette.
   const modulesPlayer = byId('modules-player'), moduleStorageKey = 'notchy-minimal-modules-v1';
   const scenarioStorageKey = 'notchy-scenarios-v1';
@@ -689,13 +675,16 @@
   let queueOpen = false, queueReturnView = 'music', queueReturnPage = 'music', queueActive = false, queueBusy = false, queueTimer = 0, queueEpoch = 0, queueRetryUntil = 0, queueListSignature = '';
   let queueState = {status: 'disconnected', current: null, items: [], message: ''};
   let queueNotice = '', queueOperation = '';
+  let experience = null, sharingExperience = null, ia = null;
+  let moduleOrder = ['music', 'focus', 'weather', 'tasks', 'shelf'], moduleDraftOrder = null, moduleOrderSaved = false;
+  try {const raw=window.localStorage.getItem('notchy-module-order-v1'); if (raw && raw.length < 512) {const saved=JSON.parse(raw); if (Array.isArray(saved)) {moduleOrder = window.NotchyExperience.normalizeModuleState({order:saved}).order; moduleOrderSaved=true;}}} catch {}
   let welcome = null;
   const welcomeStorageKey = 'notchy-minimal-welcome-v1';
   let welcomeReturnView = 'nook', welcomeReturnState = 'open';
   function showWelcome(mode = 'welcome') {
     if (disposed || !welcome) return false;
     if (getModuleEditorActive()) closeModuleEditor(false);
-    if (view !== 'welcome') { welcomeReturnView = view; welcomeReturnState = state === 'discreet' ? 'open' : state; }
+    if (view !== 'welcome') { welcomeReturnView = view; welcomeReturnState = state === 'rest' ? 'open' : state; }
     clearModuleFeedback(); selectViewButton({dataset: {view: 'welcome'}}); panel.scrollTop = 0; panel.scrollLeft = 0; setState('open'); welcome.show(mode);
     return true;
   }
@@ -710,17 +699,18 @@
   const moduleActivityStates = new Map();
   function animateModuleChange(element) {
     if (!element || !motionEnabled() || document.hidden || !element.getClientRects().length) return;
-    const animation = element.animate([{opacity: .55, translate: '0 3px'}, {opacity: 1, translate: '0 0'}], {duration: 240, easing: 'cubic-bezier(.2,.8,.2,1)'});
+    const animation = element.animate(NOTCH_TOKENS.motion.reveal, {duration: NOTCH_TOKENS.dur.base, easing: NOTCH_TOKENS.ease.out});
     moduleFeedbackAnimations.add(animation); animation.finished.then(() => moduleFeedbackAnimations.delete(animation), () => moduleFeedbackAnimations.delete(animation));
   }
   function renderModuleFeedback() {
     const feedback = moduleFeedback && isModuleEnabled(moduleFeedback.id) ? localizedFeedback(moduleFeedback) : null;
     const closed = byId('module-feedback-live'), opened = byId('module-feedback-open');
-    closed.hidden = !feedback || state !== 'hover' || fileDragging;
+    closed.hidden = !feedback || state !== 'compact' || fileDragging;
     opened.hidden = !feedback || state !== 'open' || fileDragging;
     const focusFeedback = feedback && ['focus', 'tasks'].includes(feedback.id);
     const done = !!feedback && (feedback.id === 'shelf' || focusFeedback && (feedback.kind === 'task-complete' || feedback.kind === 'complete' || feedback.kind === 'phase' && focus.pomodoro?.phase === 'break'));
     notch.dataset.feedback = feedback ? done ? 'done' : feedback.id === 'music' && feedback.kind === 'track' ? 'track' : 'change' : '';
+    notch.dataset.feedbackCompact = String(!!feedback?.compact);
     const actions = byId('module-feedback-actions'); actions.hidden = closed.hidden || !done;
     byId('module-feedback-spectrum').hidden = closed.hidden || feedback?.id !== 'music';
     if (!feedback) return;
@@ -738,7 +728,7 @@
     }
     text(actions.querySelector('[data-feedback-command="open"]'), feedback.kind === 'task-complete' ? t('Voir les tâches') : focusFeedback ? focus.complete ? t('Voir Focus') : t('Voir la pause') : t('Voir le résultat'));
     actions.querySelector('[data-feedback-command="skip"]').hidden = !focusFeedback || !focusIsActive() || focus.pomodoro?.phase !== 'break';
-    notch.style.setProperty('--module-feedback-color', feedback.id === 'music' ? notch.style.getPropertyValue('--spectrum-color') || '#ffffff' : ['files', 'shelf'].includes(feedback.id) ? '#76d6aa' : feedback.kind === 'phase' && focus.pomodoro?.phase === 'break' ? '#62e7ad' : '#78cecc');
+    notch.style.setProperty('--module-feedback-color', feedback.id === 'music' ? notch.style.getPropertyValue('--spectrum-color') || 'var(--color-fff)' : feedback.kind === 'complete' || feedback.kind === 'task-complete' ? 'var(--status-success)' : ['files', 'shelf'].includes(feedback.id) ? 'var(--activity-shelf)' : feedback.kind === 'phase' && focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind === 'long' ? 'var(--activity-long)' : 'var(--activity-break)' : 'var(--activity-focus)');
     if (closed.dataset.sequence !== String(feedback.sequence)) {
       closed.dataset.sequence = String(feedback.sequence);
       const original = feedback.id === 'music' ? byId('music-live').querySelector('.live-art') : done ? shelfGlyph('check') : byId('focus-live').querySelector('svg');
@@ -762,12 +752,12 @@
     if (event?.id === 'focus' && !isModuleEnabled('focus') && isModuleEnabled('tasks')) event = {...event, id: 'tasks'};
     const definition = moduleDefinitions[event?.id];
     if (disposed || !definition || !isModuleEnabled(event.id) || !definition.band.changes.includes(event.kind) || document.hidden) return;
-    const restoreQuiet = state === 'discreet' || moduleFeedback?.restoreQuiet === true;
+    const restoreQuiet = state === 'rest' || moduleFeedback?.restoreQuiet === true;
     clearModuleFeedback(false);
     moduleFeedback = {...event, sequence: ++moduleFeedbackSequence, restoreQuiet};
     const copy = localizedFeedback(event);
     text(byId('module-feedback-announcer'), `${t(definition.label)} · ${copy.title} · ${copy.detail}`);
-    if (state === 'discreet' && !protectedInteraction()) setState('hover');
+    if (state === 'rest' && !protectedInteraction()) setState('compact');
     renderLiveActivities(); renderModuleFeedback();
     update();
     if (state === 'open') {
@@ -778,7 +768,7 @@
     } else if (!byId('module-feedback-live').hidden) animateModuleChange(byId('module-feedback-live'));
     moduleFeedbackTimer = window.setTimeout(() => {
       const quiet = moduleFeedback?.restoreQuiet; clearModuleFeedback();
-      if (quiet && state === 'hover' && !pointerInside && !protectedInteraction()) setState('discreet');
+      if (quiet && state === 'compact' && !pointerInside && !protectedInteraction()) setState('rest');
     }, ISLAND_CONFIG.notification.duration);
   }
   function observeModuleActivity(id, value) {
@@ -796,9 +786,9 @@
     for (const animations of contentAnimations.values()) for (const animation of animations) animation.cancel();
     contentAnimations.clear();
     const miniControls = byId('music-hover-controls');
-    for (const [node, visible, compact] of [[expandedLayer, state === 'open', false], [toggle, state !== 'open', true], [compactContent, state === 'hover', true], [restContent, state !== 'hover', true], [miniControls, miniControls.dataset.visible === 'true', true]]) {
+    for (const [node, visible, compact] of [[expandedLayer, state === 'open', false], [toggle, state !== 'open', true], [compactContent, state === 'compact', true], [restContent, state !== 'compact', true], [miniControls, miniControls.dataset.visible === 'true', true]]) {
       const simple = !motionEnabled();
-      Object.assign(node.style, {opacity: visible ? '1' : '0', filter: simple || visible ? 'none' : 'blur(10px)', transform: simple || visible ? 'none' : compact ? 'translateY(5px) scale(.9)' : 'translateY(20px) scale(.95)', pointerEvents: visible ? 'auto' : 'none'});
+      Object.assign(node.style, {opacity: visible ? '1' : '0', filter: simple || visible ? 'none' : NOTCH_TOKENS.motion.content.exitFilter, transform: simple || visible ? 'none' : compact ? NOTCH_TOKENS.motion.content.compactExit : NOTCH_TOKENS.motion.content.expandedExit, pointerEvents: visible ? 'auto' : 'none'});
       node.inert = !visible;
     }
     miniControls.style.pointerEvents = 'none'; miniControls.hidden = miniControls.dataset.visible !== 'true';
@@ -820,6 +810,7 @@
     const saved = window.localStorage.getItem(moduleStorageKey);
     if (saved && saved.length <= 8192) moduleSettings = normalizeModules(JSON.parse(saved));
   } catch {}
+  if (!moduleOrderSaved) moduleOrder=[...new Set([...moduleSettings.slots.filter(Boolean),...moduleSettings.enabled,...moduleOrder])];
   function getModules() { return {enabled: [...moduleSettings.enabled], slots: [...moduleSettings.slots]}; }
   function isModuleEnabled(id) { return moduleSettings.enabled.includes(id); }
   function focusCoreEnabled() { return isModuleEnabled('focus') || isModuleEnabled('tasks'); }
@@ -884,17 +875,19 @@
     if (disposed) return false;
     if (moduleEditing) return true;
     modulePreviousView = view; modulePreviousState = state; moduleReturnFocus = document.activeElement;
-    moduleDraft = getModules(); modulePicked = null; moduleMessage = ''; moduleEditing = true;
+    moduleDraft = getModules(); moduleDraftOrder = [...moduleOrder]; modulePicked = null; moduleMessage = ''; moduleEditing = true;
     const target = event?.target?.closest?.('[data-home-slot], [data-module-open]');
     const moduleId = target?.dataset.moduleOpen || target?.dataset.module, storedIndex = moduleDraft.slots.slice(0, 3).indexOf(moduleId);
     const index = Object.hasOwn(moduleDefinitions, moduleId || '') ? storedIndex >= 0 ? storedIndex : moduleDraft.slots.slice(0, 3).findIndex(id => !id || !moduleDraft.enabled.includes(id)) : target?.dataset.homeSlot;
     if (storedIndex < 0 && Object.hasOwn(moduleDefinitions, moduleId || '')) modulePicked = moduleId;
     moduleSelected = Number.isInteger(Number(index)) && Number(index) >= 0 && Number(index) < 3 ? Number(index) : Math.max(0, moduleDraft.slots.slice(0, 3).findIndex(Boolean));
-    moduleEditorLayout(true); modulesPlayer.querySelector(`[data-module-slot-box="${moduleSelected}"]`).focus({preventScroll: true}); return true;
+    moduleEditorLayout(true); (modulesPlayer.querySelector('.experience-switch') || modulesPlayer.querySelector(`[data-module-slot-box="${moduleSelected}"]`))?.focus({preventScroll: true}); return true;
   }
   function closeModuleEditor(commit = false) {
     if (!moduleEditing) return false;
-    const value = moduleDraft; moduleEditing = false; moduleDraft = null; modulePicked = null;
+    const value = moduleDraft;
+    if (commit && moduleDraftOrder) {moduleOrderSaved=true; moduleOrder = [...moduleDraftOrder]; try {window.localStorage.setItem('notchy-module-order-v1', JSON.stringify(moduleOrder));} catch {}}
+    moduleDraftOrder = null; moduleEditing = false; moduleDraft = null; modulePicked = null;
     if (commit) {modulePreviousView = 'nook'; modulePreviousState = 'open'; setModules(value);} else moduleMessage = t('Changements annulés.');
     moduleEditorLayout(false, true);
     if (moduleReturnFocus?.isConnected && moduleReturnFocus.tabIndex >= 0 && !moduleReturnFocus.closest('[hidden],[inert]')) moduleReturnFocus.focus({preventScroll: true});
@@ -957,6 +950,10 @@
   function renderModules() {
     if (disposed) return;
     modulesPlayer.hidden = !moduleEditing; if (!moduleEditing || !moduleDraft) return;
+    if (experience) {
+      experience.renderModules({definitions: getModuleDefinitions().map(item=>item.id === 'focus' ? {...item,label:'Focus'} : item), enabled: moduleDraft.enabled, order: moduleDraftOrder || moduleOrder});
+      byId('modules-status').textContent = moduleMessage; return;
+    }
     const layout = moduleEditorPresentation(moduleDraft, modulePicked), slots = layout.slots, primary = Math.max(0, slots.findIndex(Boolean));
     byId('module-editor-frames').dataset.count = String(slots.filter(Boolean).length);
     const frames = [...modulesPlayer.querySelectorAll('[data-module-slot-box]')], focused = document.activeElement;
@@ -1056,7 +1053,7 @@
     }
     return false;
   }
-  function disposeModules() { moduleEditing = false; moduleDraft = null; modulePicked = null; modulesPlayer.hidden = true; }
+  function disposeModules() { experience?.dispose(); sharingExperience?.dispose(); moduleEditing = false; moduleDraft = null; modulePicked = null; modulesPlayer.hidden = true; }
 
   const settingsPlayer = byId('settings-player'), scenariosPlayer = byId('scenarios-player');
   let startupEnabled = desktop?.startup?.enabled === true, startupBusy = false, startupError = desktop?.startup?.error ? 'Impossible de modifier le démarrage. Réessaie.' : '';
@@ -1079,12 +1076,13 @@
   }
   function renderSettings() {
     settingsPlayer.hidden = view !== 'settings' || getModuleEditorActive();
+    ia?.render(view,getModuleEditorActive());
     renderAppearance();
     renderSettingsConnections();
     if (view === 'settings') update();
   }
   function renderSettingsConnections() {
-    renderStartupSettings();
+    renderStartupSettings(); renderExperience();
     if (view !== 'settings') return;
     const focusSummary = focusComponent.summary();
     byId('settings-focus').disabled = !focusCoreEnabled();
@@ -1097,13 +1095,98 @@
     if (!disposed && format && !format.disabled && settingsPlayer.contains(format)) {setAppearance({format: format.dataset.appearanceFormat}); return;}
     const button = event.target.closest('[data-settings-command]');
     if (disposed || !button || button.disabled || !settingsPlayer.contains(button)) return;
-    if (button.dataset.settingsCommand === 'close') { setState('discreet'); return; }
+    if (button.dataset.settingsCommand === 'close') { setState('rest'); return; }
+    if (button.dataset.settingsCommand === 'health') {selectViewButton({dataset:{view:'health'}}); void readNearby(); return;}
+    if (button.dataset.settingsCommand === 'modules') {openModuleEditor(); return;}
     if (button.dataset.settingsCommand === 'focus') {
       selectViewButton({dataset: {view: 'focus'}}); focusComponent.command('configure'); update();
     } else if (button.dataset.settingsCommand === 'weather') {
       weatherPickerOpen = true; selectViewButton({dataset: {view: 'weather'}}); renderWeather(); weatherCityInput.focus({preventScroll: true});
     } else if (button.dataset.settingsCommand === 'localsend') selectViewButton({dataset: {view: 'tray'}});
     else if (button.dataset.settingsCommand === 'scenarios') selectViewButton({dataset: {view: 'scenarios'}});
+  }
+  function renderExperience() {
+    if (!experience || disposed) return;
+    byId('health-player').hidden = view !== 'health' || moduleEditing;
+    const tray = view === 'tray' && !moduleEditing;
+    notch.dataset.experienceTray = String(tray);
+    byId('sharing-experience').hidden = !tray;
+    if (view === 'health') {
+      const positioned = !!(weather.selectedCity?.name || weather.city);
+      experience.renderHealth({items: [
+        {id:'network', label:t('Réseau'), status:nearbyBusy ? 'busy' : nearby.available ? 'ready' : 'unknown', detail:t(nearby.available ? 'LocalSend actif' : 'Partage local arrêté'), actionLabel:t('Activer'), action:'network'},
+        {id:'firewall', label:t('Pare-feu'), status:'unknown', detail:t('À vérifier sur ce réseau'), actionLabel:t('Aide'), action:'firewall'},
+        {id:'location', label:t('Position'), status:weatherBusy ? 'busy' : positioned ? 'ready' : 'unknown', detail:weather.selectedCity?.name || weather.city || t('Choisir une ville'), actionLabel:t('Choisir'), action:'location'},
+        {id:'spotify', label:'Spotify', status:queueBusy ? 'busy' : ['ok','connected','ready'].includes(queueState.status) ? 'ready' : 'unknown', detail:t(['ok','connected','ready'].includes(queueState.status) ? 'Connecté' : 'Non connecté'), actionLabel:t('Connecter'), action:'spotify'},
+        {id:'player', label:t('Lecteur'), status:music.available ? 'ready' : 'unknown', detail:music.available ? t('{player} détecté',{player:music.source || t('Lecteur Windows')}) : t('Rien en lecture'), actionLabel:t('Ouvrir'), action:'player'},
+        {id:'startup', label:t('Démarrage'), status:startupBusy ? 'busy' : startupEnabled ? 'ready' : 'unknown', detail:t(startupEnabled ? 'Avec Windows' : desktop?.startup?.supported ? 'Désactivé' : 'Application de bureau requise'), actionLabel:desktop?.startup?.supported ? t('Activer') : '', action:desktop?.startup?.supported ? 'startup' : undefined}
+      ]});
+    }
+    if (tray && sharingExperience) {
+      sharingExperience.render({files:shelfItems.map(item => {const file = acceptedFile(item,'shelf'); return {...item, canOcr:(file.image || file.pdf) && file.toolsAvailable, canConvert:file.image && file.toolsAvailable, canSend:true, canOpen:true, canDownload:true, canRemove:true};}), selectedIds:[...selectedFiles], busy:shelfBusy || nearbyBusy, status:{message:nearbyError,error:!!nearbyError}, fileStatus:{message:shelfError,error:shelfDownloadError}, peers:nearby.peers || [], favorites:peerFavorites, available:nearby.available, transfer:nearby.transfer, incoming:nearby.incoming});
+    }
+  }
+  async function experienceAction(action) {
+    if (disposed) return;
+    if (action === 'back') {if (moduleEditing) closeModuleEditor(false); else selectViewButton({dataset:{view:'settings'}}); return;}
+    if (action === 'network') await nearbyRequest({command:'discover'});
+    else if (action === 'location') {weatherPickerOpen = true; selectViewButton({dataset:{view:'weather'}}); weatherCityInput.focus({preventScroll:true});}
+    else if (action === 'firewall') {
+      let help = byId('health-player').querySelector('.experience-inline-help');
+      if (!help) {help = document.createElement('p'); help.className='experience-inline-help'; help.setAttribute('role','status'); byId('health-player').append(help);}
+      help.textContent=t('Autorise Notchy sur ton réseau privé dans le pare-feu Windows. Le même Wi-Fi suffit, sans internet.');
+    } else if (action === 'player') await performMusicCommand({command:'open'});
+    else if (action === 'startup') {byId('startup-windows').checked = true; await startupInput({target:byId('startup-windows')});}
+    else if (action === 'spotify') {
+      queueOpen=true; selectViewButton({dataset:{view:'music'}}); renderMusicQueue(); musicQueueLifecycle();
+      const connect = byId('music-queue').querySelector('[data-music-queue-command="connect"]'); if (connect) await musicQueueCommand({target:connect});
+    }
+    renderExperience();
+  }
+  let peerFavorites = [];
+  try {const saved = window.localStorage.getItem('notchy-peer-favorites-v1'); if (saved && saved.length < 20000) peerFavorites = JSON.parse(saved).filter(item => item && /^[a-f0-9]{64}$/.test(item.identity) && typeof item.alias === 'string').slice(0,32).map(item => ({identity:item.identity,alias:item.alias.slice(0,120),deviceType:item.deviceType === 'mobile' ? 'mobile' : 'desktop'}));} catch {}
+  async function sharingAction(command, value = {}) {
+    if (disposed || shelfBusy || nearbyBusy && !['cancel','open-transfer'].includes(command)) return;
+    const item = shelfItems.find(item => item.id === value.id);
+    if (command === 'add') {
+      if (Array.isArray(value.files)) {const before=new Set(shelfItems.map(item=>item.id)); await uploadFiles(value.files); const added=shelfItems.filter(item=>!before.has(item.id)); if (added.length) {for (const file of added) byId('sharing-experience').querySelector('[data-sharing-file="'+file.id+'"]')?.closest('.sharing-file-row')?.classList.add('experience-drop-row'); gestureFeedback(byId('sharing-experience').querySelector('.sharing-drop'),'drop',600); notifyModuleChange({id:'shelf',kind:'kept',title:t('Fichier gardé'),detail:added[0].name,compact:true});}}
+      else showFileChooser(shelfInput);
+    }
+    else if (command === 'select') {selectedFiles.clear(); for (const id of value.selectedIds || []) if (shelfItems.some(item => item.id === id)) selectedFiles.add(id); syncShelfSelection();}
+    else if (['open','ocr','convert'].includes(command) && item) await shelfFileAction(command,item);
+    else if (command === 'download') await downloadShelfFiles(shelfItems.filter(file => (value.ids || [value.id]).includes(file.id)));
+    else if (command === 'remove') {selectedFiles.clear(); for (const id of value.ids || [value.id]) if (shelfItems.some(item => item.id === id)) selectedFiles.add(id); syncShelfSelection(); await shelfCommand({target:byId('shelf-remove')});}
+    else if (command === 'discover') await nearbyRequest({command:'discover'});
+    else if (command === 'connect') {await nearbyRequest({command:'connect',address:value.address}); if (nearbyError) gestureFeedback(byId('sharing-experience').querySelector('.sharing-ip-form'),'error');}
+    else if (command === 'cancel' && nearby.transfer?.id) await nearbyRequest({command:'cancel',id:nearby.transfer.id});
+    else if (command === 'open-transfer') {
+      if (nearby.incoming) openLocalSend('receive',nearby.incoming);
+      else if (nearby.transfer) {const transfer=nearby.transfer; localSendContext={direction:transfer.direction, source:'shelf', files:transfer.files || [], totalBytes:transfer.totalBytes, alias:transfer.alias, returnView:'tray', previousId:'', requested:true, error:''}; selectViewButton({dataset:{view:'localsend'}}); setState('open');}
+    }
+    else if (command === 'favorite') {
+      const peer = (nearby.peers || []).find(peer => peer.id === value.id || peer.identity === value.peer?.identity);
+      const identity = peer?.identity || value.peer?.identity;
+      if (!/^[a-f0-9]{64}$/.test(identity || '')) return;
+      peerFavorites = peerFavorites.filter(item => item.identity !== identity);
+      if (value.favorite && peer) peerFavorites.push({identity,alias:peer.alias.slice(0,120),deviceType:peer.deviceType === 'mobile' ? 'mobile' : 'desktop'});
+      try {window.localStorage.setItem('notchy-peer-favorites-v1',JSON.stringify(peerFavorites.slice(0,32)));} catch {}
+    } else if (command === 'send') {
+      const ids = Array.isArray(value.ids) ? value.ids : [...selectedFiles];
+      const files = shelfItems.filter(item => ids.includes(item.id));
+      if (files.length) {openLocalSend('send',files); if (value.peerId && nearby.peers?.some(peer => peer.id === value.peerId)) await localSendCommand({target:{closest:selector => selector === '[data-localsend-peer]' ? {dataset:{localsendPeer:value.peerId}} : null}});}
+      else {shelfError=t('Choisis un fichier à envoyer.');}
+    }
+    renderExperience();
+  }
+  const gestureTimers = new Map();
+  function renderCopyFeedback(node, done) {text(node.querySelector('span') || node,t(done ? 'Copié' : 'Copier'));}
+  function gestureFeedback(node, kind, duration = 2000) {
+    if (!node || disposed) return;
+    const previous = gestureTimers.get(node); if (previous) {window.clearTimeout(previous.timer); node.classList.remove(previous.className);}
+    const className = kind === 'error' ? 'experience-error' : kind === 'copy' ? 'experience-copy-done' : 'experience-drop-confirm';
+    node.classList.add(className);
+    const timer = window.setTimeout(() => {node.classList.remove(className); gestureTimers.delete(node); if (kind === 'copy' && node.isConnected) renderCopyFeedback(node,false);},duration);
+    gestureTimers.set(node,{timer,className});
   }
   function settingsNaturalPanelHeight() {
     return naturalPanelHeight(settingsPlayer);
@@ -1151,7 +1234,7 @@
     text(byId('scenario-status'), message); byId('scenario-undo').hidden = !undoAvailable;
     const noticeElement = byId('scenario-home-notice'), home = byId('nook-layout');
     noticeElement.hidden = !(undoAvailable && state === 'open' && view === 'nook' && !getModuleEditorActive());
-    home.style.height = noticeElement.hidden ? '' : 'calc(100% - 32px)';
+    home.style.height = noticeElement.hidden ? '' : 'calc(100% - var(--measure-32-px))';
     if (!noticeElement.hidden) text(byId('scenario-home-status'), t('{scenario} appliqué.', {scenario: scenarioLabel(preferences.selected)}));
   }
   function scenarioNookPage(selected) {
@@ -1224,7 +1307,9 @@
   function focusLabel() { return focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind === 'long' ? t('Pause longue') : t('Pause courte') : t('Concentration'); }
   function syncFocus(value) {
     if (disposed) return;
+    const previousCompletion = focus.sessionSummary?.at;
     focus = value.state; focusSettings = value.settings;
+    const completionChanged = focus.sessionSummary && focus.sessionSummary.at !== previousCompletion;
     tasksComponent?.render();
     renderFocusTaskPrompt();
     const card = value.card;
@@ -1237,6 +1322,7 @@
     scenarioController?.observe();
     renderLiveActivities(); renderHomeSummaries(); if (getModuleEditorActive()) renderModules();
     update();
+    if (completionChanged && state === 'open' && ['nook','focus'].includes(view) && motionEnabled() && !document.hidden) {motion.pulse(); paint();}
   }
   function renderFocus() {
     if (!disposed) {
@@ -1249,7 +1335,7 @@
   }
   function renderFocusTaskPrompt() {
     const host = byId('focus-task-prompt'), prompt = focus.taskPrompt, task = focus.tasks.find(task => task.id === prompt?.taskId);
-    host.hidden = !task || !prompt || !focusCoreEnabled() || state !== 'open' || getModuleEditorActive() || fileDragging || !!nearby.incoming || focusComponent.inspect().configOpen || focusComponent.inspect().taskPickerOpen || !['nook', 'focus', 'tasks'].includes(view);
+    host.hidden = !task || !prompt || !!focus.sessionSummary && ['nook','focus'].includes(view) || !focusCoreEnabled() || state !== 'open' || getModuleEditorActive() || fileDragging || !!nearby.incoming || focusComponent.inspect().configOpen || focusComponent.inspect().taskPickerOpen || !['nook', 'focus', 'tasks'].includes(view);
     if (host.hidden) {host.dataset.signature = ''; return;}
     host.dataset.kind = prompt.kind;
     const next = focus.tasks.find(item => !item.done), title = t(prompt.kind === 'cycle-complete' ? 'Tâche terminée ?' : 'Tâche terminée · continuer sur :');
@@ -1289,10 +1375,10 @@
   }
   function renderCollapsedActivities(activities = getCollapsedActivities()) {
     const rail = byId('activity-rail');
-    const suppressed = fileDragging || state === 'hover' && !!moduleFeedback;
-    notch.dataset.mediaPreview = String(state === 'hover' && !suppressed && musicInBand());
-    rail.hidden = state !== 'hover' || suppressed || !activities.length;
-    const mini = state === 'hover' && !suppressed && activities[0]?.id === 'music';
+    const suppressed = fileDragging || state === 'compact' && !!moduleFeedback;
+    notch.dataset.mediaPreview = String(state === 'compact' && !suppressed && musicInBand());
+    rail.hidden = state !== 'compact' || suppressed || !activities.length;
+    const mini = state === 'compact' && !suppressed && activities[0]?.id === 'music';
     const miniControls = byId('music-hover-controls'); notch.dataset.musicMini = String(mini);
     if (miniControls.dataset.visible !== String(mini)) {
       miniControls.dataset.visible = String(mini); miniControls.hidden = false;
@@ -1330,17 +1416,17 @@
       if (!index) {text(node.querySelector('strong'), copy.label); text(node.querySelector('small'), copy.detail); text(node.querySelector('.activity-value'), copy.value);}
       if (item.id === 'music') { const image = node.querySelector('img'), cover = !index && music.cover; image.hidden = !cover; if (cover && image.getAttribute('src') !== cover) image.src = cover; node.dataset.cover = String(!!cover); }
     });
-    if (state !== 'hover' || !motionEnabled()) for (const bars of rail.querySelectorAll('.activity-spectrum')) delete bars.dataset.signal;
+    if (state !== 'compact' || !motionEnabled()) for (const bars of rail.querySelectorAll('.activity-spectrum')) delete bars.dataset.signal;
     if (state !== 'open' && !suppressed) toggle.setAttribute('aria-label', labels.length ? labels.join(' ; ') + ' · ' + t('Ouvrir l’encoche') : t('Ouvrir l’encoche'));
   }
   function renderLiveActivities() {
-    const hasMusic = musicInBand(), hasFocus = (isModuleEnabled('focus') || isModuleEnabled('tasks')) && focusIsActive(), priority = state === 'hover' && !!moduleFeedback && isModuleEnabled(moduleFeedback.id);
+    const hasMusic = musicInBand(), hasFocus = (isModuleEnabled('focus') || isModuleEnabled('tasks')) && focusIsActive(), priority = state === 'compact' && !!moduleFeedback && isModuleEnabled(moduleFeedback.id);
     restContent.dataset.music = String(hasMusic); restContent.dataset.focus = String(hasFocus);
     restContent.dataset.active = String(hasMusic || hasFocus);
     live.hidden = !hasMusic || fileDragging || priority;
     byId('focus-live').hidden = !hasFocus || hasMusic || fileDragging || priority;
-    strip.hidden = !hasMusic || state !== 'discreet' || fileDragging;
-    focusStrip.hidden = !hasFocus || state !== 'discreet' || fileDragging;
+    strip.hidden = !hasMusic || state !== 'rest' || fileDragging;
+    focusStrip.hidden = !hasFocus || state !== 'rest' || fileDragging;
     notch.dataset.liveCount = String(Number(hasMusic) + Number(hasFocus));
     byId('live-activities').hidden = fileDragging || priority || !(hasMusic || hasFocus);
     renderModuleFeedback();
@@ -1367,6 +1453,7 @@
   const activityScene = createActivityScene(), activityCards = new Map();
   let activityStage = null, activityMain = null, activitySide = null, activityExpiryTimer = 0, sceneConfigurationSignature = '';
   function sceneActivities() {
+    if (focus.sessionSummary && focusCoreEnabled()) {const value=focusCardValues(focus,focusSettings); return [{id:'focus',key:'focus',label:focusLabel(),value:time(value.seconds),detail:focus.task,playing:!!focus.deadline,progress:value.progress}];}
     const configured = modulePlacementPlan({enabled: islandPage === 'tasks' && isModuleEnabled('focus') ? [...moduleSettings.enabled, 'tasks'] : moduleSettings.enabled, slots: getHomeSlots()});
     const live = new Map(getCollapsedActivities().map(item => [item.id, item]));
     const priorTransfer = activityScene.inspect().items.find(item => item.id === 'transfer');
@@ -1482,8 +1569,12 @@
     const value = focusComponent.summary(), linked = focus.tasks.find(task => task.id === focus.activeTaskId && !task.done);
     card.dataset.complete = String(!!focus.complete); card.dataset.playing = String(!!focus.deadline);
     card.dataset.focusBreak = focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind : 'none';
-    const phase = t(focus.pomodoro?.phase === 'break' ? 'PAUSE' : 'FOCUS') + ' · ' + (focus.pomodoro?.session || 1) + '/' + value.total;
+    const phase = t(focus.pomodoro?.phase === 'break' ? 'PAUSE' : 'FOCUS') + ' · ' + t('CYCLE') + ' ' + (focus.pomodoro?.session || 1) + '/' + value.total;
     text(card.querySelector('.focus-summary-phase'), phase); card.querySelector('.focus-summary-phase').setAttribute('aria-label', t('Afficher l’activité') + ' · ' + phase);
+    let ring = card.querySelector('.focus-summary-reference-ring');
+    if (!ring) {ring = document.createElement('div'); ring.className = 'focus-summary-reference-ring'; ring.innerHTML = '<svg viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="24"/><circle class="reference-ring-fill" cx="28" cy="28" r="24" pathLength="1"/></svg>'; card.append(ring); ring.append(card.querySelector('.focus-summary-clock')); const link = document.createElement('span'); link.className = 'focus-summary-link-label'; card.append(link);}
+    ring.style.setProperty('--focus-progress', value.progress);
+    text(card.querySelector('.focus-summary-link-label'), linked ? t('Tâche liée') : '');
     const clock = card.querySelector('.focus-summary-clock');
     FocusAPI.renderClock(clock, value.seconds, {motion: motionEnabled() && state === 'open' && !document.hidden});
     clock.setAttribute('aria-label', t('{minutes} minutes {seconds} secondes', {minutes: Math.floor(value.seconds / 60), seconds: value.seconds % 60}));
@@ -1498,7 +1589,7 @@
   function renderActivityScene() {
     const home = byId('nook-layout'), eligible = view === 'nook' && !getModuleEditorActive() && islandPage !== 'essential';
     if (!eligible) return false;
-    const configuration = JSON.stringify(getHomeSlots());
+    const configuration = JSON.stringify([getHomeSlots(), !!focus.sessionSummary]);
     if (configuration !== sceneConfigurationSignature) {activityScene.reset(); sceneConfigurationSignature = configuration;}
     const completed = [];
     if (isModuleEnabled('focus') && (focus.complete || focus.pomodoro?.finished)) completed.push('focus');
@@ -1541,11 +1632,11 @@
   function animateActivityPromotion() {
     if (!activityMain || state !== 'open' || document.hidden) return;
     const previous = contentAnimations.get(activityMain), current = getComputedStyle(activityMain);
-    const from = previous ? {opacity: current.opacity, translate: current.translate} : {opacity: .88, translate: '8px 0px'};
+    const from = previous ? {opacity: current.opacity, translate: current.translate} : NOTCH_TOKENS.motion.sceneFrom;
     for (const animation of previous || []) animation.cancel();
     contentAnimations.delete(activityMain);
     if (!motionEnabled() || typeof activityMain.animate !== 'function') return;
-    const animation = activityMain.animate([from, {opacity: 1, translate: '0px 0px'}], {duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)'});
+    const animation = activityMain.animate([from, NOTCH_TOKENS.motion.sceneTo], {duration: NOTCH_TOKENS.dur.card, easing: NOTCH_TOKENS.ease.out});
     const animations = [animation]; contentAnimations.set(activityMain, animations);
     const finish = () => {if (contentAnimations.get(activityMain) === animations) contentAnimations.delete(activityMain);};
     animation.finished.then(finish, finish);
@@ -1679,11 +1770,11 @@
     }
     renderHomeLayout(); renderMusic(); renderFocus(); renderShelf(); renderFiles(); renderWeather(); weatherLifecycle();
     renderSettings(); renderMenuSelection();
-    if (change.opening) setState('open'); else if (change.closing) setState(change.previousState || 'discreet'); else update();
+    if (change.opening) setState('open'); else if (change.closing) setState(change.previousState || 'rest'); else update();
     renderModules();
   }
 
-  let nearby = {status: desktop?.localSendActive === true ? 'ready' : 'off', available: desktop?.localSendActive === true, peers: [], transfer: null, incoming: null}, nearbyPeer = '', nearbyTimer = 0, nearbyBusy = false, nearbyError = '', nearbyReading = false;
+  let nearby = {status: desktop?.localSendActive === true ? 'ready' : 'off', available: desktop?.localSendActive === true, peers: [], transfer: null, incoming: null}, nearbyPeer = '', nearbyTimer = 0, nearbyBusy = false, nearbyError = '', nearbyReading = false, nearbyActionError = false;
   let nearbyIncomingShown = '', nearbyReceiveCompleted = '';
   function localSendPresentation() {
     const context = localSendContext; if (!context) return null;
@@ -1711,8 +1802,8 @@
   }
   function renderLocalSendBand() {
     const band = localSendBand(), live = byId('localsend-live'), progress = byId('localsend-discreet-progress'), receive = band?.direction === 'receive';
-    live.hidden = state !== 'hover' || !band;
-    progress.hidden = state !== 'discreet' || !band || !['progress', 'complete'].includes(band.stage);
+    live.hidden = state !== 'compact' || !band;
+    progress.hidden = state !== 'rest' || !band || !['progress', 'complete'].includes(band.stage);
     if (!progress.hidden) {
       const ratio = band.stage === 'complete' ? 1 : band.progress / 100;
       progress.style.setProperty('--localsend-progress', String(ratio));
@@ -1805,7 +1896,7 @@
     const context = localSendContext, ongoing = ['waiting','progress'].includes(localSendPresentation()?.stage);
     selectViewButton({dataset:{view:toShelf ? 'tray' : context?.returnView || 'nook'}});
     if (!ongoing) localSendContext = null;
-    if (!toShelf) setState('discreet');
+    if (!toShelf) setState('rest');
     renderLocalSend(); renderLiveActivities(); update();
   }
   async function localSendCommand(event) {
@@ -1826,6 +1917,7 @@
   }
   function renderNearby() {
     if (disposed) return;
+    renderExperience();
     const peers = Array.isArray(nearby.peers) ? nearby.peers.filter(peer => peer && typeof peer.id === 'string' && peer.id.length <= 128 && typeof peer.alias === 'string') : [];
     if (!peers.some(peer => peer.id === nearbyPeer)) nearbyPeer = '';
     const host = byId('shelf-nearby-peers');
@@ -1866,7 +1958,7 @@
       if (!response.ok) throw new Error(value.error || t('Partage indisponible.'));
       if (!disposed && mutation === nearbyMutation) {
         if (!nearbyLoaded && value.transfer?.direction === 'receive' && value.transfer.status === 'complete') nearbyReceiveCompleted = value.transfer.id;
-        nearbyLoaded = true; nearby = value; nearbyError = ''; renderNearby();
+        nearbyLoaded = true; nearby = value; if (!nearbyActionError) nearbyError = ''; renderNearby();
         scenarioController?.observe();
         if (value.incoming && value.incoming.id !== nearbyIncomingShown && !protectedInteraction()) {
           nearbyIncomingShown = value.incoming.id; openLocalSend('receive', value.incoming);
@@ -1896,14 +1988,14 @@
   }
   async function nearbyRequest(value) {
     const mutation = ++nearbyMutation;
-    nearbyBusy = true; nearbyError = ''; renderNearby(); nearbyLifecycle();
+    nearbyBusy = true; nearbyError = ''; nearbyActionError = false; renderNearby(); nearbyLifecycle();
     try {
       const response = await window.fetch('/api/nearby', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Notchy': '1'}, body: JSON.stringify(value)}), data = await response.json();
       if (disposed || mutation !== nearbyMutation) return;
       nearby = data;
       if (!response.ok || data.error) throw new Error(data.error || data.transfer?.error || t('Cette action est indisponible.'));
       if (value.command === 'share' && data.transfer?.status === 'complete') notifyModuleChange({id: value.source === 'files' ? 'files' : 'shelf', kind: 'sent', title: value.ids.length > 1 ? t('Fichiers envoyés') : t('Fichier envoyé'), detail: data.transfer.alias || t('Transfert terminé')});
-    } catch (error) { if (!disposed && mutation === nearbyMutation) {nearbyError = error.message || t('Partage indisponible.'); if(localSendContext) localSendContext.error=nearbyError;} }
+    } catch (error) { if (!disposed && mutation === nearbyMutation) {nearbyActionError = true; nearbyError = error.message || t('Partage indisponible.'); if(localSendContext) localSendContext.error=nearbyError;} }
     finally { if (!disposed && mutation === nearbyMutation) { nearbyBusy = false; renderNearby(); renderLiveActivities(); update(); nearbyLifecycle(); } }
   }
 
@@ -2026,6 +2118,7 @@
     const command = button.dataset.fileCommand, item = currentFile();
     if (command === 'choose') { showFileChooser(fileInput); return; }
     if (!item) return;
+    if (command === 'download-result') {event.preventDefault?.(); const id=fileJob.result?.download?.match(/^\/api\/shelf\/([a-f0-9]{32})$/)?.[1]; if (id) await downloadShelfFiles([{id,name:fileJob.result.name || item.name}]); return;}
     if (command === 'formats') { fileMode = 'formats'; renderFiles(); return; }
     if (command === 'previous-file' || command === 'next-file') { fileIndex = (fileIndex + (command === 'next-file' ? 1 : fileItems.length - 1)) % fileItems.length; fileMode = 'actions'; fileJob = {status: 'idle'}; fileError = ''; renderFiles(); return; }
     if (command === 'back') { fileMode = 'actions'; fileError = ''; renderFiles(); return; }
@@ -2039,6 +2132,8 @@
         if (desktop) { const result = await desktop.copyText(value); if (!result?.ok) throw new Error(t('Le texte ne peut pas être copié.')); }
         else await window.navigator.clipboard.writeText(value);
         fileError = t('Texte copié.');
+        renderCopyFeedback(button,true); gestureFeedback(button,'copy',1600);
+        notifyModuleChange({id:'files',kind:'kept',title:t('Copié'),detail:'',compact:true});
       } else if (command === 'keep') {
         const value = await filePost('/api/files/keep', {id: item.id});
         fileItems[fileIndex] = acceptedFile(value.item, 'shelf'); setShelf(value); fileError = t('Gardé dans l’Étagère.');
@@ -2073,7 +2168,7 @@
         fileMode = 'processing'; void pollFileJob();
         }
       }
-    } catch (error) { if (!disposed) fileError = error.message || t('Cette action a échoué.'); }
+    } catch (error) { if (!disposed) {fileError = error.message || t('Cette action a échoué.'); if (command === 'copy') {const previous=gestureTimers.get(button); if (previous) window.clearTimeout(previous.timer); gestureTimers.delete(button); button.classList.remove('experience-copy-done'); renderCopyFeedback(button,false);}} }
     finally { if (!disposed) { if (button.dataset.filePeer) { fileSending = false; fileSendPreviousTransferId = ''; } fileBusy = fileSending; renderFiles(); } }
   }
   async function filePeersPoll() {
@@ -2094,8 +2189,25 @@
     const id = event.target.closest('[data-shelf-id]')?.dataset.shelfId;
     selectShelfFile(shelfItems.find(item => item.id === id));
   }
-  function downloadShelfFiles(items) {
+  async function downloadShelfFiles(items) {
+    if (!items.length || shelfBusy) return false;
+    if (typeof desktop?.exportShelfItems === 'function') {
+      shelfBusy = true; shelfError = ''; shelfDownloadError = false; syncShelfSelection();
+      try {
+        const result = await desktop.exportShelfItems(items.map(item=>item.id));
+        if (!result?.ok) throw new Error(result?.error || t('Le téléchargement a échoué.'));
+        if (disposed) return false;
+        shelfError = t('{count} fichier(s) enregistré(s) dans Téléchargements.',{count:result.saved.length});
+        if (view === 'files') {fileError=shelfError; renderFiles();}
+        notifyModuleChange({id:'shelf',kind:'kept',title:t('Enregistré dans Téléchargements'),detail:'',compact:true});
+        return true;
+      } catch (error) {
+        if (!disposed) {shelfDownloadError=true; shelfError=error.message || t('Le téléchargement a échoué.'); if (view === 'files') {fileError=shelfError; renderFiles();}}
+        return false;
+      } finally {if (!disposed) {shelfBusy=false; syncShelfSelection(); textUI(byId('shelf-status'),shelfError);}}
+    }
     for (const item of items) { const link = document.createElement('a'); link.href = '/api/shelf/' + item.id; link.download = item.name; document.body.append(link); link.click(); link.remove(); }
+    return true;
   }
   async function shelfFileAction(command, item) {
     if (!item || disposed) return;
@@ -2109,7 +2221,7 @@
         finally { if (!disposed) { shelfBusy = false; textUI(byId('shelf-status'), shelfError); syncShelfSelection(); } }
       } else if (command === 'reveal') return;
       else if (file.preview) selectShelfFile(item, 'preview');
-      else { downloadShelfFiles([item]); shelfError = t('Copie téléchargée. Ouvre-la depuis tes téléchargements.'); textUI(byId('shelf-status'), shelfError); }
+      else if (await downloadShelfFiles([item])) { shelfError = t('Copie téléchargée. Ouvre-la depuis tes téléchargements.'); textUI(byId('shelf-status'), shelfError); }
       return;
     }
     if (command === 'preview') { if (file.preview) selectShelfFile(item, 'preview'); return; }
@@ -2118,6 +2230,7 @@
   }
 
   function syncShelfSelection() {
+    renderExperience();
     shelfPlayer.dataset.hasSelection = String(selectedFiles.size > 0);
     const all = shelfItems.length > 0 && selectedFiles.size === shelfItems.length;
     const selectAll = byId('shelf-select-all');
@@ -2161,16 +2274,27 @@
     const next = localizedWeatherNarrative({...weather, busy: weatherBusy});
     return {title: next.temperature + ' ' + next.when, detail: t('à ') + next.city, narrative: next};
   }
+  function weatherFreshness(value, now = Date.now()) {
+    const fetched = Number(value.fetchedAt || value.updatedAt || 0);
+    if (!Number.isFinite(fetched) || fetched <= 0) return t('Mise à jour à vérifier');
+    const minutes = Math.max(0, Math.floor((now - fetched) / 60000));
+    return (value.stale ? t('Dernières données') + ' · ' : '') + (minutes < 1 ? t('Mis à jour à l’instant') : t('Mis à jour il y a {minutes} min', {minutes}));
+  }
   function renderWeatherDesign(host, presentation, {interactive = false} = {}) {
-    const values = weatherDesignValues(weather, presentation), next = localizedWeatherNarrative({...weather, busy: weatherBusy});
+    const failure = (typeof weather.error === 'string' && weather.error) || (!weatherPickerOpen ? weatherError : '');
+    const values = weatherDesignValues(weather, presentation), next = localizedWeatherNarrative({...weather, busy: weatherBusy, error:failure || weather.error});
+    const sharedFailure = !weatherBusy && !!failure && values.size !== 'rail' && !!window.NotchEmpty;
+    const revealResult = host.dataset.state === 'loading' && next.state === 'ready' && !weatherError && !weather.error && !document.hidden && host.getClientRects().length > 0;
     const condition = t(weather.condition || 'Conditions indisponibles'), locale = i18n.locale() === 'en' ? 'en-GB' : 'fr-FR';
-    const signature = JSON.stringify([values, next, condition, weather.icon, weather.isDay, locale, interactive, interactive && weatherPickerOpen]);
+    const freshness = weatherFreshness(weather);
+    const signature = JSON.stringify([values, next, condition, freshness, weather.icon, weather.isDay, locale, interactive, interactive && weatherPickerOpen, failure]);
     if (host.dataset.weatherDesign === signature) return;
     host.dataset.weatherDesign = signature; host.dataset.size = values.size; host.dataset.state = next.state;
     const make = (className, value, tag = 'span') => {const node = document.createElement(tag); node.className = className; if (value !== undefined) node.textContent = value; return node;};
     const heading = make('weather-design-heading'), icon = byId('weather-condition-icon').cloneNode(true); icon.removeAttribute('id');
     const city = make('weather-design-city', next.city + (values.size === 'rail' ? '' : ' · ' + t(weather.isDay === false ? 'CE SOIR' : 'AUJOURD’HUI')), interactive ? 'button' : 'span');
     if (interactive) {city.type = 'button'; city.id = 'weather-city-button'; city.dataset.weatherCommand = 'picker'; city.setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city})); city.setAttribute('aria-expanded', String(weatherPickerOpen)); city.setAttribute('aria-controls', 'weather-picker');}
+    if (values.size === 'rail') heading.append(make('weather-design-eyebrow',t('MÉTÉO')));
     heading.append(icon, city);
     const reading = make('weather-design-reading'), temperature = make('weather-design-temperature', next.temperature), detail = make('weather-design-detail');
     const feels = make('weather-design-feels', t('Ressenti {temperature}', {temperature: next.feelsLike}));
@@ -2196,9 +2320,22 @@
     }
     daily.append(make('weather-design-caption', t('3 JOURS')), days); daily.hidden = !values.days.length;
     outlook.append(hourly, daily); outlook.hidden = !values.hours.length && !values.days.length;
-    const empty = make('weather-design-empty', next.status || t('Choisis une ville ou utilise ta position actuelle.')); empty.hidden = values.available;
+    const empty = make('weather-design-empty', sharedFailure ? '' : next.status || t('Choisis une ville ou utilise ta position actuelle.')); empty.hidden = values.available && !sharedFailure;
     narrative.hidden = !values.narrative; reading.hidden = !values.available;
-    host.replaceChildren(current, narrative, outlook, empty);
+    host.setAttribute('aria-busy', String(weatherBusy));
+    host.dataset.condition = weather.icon || 'unknown'; host.dataset.day = String(weather.isDay !== false);
+    const fresh = make('weather-design-freshness', freshness); fresh.hidden = !values.available || sharedFailure;
+    host.replaceChildren(current, narrative, outlook, empty, fresh);
+    if (sharedFailure) {
+      empty.classList.add('weather-design-error');
+      const since = Number.isFinite(weather.fetchedAt) && weather.fetchedAt > 0 && weather.fetchedAt <= Date.now() ? weather.fetchedAt : null;
+      const view = window.NotchEmpty.show(empty, {icon:icon.cloneNode(true),title:t('Météo indisponible'),hint:uiMessage(failure),actionLabel:t('Réessayer'),since,onAction(event) {
+        event.stopPropagation(); weatherCommand(event);
+        byId('weather-main').querySelector('.weather-tools [data-weather-command="refresh"]')?.focus({preventScroll:true});
+      }});
+      view.elements.action.dataset.weatherCommand = 'refresh';
+    }
+    if (revealResult) for (const node of [current, narrative, outlook]) if (!node.hidden) node.classList.add('experience-weather-result');
   }
   function renderWeatherSummary(button) {
     const next = localizedWeatherNarrative({...weather, busy: weatherBusy}), key = JSON.stringify(next);
@@ -2429,7 +2566,7 @@
     const items = shelfItems.filter(item => selectedFiles.has(item.id));
     if (['open', 'reveal', 'preview', 'ocr', 'convert'].includes(command)) { await shelfFileAction(command, shelfSelectionItem()); return; }
     if (command === 'download') {
-      downloadShelfFiles(items);
+      await downloadShelfFiles(items);
       return;
     }
     if (command !== 'remove') return;
@@ -2492,6 +2629,7 @@
   function renderLanguage() {
     if (disposed) return;
     renderStaticTranslations();
+    musicFavorite.setAttribute('aria-label', t('Les favoris ne sont pas partagés par le lecteur Windows')); musicFavorite.title = musicFavorite.getAttribute('aria-label');
     for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();
     for (const item of Object.values(moduleDefinitions)) moduleLabels[item.id] = t(item.label);
     moduleMessage = '';
@@ -2512,11 +2650,11 @@
   function receiveSpectrum(values) {
     if (disposed || document.hidden || fileDragging || !motionEnabled() || !isModuleEnabled('music') || !music.playing || connectionLost || !musicSpectrumVisible()) return;
     const levels = spectrumLevels(values); if (!levels) return;
-    const bars = state === 'open' ? playerBars : state === 'hover' ? liveBars : restBars;
+    const bars = state === 'open' ? playerBars : state === 'compact' ? liveBars : restBars;
     bars.forEach((bar, index) => bar.style.setProperty('--level', String(levels[index])));
-    const secondary = state === 'hover' ? byId('activity-rail') : state === 'open' ? byId('nook-layout') : null;
+    const secondary = state === 'compact' ? byId('activity-rail') : state === 'open' ? byId('nook-layout') : null;
     if (secondary) for (const spectrum of secondary.querySelectorAll('.activity-spectrum')) { spectrum.dataset.signal = 'true'; [...spectrum.children].forEach((bar, index) => bar.style.setProperty('--level', String(levels[index]))); }
-    if (state === 'hover' && !byId('module-feedback-spectrum').hidden) feedbackBars.forEach((bar, index) => bar.style.setProperty('--level', String(levels[index])));
+    if (state === 'compact' && !byId('module-feedback-spectrum').hidden) feedbackBars.forEach((bar, index) => bar.style.setProperty('--level', String(levels[index])));
   }
 
   function renderTime() {
@@ -2548,13 +2686,17 @@
   }
 
   function renderMusic() {
+    musicEmpty.hidden=music.available;
+    text(musicEmpty.querySelector('strong'),t('Rien en lecture'));
+    text(musicEmpty.querySelector('p'),t('Lance un morceau dans Spotify ou un lecteur Windows.'));
+    text(musicEmpty.querySelector('button'),t('Ouvrir Spotify'));
     if (disposed) return;
     player.hidden = !builtinVisible('music');
     if (!player.closest('.activity-stage')) player.dataset.presentation = 'full';
     player.classList.toggle('activity-card-secondary', player.parentElement?.classList?.contains('activity-rail-cards') === true);
     player.dataset.available = String(music.available);
     renderLiveActivities();
-    byId('shelf-drop-hint').hidden = !fileDragging || state !== 'hover';
+    byId('shelf-drop-hint').hidden = !fileDragging || state !== 'compact';
     byId('music-empty').hidden = music.available;
     byId('music-content').hidden = !music.available;
     notch.dataset.playing = String(music.playing && !connectionLost);
@@ -2573,7 +2715,7 @@
       if (music.cover && image.getAttribute('src') !== music.cover) image.src = music.cover;
       else if (!music.cover) image.removeAttribute('src');
     }
-    if (spectrumArtwork !== music.cover) { spectrumArtwork = music.cover; spectrumAnalyzed = ''; notch.style.setProperty('--spectrum-color', '#ffffff'); applyArtworkPalette(); coverLoaded({target: coverImages[0]}); }
+    if (spectrumArtwork !== music.cover) { spectrumArtwork = music.cover; spectrumAnalyzed = ''; notch.style.setProperty('--spectrum-color', 'var(--color-fff)'); applyArtworkPalette(); coverLoaded({target: coverImages[0]}); }
     byId('music-promote').hidden = !player.parentElement?.classList?.contains('activity-rail-cards');
     const paused = !music.playing || connectionLost;
     byId('music-toggle').setAttribute('aria-label', paused ? t('Lire') : t('Mettre en pause'));
@@ -2596,6 +2738,8 @@
   function setMusic(value) {
     if (disposed) return false;
     const next = normalizeMusic(value, music), track = moduleActivityChange('music', moduleActivitySnapshot('music', music), moduleActivitySnapshot('music', next))?.kind === 'track';
+    const playbackChanged = music.available && next.available && music.playing !== next.playing;
+    const oldPlaybackIcon = playbackChanged && state === 'open' && motionEnabled() && !player.hidden && !document.hidden ? byId('music-play-icon').closest('svg').cloneNode(true) : null;
     if (track) { seekPreview = null; if (!seekDragging) seekTrack = null; }
     const oldCopy = track && state === 'open' && !player.hidden ? player.querySelector('.music-copy').cloneNode(true) : null;
     const oldArt = oldCopy ? player.querySelector('.music-art').cloneNode(true) : null;
@@ -2604,14 +2748,28 @@
     musicError = ''; connectionLost = false;
     scenarioController?.observe();
     observeModuleActivity('music', music);
-    renderMusic(); update(); syncStream(); if (oldCopy && motionEnabled()) animateMusicTrack(oldCopy, oldArt); if (getModuleEditorActive()) renderModules(); return true;
+    renderMusic(); update(); syncStream(); if (oldCopy && motionEnabled()) animateMusicTrack(oldCopy, oldArt);
+    if (oldPlaybackIcon) animateMusicPlayback(oldPlaybackIcon);
+    if (getModuleEditorActive()) renderModules(); return true;
+  }
+  function animateMusicPlayback(oldIcon) {
+    const icon=byId('music-play-icon').closest('svg'), button=byId('music-toggle');
+    if (!icon?.animate) return;
+    for (const previous of button.querySelectorAll('.experience-play-out')) {for (const animation of previous.getAnimations()) animation.cancel(); previous.remove();}
+    for (const animation of icon.getAnimations()) animation.cancel();
+    oldIcon.removeAttribute('id'); for (const child of oldIcon.querySelectorAll('[id]')) child.removeAttribute('id');
+    oldIcon.classList.add('experience-play-out'); oldIcon.setAttribute('aria-hidden','true'); button.append(oldIcon);
+    for (const [node,frames] of [[oldIcon,NOTCH_TOKENS.motion.iconOut],[icon,NOTCH_TOKENS.motion.iconIn]]) {
+      const animation=node.animate(frames,{duration:NOTCH_TOKENS.dur.progress,easing:NOTCH_TOKENS.ease.out}); moduleFeedbackAnimations.add(animation);
+      const finish=()=>{moduleFeedbackAnimations.delete(animation); if (node===oldIcon) oldIcon.remove();}; animation.finished.then(finish,finish);
+    }
   }
   function animateMusicTrack(oldCopy, oldArt) {
-    for (const [old, host, frames] of [[oldCopy, player.querySelector('.music-copy'), [{opacity: 1, transform: 'translateY(0)'}, {opacity: 0, transform: 'translateY(-16px)'}]], [oldArt, player.querySelector('.music-art'), [{opacity: 1, transform: 'scale(1)'}, {opacity: 0, transform: 'scale(.85)'}]]]) {
+    for (const [old, host, frames] of [[oldCopy, player.querySelector('.music-copy'), NOTCH_TOKENS.motion.trackCopy], [oldArt, player.querySelector('.music-art'), NOTCH_TOKENS.motion.trackArt]]) {
       for (const previous of old.querySelectorAll('.music-track-out')) previous.remove();
       old.removeAttribute('id'); for (const child of old.querySelectorAll('[id]')) child.removeAttribute('id');
       old.classList.add('music-track-out'); old.inert = true; old.setAttribute('aria-hidden', 'true'); host.append(old);
-      const animation = old.animate(frames, {duration: 280, easing: 'cubic-bezier(.32,.72,0,1)'}); moduleFeedbackAnimations.add(animation);
+      const animation = old.animate(frames, {duration: NOTCH_TOKENS.dur.card, easing: NOTCH_TOKENS.ease.track}); moduleFeedbackAnimations.add(animation);
       const finish = () => { moduleFeedbackAnimations.delete(animation); old.remove(); }; animation.finished.then(finish, finish);
     }
     animateModuleChange(player.querySelector('.music-copy')); animateModuleChange(player.querySelector('.music-art > img'));
@@ -2690,9 +2848,9 @@
       const context = canvas.getContext('2d', {willReadFrequently: true}); context.drawImage(image, 0, 0, 16, 16);
       const accent = artworkColor(context.getImageData(0, 0, 16, 16).data);
       notch.style.setProperty('--spectrum-color', accent); applyArtworkPalette(accent); spectrumAnalyzed = music.cover;
-    } catch { notch.style.setProperty('--spectrum-color', '#ffffff'); applyArtworkPalette(); }
+    } catch { notch.style.setProperty('--spectrum-color', 'var(--color-fff)'); applyArtworkPalette(); }
   }
-  function coverError(event) { event.target.hidden = true; event.target.nextElementSibling.removeAttribute('hidden'); if (event.target.getAttribute('src') === music.cover) {notch.style.setProperty('--spectrum-color', '#ffffff'); applyArtworkPalette();} }
+  function coverError(event) { event.target.hidden = true; event.target.nextElementSibling.removeAttribute('hidden'); if (event.target.getAttribute('src') === music.cover) {notch.style.setProperty('--spectrum-color', 'var(--color-fff)'); applyArtworkPalette();} }
 
   function queueVisible() { return !player.hidden && queueOpen && view === 'music' && state === 'open' && !moduleEditing && !document.hidden && (!music.available || /^spotify$/i.test(music.source)); }
   function queueText(value, max = 240) { return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, max) : ''; }
@@ -2830,7 +2988,7 @@
     if (disposed) return;
     const core = islandCoreView(), layout = ISLAND_CONFIG.layout;
     const activities = getCollapsedActivities();
-    const closed = closedBandSize(state, {activities, feedback: !!moduleFeedback && isModuleEnabled(moduleFeedback.id)});
+    const closed = closedBandSize(state, {activities, feedback: moduleFeedback && isModuleEnabled(moduleFeedback.id) ? moduleFeedback : false});
     closed.width = Math.min(closed.width, Math.max(1, window.innerWidth - layout.side * 2 - closed.shoulder * 2));
     renderCollapsedActivities(activities);
     if (view === 'nook' && !getModuleEditorActive()) {
@@ -2842,14 +3000,14 @@
     // The content has its final dimensions throughout the surface spring.
     const scene = view === 'nook' && !getModuleEditorActive() && homeLayout?.mode === 'activities', sceneLayout = ISLAND_CONFIG.activities;
     notch.dataset.activityScene = String(scene);
-    islandFooter.hidden = !core || scene;
+    islandFooter.hidden = !!ia || !core || scene;
     const activityHeight = scene ? homeLayout.items.length > 2 ? sceneLayout.expandedHeight : sceneLayout.sceneHeight : ISLAND_CONFIG.states.expanded.height;
     const welcomeSize = view === 'welcome' ? welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest : welcomeStage === 'logo' ? {width: ISLAND_CONFIG.welcome.introWidth, height: ISLAND_CONFIG.welcome.introHeight} : ISLAND_CONFIG.welcome : {width: ISLAND_CONFIG.formats[appearance.format], height: activityHeight};
     const width = Math.min(welcomeSize.width, Math.max(1, window.innerWidth - layout.side * 2));
     const height = Math.max(closed.band, Math.min(welcomeSize.height, desktop ? desktopMaxHeight - 8 : window.innerHeight - 96));
     const showHeader = view !== 'welcome' && view !== 'localsend' && !fileDragging;
     const band = showHeader ? scene ? sceneLayout.sceneTop : layout.header : 0;
-    const panelHeight = Math.max(0, height - band - (scene ? sceneLayout.bottom : layout.bottom) - (core && !scene ? layout.footer : 0));
+    const panelHeight = Math.max(0, height - band - (scene ? sceneLayout.bottom : layout.bottom) - (!ia && core && !scene ? layout.footer : 0));
     notch.style.setProperty('--island-side', (scene ? sceneLayout.side : layout.side) + 'px');
     notch.style.setProperty('--scene-gap', sceneLayout.gap + 'px');
     notch.style.setProperty('--island-header-height', layout.header + 'px');
@@ -2864,7 +3022,7 @@
     const target = state === 'open' ? {width, height, band, shoulder: 0, radius: view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : ISLAND_CONFIG.states.expanded.radius + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
     protectLayoutResize(target.width, target.height);
     motion.setTarget(target, {snap: !motionEnabled() || document.hidden});
-    paint(); renderLocalSend(); recheckCollapse();
+    paint(); ia?.render(view,getModuleEditorActive()); renderLocalSend(); recheckCollapse();
   }
 
   function setState(next) {
@@ -2888,11 +3046,11 @@
   }
   function applyState(next) {
     if (disposed || !Object.hasOwn(sizes, next)) return false;
-    const wasOpen = state === 'open', wasCompact = state === 'hover';
+    const wasOpen = state === 'open', wasCompact = state === 'compact';
     const keyboardOpening = next === 'open' && !wasOpen && keyboardNavigation && document.activeElement === toggle;
     window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
     window.clearTimeout(hoverTimer); hoverTimer = 0;
-    if (next === 'discreet') keyboardNavigation = false;
+    if (next === 'rest') keyboardNavigation = false;
     if (next !== 'open' || state !== 'open') {layoutResizeClick = null; layoutResizeGraceUntil = 0;}
     if (next !== 'open' && (menu.contains(document.activeElement) || expandedLayer.contains(document.activeElement) || byId('music-hover-controls').contains(document.activeElement))) toggle.focus({preventScroll: true});
     state = next;
@@ -2922,7 +3080,7 @@
       if (keyboardOpening && !menu.hidden) menu.querySelector('button:not([hidden]):not(:disabled)')?.focus({preventScroll: true});
       animateIslandLayer(toggle, next !== 'open', true);
     }
-    if (next !== 'open') {const compact = next === 'hover'; if (wasCompact !== compact || wasOpen) {animateIslandLayer(compactContent, compact, true); animateIslandLayer(restContent, !compact, true);}}
+    if (next !== 'open') {const compact = next === 'compact'; if (wasCompact !== compact || wasOpen) {animateIslandLayer(compactContent, compact, true); animateIslandLayer(restContent, !compact, true);}}
     if (next !== 'open') scenarioController?.flush();
     return true;
   }
@@ -2941,19 +3099,19 @@
   function protectedInteraction() {
     const focused = document.hasFocus() ? document.activeElement : null;
     const editing = focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]');
-    return welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'hover' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'discreet' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
+    return welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
   }
   function scheduleCollapse(deactivated = false) {
     window.clearTimeout(collapseTimer); collapseTimer = 0;
     if (deactivated) {pointerInside = false; if (nativePointerPresence !== null) nativePointerPresence = false; keyboardNavigation = false; window.clearTimeout(hoverTimer); hoverTimer = 0;}
-    if (disposed || state === 'discreet') { collapseDeferred = false; layoutResizeClick = null; layoutResizeGraceUntil = 0; return; }
+    if (disposed || state === 'rest') { collapseDeferred = false; layoutResizeClick = null; layoutResizeGraceUntil = 0; return; }
     collapseDeferred = protectedInteraction();
     if (collapseDeferred) return;
     collapseTimer = window.setTimeout(() => {
       collapseTimer = 0;
       if (disposed || !(deactivated || !pointerInside)) return;
       collapseDeferred = protectedInteraction();
-      if (!collapseDeferred) setState('discreet');
+      if (!collapseDeferred) setState('rest');
     }, Math.max(ISLAND_CONFIG.delays.leave, state === 'open' ? layoutResizeGraceUntil - Date.now() : 0));
   }
   function recheckCollapse() { scenarioController?.flush(); if (collapseDeferred && !disposed && !pointerInside && !protectedInteraction()) scheduleCollapse(); }
@@ -2962,7 +3120,7 @@
     pointerInside = true; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
     if (closingTo) { setState('open'); return; }
     window.clearTimeout(hoverTimer);
-    if (state === 'discreet') hoverTimer = window.setTimeout(() => {hoverTimer = 0; if (pointerInside && state === 'discreet' && !disposed) setState('hover');}, ISLAND_CONFIG.delays.hover);
+    if (state === 'rest') hoverTimer = window.setTimeout(() => {hoverTimer = 0; if (pointerInside && state === 'rest' && !disposed) setState('compact');}, ISLAND_CONFIG.delays.hover);
   }
   function leave() { window.clearTimeout(hoverTimer); hoverTimer = 0; pointerInside = false; scenarioController?.flush(); scheduleCollapse(); }
   function nativePointer(value) {
@@ -2976,17 +3134,17 @@
       if (!inside) { leave(); return; }
     }
     if (inside === pointerInside) {
-      if (!inside && state !== 'discreet' && !collapseTimer && !collapseDeferred) scheduleCollapse();
+      if (!inside && state !== 'rest' && !collapseTimer && !collapseDeferred) scheduleCollapse();
       return;
     }
     if (inside) enter(); else leave();
   }
-  function toggleFocus() { if (keyboardNavigation && state === 'discreet') setState('hover'); }
+  function toggleFocus() { if (keyboardNavigation && state === 'rest') setState('compact'); }
   function surfaceClick() { if (state !== 'open') open(); }
   function open() {
     if (closingTo) {setState('open'); return;}
-    if (welcome?.isActive() && state === 'open') { finishWelcome('discreet'); return; }
-    if (state === 'open') { if (!getModuleEditorActive()) setState('discreet'); return; }
+    if (welcome?.isActive() && state === 'open') { finishWelcome('rest'); return; }
+    if (state === 'open') { if (!getModuleEditorActive()) setState('rest'); return; }
     const transfer = localSendBand();
     selectViewButton({dataset: {view: transfer && transfer.stage !== 'ready' ? 'localsend' : 'nook'}});
     setState('open');
@@ -2995,7 +3153,7 @@
   function focusDeparture() {
     window.queueMicrotask(() => {
       if (!document.hasFocus()) scheduleCollapse(true);
-      else if (!pointerInside && state !== 'discreet' && !collapseTimer && !protectedInteraction()) scheduleCollapse();
+      else if (!pointerInside && state !== 'rest' && !collapseTimer && !protectedInteraction()) scheduleCollapse();
       else recheckCollapse();
     });
   }
@@ -3014,13 +3172,20 @@
   }
   function showFileChooser(input) { fileDialogOpen = true; desktop?.setDialogOpen?.(true); input.click(); }
   function closeFileChooser() { fileDialogOpen = false; desktop?.setDialogOpen?.(false); recheckCollapse(); }
-  function outside(event) { if (state === 'open' && !notch.contains(event.target)) { if (welcome?.isActive()) { finishWelcome('discreet'); return; } if (getModuleEditorActive()) closeModuleEditor(false); setState('discreet'); } }
-  function key(event) { if (event.key === 'Escape' && !getModuleEditorActive()) { event.preventDefault(); if (queueOpen) { event.stopImmediatePropagation(); closeMusicQueue(); } else if (welcome?.isActive()) finishWelcome('discreet'); else setState('discreet'); } }
+  function outside(event) { if (state === 'open' && !notch.contains(event.target)) { if (welcome?.isActive()) { finishWelcome('rest'); return; } if (getModuleEditorActive()) closeModuleEditor(false); setState('rest'); } }
+  function key(event) { if (event.key === 'Escape' && !getModuleEditorActive()) { event.preventDefault(); if (queueOpen) { event.stopImmediatePropagation(); closeMusicQueue(); } else if (welcome?.isActive()) finishWelcome('rest'); else setState('rest'); } }
   function selectView(event) {
     const button = event.target.closest('[data-view]');
     if (disposed || menu.hidden || !button || !menu.contains(button)) return;
+    if (button.dataset.view === 'modules') {openModuleEditor(event); return;}
+    if (getModuleEditorActive()) closeModuleEditor(false);
     if (button.dataset.view === 'nook') islandPage = 'music';
     selectViewButton(button);
+  }
+  function menuHover(event) {
+    const button=event.target.closest('button[data-view]'); if (!button || button.hidden || !menu.contains(button)) return;
+    const bounds=button.getBoundingClientRect(), parent=menu.getBoundingClientRect();
+    menu.style.setProperty('--hover-x',(bounds.left-parent.left)+'px'); menu.style.setProperty('--hover-width',bounds.width+'px');
   }
   function selectViewButton(button) {
     if (!button) return;
@@ -3043,6 +3208,7 @@
     renderWeather(); weatherLifecycle();
     renderSettings();
     renderScenarios();
+    renderExperience();
     renderModules(); nearbyLifecycle();
     renderModuleFeedback();
     renderLocalSend();
@@ -3053,13 +3219,14 @@
   function renderMenuSelection() {
     for (const item of menuButtons) {
       const definition = Object.values(moduleDefinitions).find(entry => entry.view === item.dataset.view);
-      item.hidden = item.dataset.view === 'scenarios' || !!definition && !isModuleEnabled(definition.id) && !(definition.id === 'shelf' && view === 'tray');
-      const selected = item.dataset.view === view || item.dataset.view === 'nook' && view === 'music' || item.dataset.view === 'settings' && view === 'scenarios';
+      item.hidden = !['nook','tray','settings'].includes(item.dataset.view);
+      const selected = item.dataset.view === view || item.dataset.view === 'nook' && ['music','focus','tasks','weather'].includes(view) && !getModuleEditorActive() || item.dataset.view === 'settings' && (['scenarios','health'].includes(view) || getModuleEditorActive());
       item.setAttribute('aria-pressed', String(selected)); item.setAttribute('aria-current', selected ? 'page' : 'false');
     }
   }
 
   notch.addEventListener('pointerenter', enter);
+  menu.addEventListener('pointerover',menuHover); menu.addEventListener('focusin',menuHover);
   notch.addEventListener('pointerleave', leave);
   toggle.addEventListener('focus', toggleFocus);
   toggle.addEventListener('click', open);
@@ -3138,6 +3305,7 @@
   }
 
   function dispose() {
+    ia?.dispose();
     if (disposed) return;
     disposed = true;
     window.clearTimeout(activityExpiryTimer); activityExpiryTimer = 0;
@@ -3145,6 +3313,8 @@
     window.clearTimeout(hoverTimer); hoverTimer = 0;
     window.clearTimeout(contentExitTimer); contentExitTimer = 0; closingTo = null;
     for (const animations of contentAnimations.values()) for (const animation of animations) animation.cancel(); contentAnimations.clear();
+    for (const [node,entry] of gestureTimers) {window.clearTimeout(entry.timer); node.classList.remove(entry.className);} gestureTimers.clear();
+    menu.removeEventListener('pointerover',menuHover); menu.removeEventListener('focusin',menuHover);
     scenarioController?.dispose();
     removeLanguage?.(); document.removeEventListener('change', languageChoice);
     queueEpoch++; queueOpen = queueActive = queueBusy = false; window.clearTimeout(queueTimer); queueTimer = 0;
@@ -3261,12 +3431,22 @@
     getModuleEditorSlots,
     getModuleEditorOrder,
     getWeatherState,
+    showHealth: () => {selectViewButton({dataset:{view:'health'}}); setState('open');},
     dispose,
     inspect: () => ({state, view, geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, scenarios: scenarioController?.inspect(), morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
     }),
   });
   window.addEventListener('pagehide', dispose, {once: true});
-  welcome = window.NotchyWelcome.create({host: byId('welcome-player'), start: () => finishWelcome('discreet', true), tutorialFinish: () => finishWelcome('discreet', true), stageChanged: stage => {welcomeStage = stage; if (view === 'welcome') update();}, motion: motionEnabled});
+  experience = window.NotchyExperience.create({healthHost: byId('health-player'), modulesHost: byId('modules-experience'), t, onAction: experienceAction, onModulesChange(value) {if (!moduleEditing) return; moduleDraftOrder = value.order; moduleDraft = normalizeModules({enabled: value.order.filter(id => value.enabled.includes(id)), slots: value.order.filter(id => value.enabled.includes(id)).slice(0,3)}); moduleMessage = ''; renderModules();}});
+  byId('modules-experience').querySelector('.experience-heading-actions').append(modulesPlayer.querySelector('.module-editor-actions'));
+  sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction});
+  ia = window.NotchyIA.create({document,t,
+    onTab(tab) {if (getModuleEditorActive() && tab !== 'modules') closeModuleEditor(false); const route=tab==='general'?'settings':tab; menu.querySelector('[data-view="'+route+'"]').click();},
+    onRoute(route) {menu.querySelector('[data-view="'+route+'"]')?.click();},
+    onNativeHealth: () => window.NotchyIA.invokeCore('health_run',{}),
+    async onScan() {const result=await window.NotchyIA.invokeCore('discovery_scan',{}); if (result) await readNearby(); return result;}
+  });
+  welcome = window.NotchyWelcome.create({host: byId('welcome-player'), start: () => finishWelcome('rest', true), tutorialFinish: () => finishWelcome('rest', true), stageChanged: stage => {welcomeStage = stage; if (view === 'welcome') update();}, motion: motionEnabled});
   document.addEventListener('change', languageChoice);
   removeLanguage = i18n.onChange(renderLanguage);
   for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();
@@ -3281,7 +3461,7 @@
   islandPage = scenarioNookPage(scenarioController.getPreferences().selected) || islandPage;
   renderScenarios();
   renderAppearance(); renderHomeLayout(); renderModules(); renderFocus(); renderFiles(); renderWeather();
-  setState('discreet');
+  setState('rest');
   void readNearby();
   renderSettings();
   let welcomeDone = false; try { welcomeDone = window.localStorage.getItem(welcomeStorageKey) === 'done'; } catch {}

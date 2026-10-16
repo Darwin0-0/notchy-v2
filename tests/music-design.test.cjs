@@ -16,7 +16,7 @@ test('the queue opens explicitly without changing the player and never queries a
   for (const size of ['full','scene','rail']) {context.player.dataset.presentation=size; assert.equal(context.api.queueVisible(), true);}
   context.music.source='Microsoft Edge'; assert.equal(context.api.queueVisible(), false, 'a Windows source never requests an unrelated Spotify account');
   context.music.source='Spotify'; context.player.hidden=true; assert.equal(context.api.queueVisible(), false);
-  context.player.hidden=false; context.state='discreet'; assert.equal(context.api.queueVisible(), false);
+  context.player.hidden=false; context.state='rest'; assert.equal(context.api.queueVisible(), false);
   context.state='open'; context.moduleEditing=true; assert.equal(context.api.queueVisible(), false);
 });
 
@@ -122,7 +122,7 @@ test('closing the secondary queue returns to the exact prior Nook page and a vis
 });
 
 test('the hover transport shares the compact content choreography and becomes inert on exit', () => {
-  const effects=[], scope={ISLAND_CONFIG,contentAnimations:new Map(),document:{hidden:false},motionEnabled:()=>true,
+  const effects=[], scope={ISLAND_CONFIG,NOTCH_TOKENS:require('../tokens.js'),contentAnimations:new Map(),document:{hidden:false},motionEnabled:()=>true,
     getComputedStyle:()=>({opacity:'0',filter:'blur(10px)',transform:'translateY(5px) scale(.9)'})};
   const node={style:{},animate(frames,options){const effect={frames,options,cancelled:false,cancel(){this.cancelled=true;},finished:new Promise(()=>{})};effects.push(effect);return effect;}};
   vm.runInNewContext(section('  function animateIslandLayer(', '  function renderIslandNavigation(')+'this.run=animateIslandLayer;',scope);

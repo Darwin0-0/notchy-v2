@@ -12,10 +12,11 @@
   }
 })(typeof window === 'object' ? window : null, function () {
   'use strict';
+  const NOTCH_TOKENS = typeof module === 'object' && module.exports ? require('./tokens.js') : window.NOTCH_TOKENS;
   const STORAGE_KEY = 'notchy-minimal-focus-v1';
     const FocusModel = (() => {
  'use strict';
- const defaults = () => ({task: '', tasks: [], activeTaskId: null, taskPrompt: null, minutes: 25, remaining: 1500, deadline: null, complete: false, sessionActive: false});
+ const defaults = () => ({task: '', tasks: [], activeTaskId: null, taskPrompt: null, sessionSummary: null, minutes: 25, remaining: 1500, deadline: null, complete: false, sessionActive: false});
  const integer = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
  const taskId = value => typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(value);
  const taskTitle = value => typeof value === 'string' ? value.trim().slice(0, 500) : '';
@@ -62,7 +63,8 @@
   if(!integer(total,1,12)||!integer(session,1,total)||!integer(longRest,1,180))return null;
   const result={work:input.work,rest:input.rest,longRest,total,session,phase:input.phase};
   if(input.phase==='break')result.breakKind=input.breakKind==='long'&&session===total?'long':'short';
-  if(input.finished===true&&result.phase==='break'&&result.breakKind==='long'&&session===total)result.finished=true;
+  if(input.chosenBreak===true&&input.phase==='break'){result.chosenBreak=true;result.breakKind=input.breakKind==='long'?'long':'short';}
+  if(input.finished===true&&result.phase==='break'&&(result.breakKind==='long'||result.chosenBreak)&&session===total)result.finished=true;
   return result;
  }
  const phaseMinutes=p=>p.phase==='work'?p.work:p.breakKind==='long'?p.longRest:p.rest;
@@ -87,6 +89,10 @@
   if(p?.finished&&(!state.complete||state.deadline||state.sessionActive))delete p.finished;
   const prompt = input.taskPrompt, promptTask = state.tasks.find(task => task.id === prompt?.taskId);
   if (prompt && typeof prompt === 'object' && !Array.isArray(prompt) && promptTask && (prompt.kind === 'cycle-complete' && !promptTask.done || prompt.kind === 'continue' && promptTask.done)) state.taskPrompt = {kind: prompt.kind, taskId: promptTask.id};
+  const completed = input.sessionSummary;
+  if (p && completed && typeof completed === 'object' && !Array.isArray(completed) && Number.isFinite(completed.at) && completed.at > 0 && completed.at <= now + 60000 && integer(completed.session, 1, p.total) && completed.total === p.total && completed.minutes === p.work && integer(completed.completedCycles, 0, 9999) && integer(completed.estimatedCycles, 0, 12)) {
+   state.sessionSummary = {at: completed.at, session: completed.session, total: p.total, minutes: p.work, taskId: taskId(completed.taskId) ? completed.taskId : null, title: taskTitle(completed.title), completedCycles: completed.completedCycles, estimatedCycles: completed.estimatedCycles};
+  }
   return state;
  }
  function remaining(state, now = Date.now()) {
@@ -96,8 +102,9 @@
  function nextPhase(state, now = Date.now()) {
   const normalized=cycle(state.pomodoro);if(!normalized||!state.complete||normalized.finished)return false;
   const p=state.pomodoro=normalized;
-  if(p.phase==='break'&&p.breakKind==='long'){p.finished=true;state.deadline=null;state.remaining=0;state.complete=true;state.sessionActive=false;return false;}
-  if (p.phase === 'work') {p.phase='break';p.breakKind=p.session>=p.total?'long':'short';}
+  if(p.phase==='break'&&p.chosenBreak){if(p.session>=p.total){p.finished=true;state.deadline=null;state.remaining=0;state.complete=true;state.sessionActive=false;return false;}delete p.chosenBreak;p.phase='work';p.session++;delete p.breakKind;}
+  else if(p.phase==='break'&&p.breakKind==='long'){p.finished=true;state.deadline=null;state.remaining=0;state.complete=true;state.sessionActive=false;return false;}
+  else if (p.phase === 'work') {p.phase='break';p.breakKind=p.session>=p.total?'long':'short';}
   else if(p.session>=p.total){p.breakKind='long';}
   else {p.phase='work';p.session++;delete p.breakKind;}
   state.minutes = phaseMinutes(p);
@@ -118,6 +125,7 @@
    if (state.pomodoro?.phase === 'work') {
     const task = state.tasks?.find(task => task.id === state.activeTaskId && !task.done);
     if (task) {task.completedCycles = Math.min(9999, (task.completedCycles || 0) + 1); state.taskPrompt = {kind: 'cycle-complete', taskId: task.id}; result.creditedCycles.push({taskId: task.id, session: state.pomodoro.session});}
+    if(!legacyBoundary)state.sessionSummary={at:boundary,session:state.pomodoro.session,total:state.pomodoro.total,minutes:state.pomodoro.work,taskId:task?.id||null,title:task?.title||'',completedCycles:task?.completedCycles||0,estimatedCycles:task?.estimatedCycles||0};
    }
    state.deadline=null;state.remaining=0;state.complete=true;state.sessionActive=false;result.changed=true;
    if(state.pomodoro&&nextPhase(state,boundary)){result.phaseChanged=true;continue;}
@@ -125,7 +133,16 @@
   }
   return result;
  }
- return Object.freeze({defaults, restore, remaining, nextPhase, tick, taskAction});
+ function completionChoice(state, choice, now = Date.now()) {
+  if(!state?.sessionSummary||!['short','long','continue'].includes(choice)||!cycle(state.pomodoro))return false;
+  tick(state,now);
+  const p=state.pomodoro, wasWork=p.phase==='work'&&!p.finished;
+  if(choice==='continue'){p.session=wasWork?p.session:p.session>=p.total?1:p.session+1;p.phase='work';delete p.breakKind;delete p.chosenBreak;}
+  else {p.phase='break';p.breakKind=choice;p.chosenBreak=true;}
+  delete p.finished;state.minutes=phaseMinutes(p);state.remaining=state.minutes*60;state.deadline=now+state.remaining*1000;state.complete=false;state.sessionActive=true;state.sessionSummary=null;return true;
+ }
+ function dismissCompletion(state){if(!state?.sessionSummary)return false;state.sessionSummary=null;return true;}
+ return Object.freeze({defaults, restore, remaining, nextPhase, tick, taskAction, completionChoice, dismissCompletion});
   })();
 
   function focusConfiguration(value = {}) {
@@ -146,7 +163,7 @@
     const description = model.complete ? 'Cycle terminé. Prends un moment pour toi.' : paused ? 'Reprends quand tu es prêt.' : breaking ? cycle.breakKind === 'long' ? 'Lève-toi et éloigne-toi de l’écran un moment.' : 'Respire, bois un verre d’eau, puis retrouve ton rythme.' : 'Une tâche, un moment pour avancer.';
     return {active,paused,seconds,badge: translate(badge),description: translate(description),completed,total,pause: String(pauseMinutes).padStart(2, '0') + ':00',pauseLabel: translate(longBreak ? 'Pause longue' : 'Pause courte'),
       progress: active ? Math.min(1, Math.max(0, 1 - seconds / (model.minutes * 60))) : model.complete ? 1 : 0,
-      task: typeof model.task === 'string' ? model.task.trim() : '', taskCount: model.tasks?.length || 0, completedTasks: model.tasks?.filter(task => task.done).length || 0};
+      task: typeof model.task === 'string' ? model.task.trim() : '', totalSeconds: (active ? model.minutes : settings.work) * 60, completion: model.sessionSummary ? {...model.sessionSummary, work:cycle.work,rest:cycle.rest,longRest:cycle.longRest,recommended:model.sessionSummary.session===model.sessionSummary.total?'long':'short'} : null, taskCount: model.tasks?.length || 0, completedTasks: model.tasks?.filter(task => task.done).length || 0};
   }
 
   const markup = "<div id=\"focus-active\" class=\"focus-widget\"><div class=\"focus-timer-card\"><div class=\"focus-card-top\"><span class=\"focus-timer-label\">TIMER</span><div class=\"focus-card-controls\"><button id=\"focus-start\" type=\"button\" data-focus-command=\"start\" aria-label=\"Démarrer Focus\" title=\"Démarrer\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 5v14l11-7Z\"/></svg></button><button id=\"focus-toggle\" type=\"button\" data-focus-command=\"toggle\" aria-label=\"Mettre Focus en pause\" title=\"Pause\" hidden><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path id=\"focus-play-icon\" d=\"M6 5h4v14H6ZM14 5h4v14h-4Z\"/></svg></button><button id=\"focus-stop\" type=\"button\" data-focus-command=\"stop\" aria-label=\"Arrêter Focus\" title=\"Arrêter\" disabled><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M7 7h10v10H7Z\"/></svg></button><button id=\"focus-configure\" type=\"button\" data-focus-command=\"configure\" aria-label=\"Régler le Pomodoro\" title=\"Réglages\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 7h16M4 17h16M8 4v6M16 14v6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"/></svg></button></div></div><div class=\"focus-clock-row\"><div id=\"focus-clock\" class=\"focus-clock\" role=\"timer\" aria-live=\"off\" aria-label=\"25 minutes\"></div><span class=\"focus-phase-badge\"><i aria-hidden=\"true\"></i><span id=\"focus-phase\">FOCUS</span></span></div><p id=\"focus-description\" class=\"focus-description\">Reste régulier et garde le rythme.</p><div id=\"focus-progress\" class=\"focus-progress\" role=\"progressbar\" aria-label=\"Progression de la session\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"0\"><span></span></div></div><div class=\"focus-metrics\"><span class=\"focus-stat\"><small>CYCLES</small><strong id=\"focus-session\">0/4</strong></span><span id=\"focus-break-chip\" class=\"focus-stat\"><small>PAUSE</small><strong id=\"focus-break-duration\">05:00</strong></span><span id=\"focus-task-chip\" class=\"focus-stat\" hidden><small>TÂCHE</small><strong id=\"focus-task-count\"></strong></span></div></div>\n        <div id=\"focus-setup\" class=\"focus-setup\" hidden><header class=\"focus-config-heading\"><strong>Réglages Pomodoro</strong><button id=\"focus-config-back\" type=\"button\" data-focus-command=\"back\" aria-label=\"Revenir au minuteur\">Retour</button></header><label class=\"focus-duration-label\" for=\"focus-duration\">Durée de travail <strong id=\"focus-duration-value\">25 min</strong></label><div class=\"focus-ruler\"><div id=\"focus-ticks\" aria-hidden=\"true\"></div><span class=\"focus-ruler-marker\" aria-hidden=\"true\"></span><input id=\"focus-duration\" type=\"range\" min=\"1\" max=\"180\" step=\"1\" value=\"25\" aria-label=\"Durée de travail en minutes\"></div><div class=\"focus-options\"><label>Pause courte<span><input data-focus-setting=\"rest\" type=\"number\" min=\"1\" max=\"60\" value=\"5\" aria-label=\"Pause courte en minutes\"><small>min</small></span></label><label>Pause longue<span><input data-focus-setting=\"longRest\" type=\"number\" min=\"1\" max=\"180\" value=\"15\" aria-label=\"Pause longue en minutes\"><small>min</small></span></label><label>Sessions<span><input data-focus-setting=\"total\" type=\"number\" min=\"1\" max=\"12\" value=\"4\" aria-label=\"Nombre de sessions\"></span></label></div><footer class=\"focus-config-footer\"><span id=\"focus-config-status\"></span><button type=\"button\" data-focus-command=\"start\">Démarrer</button></footer></div>";
@@ -158,7 +175,7 @@
     if (clock.dataset.value === value) return;
     const cells = [...clock.children];
     const animate = (element, frames, done = () => {}) => {
-      const animation = element.animate(frames, {duration: 240, easing: 'cubic-bezier(.22,1,.36,1)'});
+      const animation = element.animate(frames, {duration: NOTCH_TOKENS.dur.base, easing: NOTCH_TOKENS.ease.out});
       track(animation); animation.finished.then(done, done);
     };
     if (cells.length !== value.length) {
@@ -174,8 +191,8 @@
       const previous = digit.cloneNode(true); digit.textContent = char;
       if (motion && typeof digit.animate === 'function') {
         previous.className = 'focus-digit-old'; cell.append(previous);
-        animate(previous, [{transform: 'translateY(0)', opacity: 1}, {transform: 'translateY(65%)', opacity: 0}], () => previous.remove());
-        animate(digit, [{transform: 'translateY(-65%)', opacity: 0}, {transform: 'translateY(0)', opacity: 1}]);
+        animate(previous, NOTCH_TOKENS.motion.digitOut, () => previous.remove());
+        animate(digit, NOTCH_TOKENS.motion.digitIn);
       }
     });
     clock.dataset.value = value;
@@ -189,11 +206,11 @@
     schedule ||= window.setTimeout.bind(window); unschedule ||= window.clearTimeout.bind(window);
     if (storage === undefined) {try {storage = window.localStorage;} catch {storage = null;}}
     let model = FocusModel.defaults(), settings = focusConfiguration(), enabled = true, hidden = false, visible = !host.hidden, disposed = false, configOpen = false, taskPickerOpen = false, pickerSignature = '', timer = 0, drag = null, taskSignature = '', taskStatusSource = '';
-    const animations = new Set();
+    const animations = new Set(), transportAnimations = new Set(); let lastRunning = null, lastCompletion = null;
     try {const raw = storage?.getItem(STORAGE_KEY); if (raw && raw.length <= 131072) {const saved = JSON.parse(raw); model = FocusModel.restore(saved?.state, now()); settings = focusConfiguration(saved?.settings);}} catch {}
     host.innerHTML = markup;
     const $ = id => host.querySelector('#' + id), put = (id, value) => {const element = $(id); if (element.textContent !== value) element.textContent = value;};
-    const splitClock = presentation === 'split'; host.dataset.focusPresentation = splitClock ? 'split' : 'default'; host.dataset.focusTasks = 'true'; host.dataset.focusPage = 'split';
+    const splitClock = presentation === 'split'; host.dataset.focusPresentation = splitClock ? 'split' : 'default'; host.dataset.focusTasks = 'true'; host.dataset.focusPage = 'split'; host.dataset.focusExperience = '2026';
     if (splitClock) {
       const card = host.querySelector('.focus-timer-card'), controls = host.querySelector('.focus-card-controls');
       const details = document.createElement('div'), heading = document.createElement('div');
@@ -233,15 +250,20 @@
     const tasksPane = document.createElement('section'); tasksPane.className = 'focus-tasks'; tasksPane.setAttribute('aria-label', 'Tâches du Pomodoro');
     tasksPane.innerHTML = `<header class="focus-tasks-heading"><div class="focus-tasks-title"><strong>Tâches</strong><span id="focus-tasks-count"></span></div>
       <form id="focus-task-form" class="focus-task-add"><input id="focus-task-input" type="text" maxlength="500" placeholder="Ajouter une tâche" aria-label="Nouvelle tâche" autocomplete="off"><button type="submit" aria-label="Ajouter la tâche" title="Ajouter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></form></header>
-      <div id="focus-task-list" class="focus-task-list" role="list"></div><p id="focus-task-empty" class="focus-task-empty"><span class="focus-task-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></svg></span><span>Une tâche suffit pour commencer. Choisis-la, puis lance le minuteur.</span></p><p id="focus-task-status" class="focus-task-status" role="status" aria-live="polite"></p>`;
+      <div id="focus-task-list" class="focus-task-list" role="list"></div><div id="focus-task-empty" class="focus-task-empty"><span class="focus-task-empty-icon" aria-hidden="true"><svg viewBox="0 0 56 56" fill="none"><rect x="8" y="8" width="40" height="40" rx="12"/><path d="m18 28 7 7 14-14"/></svg></span><strong>Rien à faire pour l’instant</strong><span>Ajoute une tâche pour la lier à ton prochain focus.</span><button type="button" data-focus-command="add-task">Ajouter une tâche</button></div><p id="focus-task-status" class="focus-task-status" role="status" aria-live="polite"></p>`;
     if (splitClock) {
       const transport = sessionPane.querySelector('.focus-transport-pane'), details = sessionPane.querySelector('.focus-detail-card');
       const taskCycles = document.createElement('span'); taskCycles.id = 'focus-linked-cycles'; taskCycles.className = 'focus-linked-cycles';
       details.insertBefore(linkTask, $('focus-progress')); linkTask.after(taskCycles);
       details.querySelector('.focus-detail-heading').insertBefore(details.querySelector('.focus-metrics'), $('focus-configure'));
       $('focus-active').replaceChildren(sessionPane, tasksPane, transport);
-      host.dataset.focusDesign = '22.6';
     } else $('focus-active').replaceChildren(sessionPane, tasksPane);
+    const ring = document.createElement('div'); ring.className = 'focus-reference-ring';
+    ring.innerHTML = '<svg viewBox="0 0 108 108" aria-hidden="true"><circle class="focus-ring-track" cx="54" cy="54" r="48"/><circle class="focus-ring-value" cx="54" cy="54" r="48" pathLength="100"/></svg><small id="focus-total-duration"></small>';
+    $('focus-clock').before(ring); ring.append($('focus-clock'));
+    const completion = document.createElement('section'); completion.id = 'focus-completion'; completion.className = 'focus-completion'; completion.hidden = true; completion.setAttribute('role', 'region'); completion.setAttribute('aria-label', 'Session terminée');
+    completion.innerHTML = '<div class="focus-completion-summary"><svg viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="23"/><path d="m19 28 6 6 13-13"/></svg><div><strong id="focus-completion-title"></strong><p id="focus-completion-detail"></p><small id="focus-completion-progress"></small></div><button type="button" data-focus-command="completion-dismiss" aria-label="Fermer le bilan">×</button></div><div class="focus-completion-choices"><button type="button" data-focus-command="completion-short"><small></small><strong>Pause courte</strong><span></span></button><button type="button" data-focus-command="completion-long"><small></small><strong>Pause longue</strong><span></span></button><button type="button" data-focus-command="completion-continue"><small></small><strong>Continuer</strong><span></span></button></div>';
+    host.append(completion);
     const picker = document.createElement('section'); picker.id = 'focus-task-picker'; picker.className = 'focus-task-picker'; picker.hidden = true;
     picker.setAttribute('role', 'dialog'); picker.setAttribute('aria-label', 'Lier une tâche');
     picker.innerHTML = '<header><strong>Lier une tâche</strong><button type="button" data-focus-picker-close aria-label="Fermer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button></header><div class="focus-task-picker-list" role="listbox" aria-label="Tâches du Pomodoro"></div><button type="button" class="focus-task-manage" data-focus-picker-manage>Afficher les tâches</button>';
@@ -264,7 +286,8 @@
     const usable = () => enabled && !hidden && !document.hidden && !disposed;
     const motionEnabled = () => (typeof motion === 'function' ? motion() : motion) !== false && !reduced.matches;
     const save = () => {try {storage?.setItem(STORAGE_KEY, JSON.stringify({state: model, settings}));} catch {}};
-    function stopAnimations() {for (const animation of animations) animation.cancel(); animations.clear(); for (const old of host.querySelectorAll('.focus-digit-old')) old.remove();}
+    function stopTransportAnimations() {for (const animation of transportAnimations) animation.cancel(); transportAnimations.clear(); for (const old of host.querySelectorAll('.focus-transport-exit')) old.remove();}
+    function stopAnimations() {stopTransportAnimations(); for (const animation of animations) animation.cancel(); animations.clear(); for (const old of host.querySelectorAll('.focus-digit-old')) old.remove();}
     function renderDigits(seconds) {
       const clock = $('focus-clock');
       clock.setAttribute('aria-label', t('{minutes} minutes {seconds} secondes', {minutes: Math.floor(seconds / 60), seconds: seconds % 60}));
@@ -299,6 +322,7 @@
       (list.querySelector('[aria-selected="true"]') || list.firstElementChild)?.focus({preventScroll: true});
     }
     function pickerKeydown(event) {
+      if (event.key === 'Escape' && model.sessionSummary && completion.contains(event.target)) {event.preventDefault(); event.stopPropagation(); command('completion-dismiss'); return;}
       if (!taskPickerOpen || !host.contains(event.target)) return;
       if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); closeTaskPicker(true); render(); return;}
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) return;
@@ -329,8 +353,11 @@
       const signature = JSON.stringify([model.tasks, model.activeTaskId]); if (signature === taskSignature) return; taskSignature = signature;
       const focused = document.activeElement, restore = host.contains(focused) && focused?.dataset?.focusTaskAction ? {action: focused.dataset.focusTaskAction, id: focused.dataset.taskId} : null;
       const scrollTop = $('focus-task-list').scrollTop;
-      const rows = model.tasks.map(task => {
-        const row = document.createElement('div'); row.className = 'focus-task-row'; row.setAttribute('role', 'listitem'); row.classList.toggle('current', task.id === model.activeTaskId); row.classList.toggle('done', task.done);
+      const nextTask = model.tasks.find(task => !task.done && task.id !== model.activeTaskId);
+      const ordered = [...model.tasks].sort((a,b) => Number(b.id===model.activeTaskId)-Number(a.id===model.activeTaskId) || Number(b.done)-Number(a.done));
+      const rows = ordered.map(task => {
+        const previous = [...$('focus-task-list').children].find(row => row.dataset.taskId === task.id);
+        const row = document.createElement('div'); row.className = 'focus-task-row'; row.dataset.taskId = task.id; row.setAttribute('role', 'listitem'); row.classList.toggle('current', task.id === model.activeTaskId); row.classList.toggle('done', task.done); row.classList.toggle('is-next', task.id === nextTask?.id); row.classList.toggle('just-completed', task.done && !!previous && !previous.classList.contains('done')); row.style.setProperty('--task-progress', String(Math.min(1,(task.completedCycles||0)/(task.estimatedCycles||1))));
         const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'focus-task-check'; toggle.dataset.focusTaskAction = 'toggle'; toggle.dataset.taskId = task.id;
         toggle.setAttribute('role', 'checkbox'); toggle.setAttribute('aria-checked', String(task.done)); toggle.setAttribute('aria-label', t(task.done ? 'Rouvrir : {task}' : 'Terminer : {task}', {task: task.title}));
         toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
@@ -339,7 +366,8 @@
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'focus-task-remove'; remove.dataset.focusTaskAction = 'delete'; remove.dataset.taskId = task.id; remove.setAttribute('aria-label', t('Supprimer : {task}', {task: task.title}));
         remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>';
         const cycles = document.createElement('span'); cycles.className = 'focus-task-cycles'; cycles.textContent = `${task.completedCycles || 0}/${task.estimatedCycles || 1}`; cycles.title = t('{completed} sur {estimated} cycles', {completed: task.completedCycles || 0, estimated: task.estimatedCycles || 1});
-        row.append(toggle, select, cycles, remove); return row;
+        const next = document.createElement('small'); next.className = 'tasks-row-next'; next.hidden = task.id !== nextTask?.id; next.textContent = t('Suivante');
+        row.append(toggle, select, next, cycles, remove); return row;
       });
       $('focus-task-list').replaceChildren(...rows); $('focus-task-list').scrollTop = scrollTop;
       if (restore) ([...$('focus-task-list').querySelectorAll('[data-focus-task-action]')].find(button => button.dataset.taskId === restore.id && button.dataset.focusTaskAction === restore.action && !button.disabled) || $('focus-task-input')).focus({preventScroll: true});
@@ -348,8 +376,37 @@
       if (disposed) return;
       const change = FocusModel.tick(model, now()); if (change.changed) save();
       const card = summary(), {active, seconds, progress} = card;
+      const completed = card.completion;
+      const focusWasInside = $('focus-active').contains(document.activeElement);
+      completion.hidden = !completed || configOpen || host.dataset.focusPage === 'tasks';
+      host.dataset.focusMotion = String(motionEnabled()); host.dataset.focusRunning = String(active && !!model.deadline);
+      const animate = (element, frames, duration, easing = NOTCH_TOKENS.ease.digits) => {if (!element?.animate || !usable() || !visible || !motionEnabled()) return; const animation = element.animate(frames, {duration, easing}); animations.add(animation); animation.finished.then(() => animations.delete(animation), () => animations.delete(animation)); return animation;};
+      const running = active && !!model.deadline;
+      let previousIcon = null;
+      if (lastRunning !== null && running !== lastRunning) {
+        stopTransportAnimations();
+        if (usable() && visible && motionEnabled() && !configOpen && completion.hidden && host.dataset.focusPage !== 'tasks') previousIcon = ($( $('focus-start').hidden ? 'focus-toggle' : 'focus-start').querySelector('svg')).cloneNode(true);
+      }
+      lastRunning = running;
+      if (completed && completed.at !== lastCompletion && usable() && visible && !completion.hidden) {
+        animate(completion,NOTCH_TOKENS.motion.completion,NOTCH_TOKENS.dur.spring,window.getComputedStyle(host).getPropertyValue('--island-spring').trim() || NOTCH_TOKENS.ease.digits);
+        for (const shape of completion.querySelectorAll('.focus-completion-summary > svg > *')) {shape.setAttribute('pathLength','1');animate(shape,[{strokeDasharray:1,strokeDashoffset:1},{strokeDasharray:1,strokeDashoffset:0}],shape.tagName.toLowerCase()==='circle'?NOTCH_TOKENS.dur.spring:NOTCH_TOKENS.dur.check);}
+        if (focusWasInside) completion.querySelector('[data-focus-command="completion-' + completed.recommended + '"]').focus({preventScroll:true});
+        lastCompletion=completed.at;
+      }
+      if (completed) {
+        put('focus-completion-title', t('SESSION {session}/{total} TERMINÉE', completed));
+        put('focus-completion-detail', t('{minutes} min · {task}', {minutes: completed.minutes, task: completed.title || t('Focus libre')}));
+        put('focus-completion-progress', (completed.taskId ? t('{completed} sur {estimated} cycles', {completed: completed.completedCycles, estimated: completed.estimatedCycles}) + ' · ' : '') + t('En cours : {phase}', {phase: label()}));
+        for (const choice of ['short', 'long', 'continue']) {
+          const button = completion.querySelector('[data-focus-command="completion-' + choice + '"]');
+          button.dataset.recommended = String(choice === completed.recommended); button.querySelector('small').textContent = choice === completed.recommended ? t('CONSEILLÉ') : '';
+          button.querySelector('span').textContent = t('{minutes} min', {minutes: completed[choice === 'short' ? 'rest' : choice === 'long' ? 'longRest' : 'work']});
+        }
+      }
+      put('focus-total-duration', t('sur {time}', {time: time(card.totalSeconds).padStart(5, '0')}));
       host.style.setProperty('--focus-progress', String(progress)); host.dataset.focusPhase = model.pomodoro?.phase || 'work'; host.dataset.focusComplete = String(!!model.complete);
-      $('focus-setup').hidden = !configOpen; $('focus-active').hidden = configOpen;
+      $('focus-setup').hidden = !configOpen; $('focus-active').hidden = configOpen || !completion.hidden;
       put('focus-phase', card.badge); put('focus-description', card.description); put('focus-session', `${card.completed}/${card.total}`); put('focus-break-duration', card.pause);
       if (splitClock) {
         const dots = host.querySelector('.focus-cycle-dots');
@@ -375,6 +432,14 @@
       const paused = !model.deadline;
       $('focus-toggle').setAttribute('aria-label', t(paused ? 'Reprendre Focus' : 'Mettre Focus en pause')); $('focus-toggle').title = t(paused ? 'Reprendre' : 'Pause');
       $('focus-play-icon').setAttribute('d', paused ? 'M8 5v14l11-7Z' : 'M6 5h4v14H6ZM14 5h4v14h-4Z');
+      if (previousIcon) {
+        const button = $(active ? 'focus-toggle' : 'focus-start'), icon = button.querySelector('svg');
+        previousIcon.classList.add('focus-transport-exit'); for (const node of previousIcon.querySelectorAll('[id]')) node.removeAttribute('id'); button.append(previousIcon);
+        const track = (animation, done = () => {}) => {if (!animation) {done(); return;} transportAnimations.add(animation); const settle = () => {transportAnimations.delete(animation); done();}; animation.finished.then(settle, settle);};
+        track(animate(icon,NOTCH_TOKENS.motion.iconIn,NOTCH_TOKENS.dur.progress));
+        track(animate(previousIcon,NOTCH_TOKENS.motion.iconOut,NOTCH_TOKENS.dur.progress),()=>previousIcon.remove());
+        track(animate(ring,NOTCH_TOKENS.motion.ringPulse,NOTCH_TOKENS.dur.spring));
+      }
       put('focus-config-status', t(active ? 'Les durées restent fixes pendant le cycle en cours.' : 'Les pauses s’enchaînent automatiquement.'));
       for (const input of $('focus-setup').querySelectorAll('input')) input.disabled = active;
       host.querySelector('#focus-setup [data-focus-command="start"]').disabled = active;
@@ -397,6 +462,19 @@
       if (boundary.changed) {save(); render();}
       // A click at an expired phase must not skip the new phase a second time.
       if (value === 'skip' && boundary.changed) {if (!active()) $(configOpen ? 'focus-config-back' : 'focus-start').focus({preventScroll: true}); return true;}
+      if (value === 'add-task') {
+        const input = $('focus-task-input');
+        if (!input.getClientRects().length) {
+          if (typeof openTasks === 'function') {openTasks(); return true;}
+          setPage('tasks');
+        }
+        input.focus({preventScroll: true}); return true;
+      }
+      if (typeof value === 'string' && value.startsWith('completion-')) {
+        const choice = value.slice(11), accepted = choice === 'dismiss' ? FocusModel.dismissCompletion(model) : FocusModel.completionChoice(model, choice, now());
+        if (!accepted) return false;
+        stopTimer(); save(); render(); $('focus-task-link').focus({preventScroll: true}); return true;
+      }
       if (value === 'configure') {closeTaskPicker(); if (typeof openConfiguration === 'function') openConfiguration(); configOpen = true; stopAnimations(); render(); $('focus-config-back').focus({preventScroll: true}); return true;}
       if (value === 'back') {configOpen = false; render(); $('focus-configure').focus({preventScroll: true}); return true;}
       if (value === 'link-task') {openTaskPicker(); return true;}
@@ -422,6 +500,7 @@
       } else if (value === 'toggle' && active()) {if (model.deadline) {model.remaining = FocusModel.remaining(model, now()); model.deadline = null;} else model.deadline = now() + model.remaining * 1000;}
       else if (value === 'skip' && active() && model.pomodoro) {
         const paused = !model.deadline;
+        model.sessionSummary = null;
         model.deadline = null; model.remaining = 0; model.complete = true; model.sessionActive = false;
         if (FocusModel.nextPhase(model, now()) && paused) model.deadline = null;
       }
@@ -482,7 +561,9 @@
       const card = $('focus-active').cloneNode(true); card.removeAttribute('hidden'); card.removeAttribute('id'); card.style.setProperty('--focus-progress', String(summary().progress));
       card.classList.add('focus-preview'); card.dataset.focusPresentation = splitClock ? 'split' : 'default';
       card.dataset.focusBreak = host.dataset.focusBreak; card.dataset.focusComplete = host.dataset.focusComplete;
-      card.style.setProperty('--focus-accent', model.complete || model.pomodoro?.breakKind === 'long' ? '#bf8bff' : model.pomodoro?.phase === 'break' ? '#6fe3c4' : '#5ac8fa');
+      const accentName = model.complete ? '--status-success' : model.pomodoro?.breakKind === 'long' ? '--activity-long' : model.pomodoro?.phase === 'break' ? '--activity-break' : '--activity-focus';
+      const accent = window.getComputedStyle(document.documentElement).getPropertyValue(accentName).trim();
+      card.style.setProperty('--focus-accent', accent || `var(${accentName})`);
       card.querySelector('.focus-tasks')?.remove(); card.querySelector('.focus-card-controls')?.remove(); for (const element of card.querySelectorAll('button,.focus-digit-old,.focus-progress-labels,.focus-cycle-dots')) element.remove();
       for (const element of card.querySelectorAll('[id],[data-focus-command]')) {element.removeAttribute('id'); element.removeAttribute('data-focus-command');}
       return card;
@@ -511,10 +592,10 @@
     const icon = (path, filled = false) => `<svg viewBox="0 0 24 24" aria-hidden="true"${filled ? ' class="is-filled"' : ''}><path d="${path}"/></svg>`;
     const check = icon('M5 12.5l4.5 4.5L19 7.5'), plus = icon('M12 5v14M5 12h14');
     const timer = icon('M12 9.5v4l2.5 1.5M9.5 3h5M12 3v3M19.5 13.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0');
-    let disposed = false, signature = '', status = '';
+    let disposed = false, signature = '', status = '', previousTasks = new Map();
     host.classList.add('tasks-module');
     host.innerHTML = `<div class="tasks-list-pane"><header class="tasks-module-heading"><strong></strong><span data-tasks-count></span><button type="button" class="tasks-unlink" data-task-action="unlink"></button></header>
-      <div class="tasks-module-list" role="list"></div><p class="tasks-module-empty"></p></div>
+      <div class="tasks-module-list" role="list"></div><div class="tasks-module-empty"><svg viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="8" y="8" width="40" height="40" rx="12"/><path d="m18 28 7 7 14-14"/></svg><strong></strong><span></span><button type="button" data-task-action="add"></button></div></div>
       <aside class="tasks-current"><div class="tasks-current-copy"><div class="tasks-current-caption"><span></span><small data-tasks-small-count></small></div>
       <button type="button" class="tasks-current-title" data-task-action="expand"></button><button type="button" class="tasks-cycle-dots" data-task-action="estimate"></button>
       <label class="tasks-estimate-label"><span></span><input data-tasks-estimate type="number" min="1" max="12" step="1"></label><small class="tasks-cycle-description"></small></div>
@@ -535,7 +616,7 @@
       if (disposed) return;
       const state = focus.getState(), selected = state.tasks.find(task => task.id === state.activeTaskId && !task.done), current = selected || state.tasks.find(task => !task.done);
       const done = state.tasks.filter(task => task.done).length, count = `${done} / ${state.tasks.length}`, presentation = host.dataset.presentation || 'full';
-      host.dataset.presentation = presentation; host.dataset.taskEmpty = String(!current);
+      host.dataset.presentation = presentation; host.dataset.taskEmpty = String(!current); host.dataset.taskListEmpty = String(state.tasks.length === 0);
       $('.tasks-module-heading > strong').textContent = t('Tâches');
       $('[data-tasks-count]').textContent = count + (presentation === 'full' ? ' · ' + t('aujourd’hui') : '');
       $('[data-tasks-small-count]').textContent = count;
@@ -557,29 +638,38 @@
       $('.tasks-small-add').setAttribute('aria-label', t('Ajouter une tâche')); $('.tasks-current-title').setAttribute('aria-label', t('Afficher les tâches'));
       const input = $('[data-tasks-input]'); input.placeholder = t('Ajouter une tâche'); input.setAttribute('aria-label', t('Nouvelle tâche')); input.disabled = state.tasks.length >= 100;
       $('[data-tasks-form] button').disabled = input.disabled; $('[data-tasks-form] button').setAttribute('aria-label', t('Ajouter la tâche'));
-      $('.tasks-module-empty').hidden = state.tasks.length > 0; $('.tasks-module-empty').textContent = t('Une tâche suffit pour commencer.');
+      $('.tasks-module-empty').hidden = state.tasks.length > 0;
+      $('.tasks-module-empty strong').textContent = t('Rien à faire pour l’instant');
+      $('.tasks-module-empty span').textContent = t('Ajoute une tâche pour la lier à ton prochain focus.');
+      $('.tasks-module-empty button').textContent = t('Ajouter une tâche');
       $('.tasks-module-status').textContent = t(status);
       const next = JSON.stringify([state.tasks, state.activeTaskId, i18n?.locale?.()]);
       if (next === signature) return;
       signature = next;
       const focused = document.activeElement, restore = host.contains(focused) && focused?.dataset?.taskId ? {id: focused.dataset.taskId, action: focused.dataset.taskAction} : null;
       const scrollTop = list.scrollTop;
-      list.replaceChildren(...state.tasks.map(task => {
-        const row = document.createElement('div'); row.className = 'tasks-module-row'; row.dataset.taskId = task.id; row.setAttribute('role', 'listitem'); row.classList.toggle('is-current', task.id === state.activeTaskId); row.classList.toggle('is-done', task.done);
+      const nextTask = state.tasks.find(task => !task.done && task.id !== state.activeTaskId);
+      const ordered = [...state.tasks].sort((a,b) => Number(b.id===state.activeTaskId)-Number(a.id===state.activeTaskId) || Number(b.done)-Number(a.done));
+      list.replaceChildren(...ordered.map(task => {
+        const row = document.createElement('div'); row.className = 'tasks-module-row'; row.dataset.taskId = task.id; row.setAttribute('role', 'listitem'); row.classList.toggle('is-current', task.id === state.activeTaskId); row.classList.toggle('is-done', task.done); row.classList.toggle('is-next', task.id === nextTask?.id); row.classList.toggle('just-completed', task.done && previousTasks.get(task.id) === false);
+        row.style.setProperty('--task-progress', String(Math.min(1, (task.completedCycles || 0) / (task.estimatedCycles || 1))));
         const button = (action, className) => {const node = document.createElement('button'); node.type = 'button'; node.dataset.taskAction = action; node.dataset.taskId = task.id; node.className = className; return node;};
         const toggle = button('toggle', 'tasks-module-check'); toggle.setAttribute('role', 'checkbox'); toggle.setAttribute('aria-checked', String(task.done)); toggle.setAttribute('aria-label', t(task.done ? 'Rouvrir : {task}' : 'Terminer : {task}', {task: task.title})); toggle.innerHTML = check;
         const select = button('select', 'tasks-module-select'); select.textContent = task.title; select.title = task.title; select.disabled = task.done; select.setAttribute('aria-pressed', String(task.id === state.activeTaskId)); select.setAttribute('aria-label', t('Choisir pour Focus : {task}', {task: task.title}));
         const cycles = button('estimate', 'tasks-cycle-dots'); cycleDots(cycles, task);
         const active = document.createElement('span'); active.className = 'tasks-module-active'; active.hidden = task.id !== state.activeTaskId; active.innerHTML = timer; active.setAttribute('aria-label', t('Tâche liée à Focus'));
         const remove = button('delete', 'tasks-module-delete'); remove.setAttribute('aria-label', t('Supprimer : {task}', {task: task.title})); remove.innerHTML = icon('M7 7l10 10M17 7 7 17');
-        row.append(toggle, select, cycles, active, remove); return row;
+        const next = document.createElement('small'); next.className = 'tasks-row-next'; next.hidden = task.id !== nextTask?.id; next.textContent = t('Suivante');
+        row.append(toggle, select, next, cycles, active, remove); return row;
       }));
+      previousTasks = new Map(state.tasks.map(task => [task.id, task.done]));
       list.scrollTop = scrollTop;
       if (restore) ([...host.querySelectorAll('[data-task-action]')].find(button => button.dataset.taskId === restore.id && button.dataset.taskAction === restore.action && !button.disabled) || input).focus({preventScroll: true});
     }
     function click(event) {
       const button = event.target.closest('[data-task-action]'); if (disposed || !button || !host.contains(button) || button.disabled) return;
       const action = button.dataset.taskAction, id = button.dataset.taskId;
+      if (action === 'add') {if (host.dataset.presentation === 'rail') expand(); $('[data-tasks-input]').focus({preventScroll: true}); return;}
       if (action === 'expand') {expand(); return;}
       if (action === 'start') {
         if (focus.tasks({type: 'select', id})) {const card = focus.summary(); if (!card.active) focus.command('start'); else if (card.paused) focus.command('toggle');}

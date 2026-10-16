@@ -17,6 +17,8 @@ use crate::error::ApiError;
 
 pub const MAX_FILES: usize = 20;
 const MAX_PREVIEW_SIZE: u64 = 8 * 1024 * 1024;
+#[cfg(windows)]
+const RECEIVED_ZONE: &[u8] = b"[ZoneTransfer]\r\nZoneId=3\r\n";
 type Result<T> = std::result::Result<T, ApiError>;
 
 pub fn valid_id(value: &str) -> bool {
@@ -144,6 +146,74 @@ fn preview_type(name: &str, bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+#[cfg(windows)]
+fn origin_stream(path: &Path) -> PathBuf {
+    let mut stream = path.as_os_str().to_os_string();
+    stream.push(":Zone.Identifier");
+    PathBuf::from(stream)
+}
+
+#[cfg(windows)]
+async fn origin_is_marked(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(origin_stream(path)).await else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    file.take(RECEIVED_ZONE.len() as u64 + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .is_ok()
+        && bytes == RECEIVED_ZONE
+}
+
+#[cfg(not(windows))]
+async fn origin_is_marked(_: &Path) -> bool {
+    false
+}
+
+#[cfg(windows)]
+async fn mark_received_origin(path: &Path) -> std::io::Result<()> {
+    let metadata = fs::symlink_metadata(path).await?;
+    if !metadata.is_file() || reparse(&metadata) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid received file"));
+    }
+    if origin_is_marked(path).await {
+        return Ok(());
+    }
+    let mut stream = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(origin_stream(path))
+        .await?;
+    stream.write_all(RECEIVED_ZONE).await?;
+    stream.sync_all().await?;
+    drop(stream);
+    if !origin_is_marked(path).await {
+        return Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "File origin metadata is unavailable"));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+async fn mark_received_origin(_: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Windows file origin metadata is unavailable"))
+}
+
+async fn protect_open_copy(path: &Path, received: bool) -> Result<()> {
+    if received {
+        mark_received_origin(path).await.map_err(|_| error(
+            415,
+            "La protection Windows de ce fichier reçu est indisponible. L’ouverture automatique est bloquée ; le fichier reste dans l’étagère.",
+        ))?;
+    }
+    Ok(())
+}
+
+fn not_received(received: &bool) -> bool {
+    !*received
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Entry {
@@ -151,6 +221,10 @@ struct Entry {
     name: String,
     size: u64,
     added_at: u64,
+    #[serde(default, skip_serializing_if = "not_received")]
+    received: bool,
+    #[serde(skip)]
+    origin_marked: bool,
     #[serde(skip)]
     preview_mime: Option<String>,
 }
@@ -158,7 +232,7 @@ struct Entry {
 impl Entry {
     fn record(&self) -> Value {
         json!({"id":self.id,"name":self.name,"size":self.size,"kind":kind(&self.name),
-            "addedAt":self.added_at,"thumbnail":self.preview_mime.as_ref().map(|_| format!("/api/shelf/{}?preview=1",self.id))})
+            "addedAt":self.added_at,"received":self.received,"originProtected":self.received.then_some(self.origin_marked),"thumbnail":self.preview_mime.as_ref().map(|_| format!("/api/shelf/{}?preview=1",self.id))})
     }
 }
 
@@ -204,6 +278,22 @@ struct UploadCleanup {
     destination: PathBuf,
     committed: bool,
 }
+struct ExportCleanup { path: PathBuf, committed: bool }
+impl Drop for ExportCleanup {
+    fn drop(&mut self) { if !self.committed {let _ = std::fs::remove_file(&self.path);} }
+}
+fn export_name(name: &str, attempt: usize) -> String {
+    if attempt == 0 { return name.into(); }
+    let path = Path::new(name);
+    let extension = path.extension().and_then(|part| part.to_str()).filter(|part| part.len() <= 32);
+    let (mut stem, ending) = match extension {
+        Some(extension) => (path.file_stem().unwrap().to_string_lossy().into_owned(), format!(".{extension}")),
+        None => (name.to_owned(), String::new()),
+    };
+    let suffix = format!(" ({attempt}){ending}");
+    while stem.len() + suffix.len() > 255 {stem.pop();}
+    format!("{stem}{suffix}")
+}
 impl Drop for UploadCleanup {
     fn drop(&mut self) {
         if !self.committed {
@@ -214,6 +304,34 @@ impl Drop for UploadCleanup {
 }
 
 impl Shelf {
+    /// Stream a user-requested copy into the native download directory without
+    /// overwriting an existing file or losing received-file origin metadata.
+    pub async fn export_copy(&self, id: &str, directory: &Path) -> Result<PathBuf> {
+        let mut opened = self.open(id, false).await?;
+        let name = opened.item["name"].as_str().filter(|name| valid_name(name))
+            .ok_or_else(|| error(400, "Nom de fichier invalide."))?;
+        check_directory(directory, true).await?;
+        for attempt in 0..10_000 {
+            let target = directory.join(export_name(name, attempt));
+            let mut output = match fs::OpenOptions::new().write(true).create_new(true).open(&target).await {
+                Ok(file) => file,
+                Err(cause) if cause.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(cause) => return Err(storage_error(cause)),
+            };
+            let mut cleanup = ExportCleanup {path: target.clone(), committed: false};
+            // Protect the empty destination before any received bytes become
+            // visible in Downloads, then verify the marker again after writing.
+            protect_open_copy(&target, opened.item["received"] == true).await?;
+            tokio::io::copy(&mut opened.file, &mut output).await.map_err(storage_error)?;
+            output.sync_all().await.map_err(storage_error)?;
+            drop(output);
+            protect_open_copy(&target, opened.item["received"] == true).await?;
+            cleanup.committed = true;
+            return Ok(target);
+        }
+        Err(error(409, "Trop de copies portent déjà ce nom dans Téléchargements."))
+    }
+
     pub async fn new(directory: PathBuf) -> anyhow::Result<Self> {
         let directory = if directory.is_absolute() {
             directory
@@ -277,6 +395,7 @@ impl Shelf {
                     .map_err(storage_error)?;
             }
             if let Ok(mut opened) = self.open_entry(entry).await {
+                entry.origin_marked = entry.received && origin_is_marked(&self.directory.join(&entry.id)).await;
                 let mut bytes = [0; 12];
                 if let Ok(size) = opened.read(&mut bytes).await {
                     entry.preview_mime = if entry.size <= MAX_PREVIEW_SIZE {
@@ -378,6 +497,20 @@ impl Shelf {
         S: Stream<Item = std::result::Result<Bytes, E>> + Send,
         E: std::fmt::Display + Send,
     {
+        self.add_stream_with_origin(name, source, declared_size, false).await
+    }
+
+    async fn add_stream_with_origin<S, E>(
+        &self,
+        name: &str,
+        source: S,
+        declared_size: Option<u64>,
+        received: bool,
+    ) -> Result<Value>
+    where
+        S: Stream<Item = std::result::Result<Bytes, E>> + Send,
+        E: std::fmt::Display + Send,
+    {
         if !valid_name(name) {
             return Err(error(400, "Nom de fichier invalide."));
         }
@@ -432,6 +565,8 @@ impl Shelf {
             name: name.to_string(),
             size,
             added_at: now_ms(),
+            received,
+            origin_marked: received && mark_received_origin(&cleanup.destination).await.is_ok(),
             preview_mime: if size <= MAX_PREVIEW_SIZE {
                 preview_type(name, &head).map(str::to_string)
             } else {
@@ -465,6 +600,10 @@ impl Shelf {
     }
 
     pub async fn add_path(&self, name: &str, path: &Path, size: u64) -> Result<Value> {
+        self.add_path_with_origin(name, path, size, false).await
+    }
+
+    async fn add_path_with_origin(&self, name: &str, path: &Path, size: u64, received: bool) -> Result<Value> {
         let meta = fs::symlink_metadata(path)
             .await
             .map_err(|_| error(404, "Fichier indisponible."))?;
@@ -502,7 +641,7 @@ impl Shelf {
                 Some((Bytes::from(chunk), file))
             })
         });
-        self.add_stream(name, stream, Some(size)).await
+        self.add_stream_with_origin(name, stream, Some(size), received).await
     }
 
     // Only LocalSend's verified private staging files use adoption; user files remain copied.
@@ -537,7 +676,7 @@ impl Shelf {
             {
                 drop(state);
                 drop(_permit);
-                return self.add_path(name, path, size).await;
+                return self.add_path_with_origin(name, path, size, true).await;
             }
             return Err(storage_error(failure));
         }
@@ -546,6 +685,8 @@ impl Shelf {
             name: name.to_string(),
             size,
             added_at: now_ms(),
+            received: true,
+            origin_marked: false,
             preview_mime: None,
         };
         let mut opened = self.open_entry(&entry).await?;
@@ -559,6 +700,8 @@ impl Shelf {
             entry.preview_mime = preview_type(name, &bytes[..count]).map(str::to_string);
         }
         drop(opened);
+        // Keep received bytes even on filesystems without ADS; native opening fails closed.
+        entry.origin_marked = mark_received_origin(&cleanup.destination).await.is_ok();
         let mut next = state.entries.clone();
         next.push(entry.clone());
         let revision = state
@@ -690,6 +833,7 @@ impl Shelf {
 
     pub async fn copy_for_open(&self, id: &str, directory: &Path) -> Result<PathBuf> {
         let mut opened = self.open(id, false).await?;
+        let received = opened.item["received"] == true;
         let name = opened.item["name"]
             .as_str()
             .ok_or_else(|| error(400, "Nom de fichier invalide."))?;
@@ -704,6 +848,7 @@ impl Shelf {
             if !meta.is_file() || reparse(&meta) {
                 return Err(error(503, "La copie est indisponible."));
             }
+            protect_open_copy(&target, received).await?;
             return Ok(target);
         }
         let temporary = folder.join(format!("{}.part", token()));
@@ -725,6 +870,7 @@ impl Shelf {
             return Err(storage_error(e));
         }
         let _ = fs::remove_file(temporary).await;
+        protect_open_copy(&target, received).await?;
         if !self
             .state
             .lock()
@@ -742,6 +888,80 @@ impl Shelf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn received_files_keep_origin_metadata_through_adoption_copy_and_reload() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().join("shelf");
+        let shelf = Shelf::new(directory.clone()).await.unwrap();
+        let source = temporary.path().join("incoming-inert.txt");
+        let bytes = b"inert received text";
+        fs::write(&source, bytes).await.unwrap();
+        for adopt in [true, false] {
+            let added = if adopt {
+                shelf.adopt_path("received.txt", &source, bytes.len() as u64).await.unwrap()
+            } else {
+                // The same streaming path is used when adoption crosses volumes.
+                shelf.add_path_with_origin("received.txt", &source, bytes.len() as u64, true).await.unwrap()
+            };
+            let id = added["item"]["id"].as_str().unwrap();
+            assert_eq!(added["item"]["received"], true);
+            assert_eq!(added["item"]["originProtected"], true);
+            let stored = directory.join(id);
+            assert_eq!(fs::read(&stored).await.unwrap(), bytes);
+            assert_eq!(fs::metadata(&stored).await.unwrap().len(), bytes.len() as u64);
+            assert_eq!(fs::read(origin_stream(&stored)).await.unwrap(), RECEIVED_ZONE);
+            let opened = shelf.copy_for_open(id, &temporary.path().join("opened")).await.unwrap();
+            assert_eq!(fs::read(&opened).await.unwrap(), bytes);
+            assert_eq!(fs::read(origin_stream(&opened)).await.unwrap(), RECEIVED_ZONE);
+            fs::remove_file(origin_stream(&opened)).await.unwrap();
+            let cached = shelf.copy_for_open(id, &temporary.path().join("opened")).await.unwrap();
+            assert_eq!(cached, opened);
+            assert!(origin_is_marked(&cached).await);
+        }
+        let reopened = Shelf::new(directory).await.unwrap();
+        for item in reopened.list().await.unwrap()["items"].as_array().unwrap() {
+            assert_eq!(item["received"], true);
+            assert_eq!(item["originProtected"], true);
+        }
+        let local = shelf.add_bytes("local.txt", b"inert local text".to_vec()).await.unwrap();
+        let id = local["item"]["id"].as_str().unwrap();
+        assert_eq!(local["item"]["received"], false);
+        assert!(local["item"]["originProtected"].is_null());
+        assert!(!origin_is_marked(&shelf.directory.join(id)).await);
+        let opened = shelf.copy_for_open(id, &temporary.path().join("opened")).await.unwrap();
+        assert!(!origin_is_marked(&opened).await);
+    }
+
+    #[tokio::test]
+    async fn unavailable_origin_protection_blocks_opening_without_creating_a_file() {
+        let temporary = tempfile::tempdir().unwrap();
+        let missing = temporary.path().join("missing.txt");
+        let failure = protect_open_copy(&missing, true).await.unwrap_err();
+        assert_eq!(failure.status, 415);
+        assert!(!missing.exists());
+        protect_open_copy(&missing, false).await.unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn unsupported_origin_marking_keeps_received_bytes_without_claiming_protection() {
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let source = temporary.path().join("incoming-inert.txt");
+        let bytes = b"inert received text";
+        fs::write(&source, bytes).await.unwrap();
+        let added = shelf.adopt_path("received.txt", &source, bytes.len() as u64).await.unwrap();
+        let id = added["item"]["id"].as_str().unwrap();
+        assert_eq!(added["item"]["received"], true);
+        assert_eq!(added["item"]["originProtected"], false);
+        let stored = shelf.directory.join(id);
+        assert_eq!(fs::read(&stored).await.unwrap(), bytes);
+        assert!(!stored.with_file_name(format!("{id}:Zone.Identifier")).exists());
+        assert_eq!(shelf.copy_for_open(id, &temporary.path().join("opened")).await.unwrap_err().status, 415);
+        assert_eq!(fs::read(&stored).await.unwrap(), bytes);
+    }
 
     #[test]
     fn names_and_ids_are_bounded() {
@@ -925,5 +1145,61 @@ mod tests {
         ));
         assert_eq!(failure.status, 507);
         assert!(failure.message.contains("disque"));
+    }
+
+    #[tokio::test]
+    async fn export_streams_exact_bytes_keeps_the_shelf_and_never_overwrites() {
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let bytes = vec![0x52; 200_000];
+        let added = shelf.add_stream("rapport.pdf", futures_util::stream::iter([Ok::<_,std::io::Error>(Bytes::from(bytes.clone()))]), Some(bytes.len() as u64)).await.unwrap();
+        let id = added["item"]["id"].as_str().unwrap();
+        let directory = temporary.path().join("downloads");
+        fs::create_dir(&directory).await.unwrap();
+        fs::write(directory.join("rapport.pdf"), b"existing user file").await.unwrap();
+        let first = shelf.export_copy(id, &directory).await.unwrap();
+        let second = shelf.export_copy(id, &directory).await.unwrap();
+        assert_eq!(first.file_name().unwrap(), "rapport (1).pdf");
+        assert_eq!(second.file_name().unwrap(), "rapport (2).pdf");
+        assert_eq!(fs::read(&first).await.unwrap(), bytes);
+        assert_eq!(fs::read(&second).await.unwrap(), bytes);
+        assert_eq!(fs::read(directory.join("rapport.pdf")).await.unwrap(), b"existing user file");
+        assert_eq!(shelf.list().await.unwrap()["items"].as_array().unwrap().len(), 1);
+        assert!(shelf.export_copy("../secret", &directory).await.is_err());
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 3);
+    }
+
+    #[tokio::test]
+    async fn export_rejects_a_file_instead_of_the_download_directory() {
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let added = shelf.add_stream("notes.txt", futures_util::stream::iter([Ok::<_,std::io::Error>(Bytes::from_static(b"hello"))]), Some(5)).await.unwrap();
+        let directory = temporary.path().join("not-a-directory");
+        fs::write(&directory,b"keep").await.unwrap();
+        assert!(shelf.export_copy(added["item"]["id"].as_str().unwrap(), &directory).await.is_err());
+        assert_eq!(fs::read(&directory).await.unwrap(),b"keep");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn exports_of_received_files_preserve_verified_zone_metadata() {
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let source = temporary.path().join("received");
+        fs::write(&source,b"received content").await.unwrap();
+        let added = shelf.adopt_path("received.txt", &source,16).await.unwrap();
+        let copy = shelf.export_copy(added["item"]["id"].as_str().unwrap(),&temporary.path().join("downloads")).await.unwrap();
+        assert_eq!(fs::read(&copy).await.unwrap(),b"received content");
+        assert!(origin_is_marked(&copy).await);
+    }
+
+    #[test]
+    fn duplicate_export_names_keep_unicode_and_extension_within_windows_bounds() {
+        let name = format!("{}.pdf","é".repeat(125));
+        assert!(valid_name(&name));
+        let renamed = export_name(&name,9999);
+        assert!(valid_name(&renamed));
+        assert!(renamed.ends_with(" (9999).pdf"));
+        assert_eq!(export_name("rapport.pdf",0),"rapport.pdf");
     }
 }

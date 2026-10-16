@@ -1,0 +1,144 @@
+/* Shared Focus data, arranged to match the October reference cards. */
+#focus-player[data-focus-experience="2026"] { --focus-accent:var(--activity-focus); }
+#focus-player[data-focus-experience="2026"][data-focus-break="short"] { --focus-accent:var(--activity-break); }
+#focus-player[data-focus-experience="2026"][data-focus-break="long"] { --focus-accent:var(--activity-long); }
+#focus-player[data-focus-experience="2026"][data-focus-complete="true"] { --focus-accent:var(--status-success); }
+#focus-player[data-focus-experience="2026"][data-focus-running="false"] .focus-ring-value { opacity:.65; }
+#focus-player[data-focus-experience="2026"] #focus-active:not([hidden]) { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:var(--space-2); }
+#focus-player[data-focus-experience="2026"] .focus-session-pane { position:relative; overflow:hidden; border-radius:var(--radius-card); background:var(--color-161618); }
+#focus-player[data-focus-experience="2026"] .focus-detail-card { display:block; height:100%; }
+#focus-player[data-focus-experience="2026"] .focus-detail-heading { position:absolute; top:var(--measure-10-px); left:var(--measure-14-px); right:var(--measure-12-px); width:auto; height:var(--measure-18-px); }
+#focus-player[data-focus-experience="2026"] .focus-scene-caption { font-size:var(--text-xs); line-height:var(--measure-16-px); letter-spacing:.07em; }
+#focus-player[data-focus-experience="2026"] .focus-task-link { position:absolute; top:var(--measure-30-px); left:var(--measure-14-px); width:calc(100% - var(--measure-28-px)); height:var(--measure-24-px); min-height:var(--measure-24-px); padding:var(--measure-2-px) var(--space-5) var(--measure-2-px) var(--space-2); border-radius:var(--radius-card); background:var(--color-ffffff0b); font-size:var(--measure-11-px); }
+#focus-player[data-focus-experience="2026"] :is(.focus-metrics,.focus-linked-cycles,.focus-task-actions) { display:none; }
+#focus-player[data-focus-experience="2026"] .focus-progress { position:absolute; width:var(--measure-1-px); height:var(--measure-1-px); opacity:0; }
+.focus-reference-ring { position:absolute; bottom:var(--measure-6-px); left:calc(50% - var(--measure-54-px)); width:var(--measure-108-px); height:var(--measure-108-px); color:var(--focus-accent,var(--activity-focus)); }
+.focus-reference-ring > svg { display:block; width:100%; height:100%; overflow:visible; transform:rotate(-90deg); fill:none; stroke-width:5; }
+.focus-ring-track { stroke:var(--color-ffffff14); }
+.focus-ring-value { stroke:currentColor; stroke-linecap:round; stroke-dasharray:100; stroke-dashoffset:calc(100 - var(--focus-progress,0) * 100); transition:stroke-dashoffset var(--dur-progress) var(--ease-progress),stroke var(--dur-fast); }
+#focus-player[data-focus-experience="2026"] .focus-reference-ring .focus-clock { position:absolute; inset:var(--measure-30-px) 0 auto; display:flex; justify-content:center; height:var(--measure-32-px); font-size:var(--measure-26-px); font-weight:800; letter-spacing:-.055em; }
+#focus-player[data-focus-experience="2026"] .focus-reference-ring .focus-clock:has(.focus-colon:nth-child(4)) { font-size:var(--measure-22-px); }
+#focus-total-duration { position:absolute; top:var(--measure-65-px); left:0; width:100%; text-align:center; color:var(--color-ffffff8c); font-size:var(--text-xs); }
+#focus-player[data-focus-experience="2026"] .focus-transport-pane { position:absolute; grid-area:auto; left:0; bottom:var(--measure-12-px); width:calc(50% - var(--measure-4-px)); height:var(--measure-36-px); padding:0 var(--space-3); border:0; pointer-events:none; }
+#focus-player[data-focus-experience="2026"] .focus-card-controls { display:flex; flex-direction:row; justify-content:space-between; width:100%; height:var(--measure-36-px); gap:0; }
+#focus-player[data-focus-experience="2026"] .focus-card-controls :is(#focus-start,#focus-toggle) { order:2; flex:0 0 var(--measure-36-px); width:var(--measure-36-px); height:var(--measure-36-px); padding:var(--measure-9-px); pointer-events:auto; }
+#focus-player[data-focus-experience="2026"] :is(#focus-start,#focus-toggle) { position:relative; }
+#focus-player[data-focus-experience="2026"] .focus-transport-exit { position:absolute; inset:0; width:var(--measure-20-px); height:var(--measure-20-px); margin:auto; pointer-events:none; }
+#focus-player[data-focus-experience="2026"] .focus-card-controls #focus-skip { display:grid; order:0; flex:0 0 var(--measure-32-px); width:var(--measure-32-px); height:var(--measure-32-px); padding:var(--measure-7-px); pointer-events:auto; background:var(--color-ffffff0a); }
+#focus-player[data-focus-experience="2026"] #focus-stop { display:none; }
+#focus-player[data-focus-experience="2026"] .focus-tasks { grid-column:2; padding:var(--space-3); border:0; border-radius:var(--radius-card); background:var(--color-161618); gap:var(--measure-6-px); }
+#focus-player[data-focus-experience="2026"] .focus-tasks-title strong { color:var(--color-ffffffb3); font-size:var(--text-s); line-height:var(--measure-16-px); letter-spacing:0; text-transform:none; }
+#focus-player[data-focus-experience="2026"] .focus-tasks-title span { font-size:var(--text-xs); }
+#focus-player[data-focus-experience="2026"] .focus-task-row .focus-task-select { font-size:var(--measure-11-px); }
+#focus-player[data-focus-experience="2026"] .focus-task-add input { font-size:var(--text-xs); }
+#focus-player[data-focus-experience="2026"] .focus-task-row.done .focus-task-check::before { background:var(--status-success); border-color:var(--status-success); }
+#focus-player[data-focus-experience="2026"] .focus-task-list { flex:1; max-height:none; }
+#focus-player[data-focus-experience="2026"] .focus-task-list:empty { display:none; }
+#focus-player[data-focus-experience="2026"] .focus-task-add { border:var(--measure-1-px) dashed var(--color-ffffff30); border-radius:var(--measure-13-px); background:transparent; height:var(--measure-26-px); min-height:var(--measure-26-px); flex-basis:var(--measure-26-px); }
+#focus-player[data-focus-experience="2026"][data-presentation="scene"] #focus-active { grid-template-columns:minmax(0,1fr); }
+#focus-player[data-focus-experience="2026"][data-presentation="scene"] .focus-tasks { display:none; }
+#focus-player[data-focus-experience="2026"][data-presentation="scene"] .focus-transport-pane { width:100%; }
+#focus-player[data-focus-experience="2026"][data-focus-page="tasks"] .focus-session-pane,
+#focus-player[data-focus-experience="2026"][data-focus-page="tasks"] .focus-transport-pane { display:none; }
+#focus-player[data-focus-experience="2026"][data-focus-page="tasks"] #focus-active { grid-template-columns:1fr; }
+#focus-player[data-focus-experience="2026"][data-focus-page="tasks"] .focus-tasks { display:flex; grid-column:1; }
+.focus-completion { position:absolute; z-index:4; inset:0; display:grid; grid-template-rows:minmax(var(--measure-72-px),1fr) minmax(var(--measure-76-px),1fr); gap:var(--space-2); background:var(--color-000); color:var(--color-fff); }
+.focus-completion[hidden] { display:none; }
+.focus-completion-summary { display:flex; position:relative; align-items:center; gap:var(--space-3); min-width:0; padding:var(--space-3) var(--measure-38-px) var(--space-3) var(--space-4); border-radius:var(--radius-card); background:var(--color-161618); }
+.focus-completion-summary > svg { flex:0 0 var(--measure-52-px); width:var(--measure-52-px); height:var(--measure-52-px); fill:none; stroke:var(--status-success); stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
+.focus-completion-summary > div { min-width:0; }
+.focus-completion-summary strong { display:block; font-size:var(--text-s); line-height:var(--measure-18-px); letter-spacing:.04em; }
+.focus-completion-summary p { margin:var(--measure-3-px) 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--text-s); }
+.focus-completion-summary small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--color-ffffff8c); font-size:var(--text-xs); }
+.focus-completion-summary > button { position:absolute; right:var(--measure-8-px); top:var(--measure-8-px); width:var(--measure-28-px); height:var(--measure-28-px); border:0; border-radius:50%; background:var(--color-ffffff0a); color:var(--color-ffffffb3); font-family:inherit; font-size:var(--measure-20-px); line-height:1; }
+.focus-completion-choices { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--space-3); padding:var(--space-3); border-radius:var(--radius-card); background:var(--color-161618); }
+.focus-completion-choices button { display:grid; align-content:center; gap:var(--measure-3-px); min-width:0; padding:var(--space-1); border:var(--measure-1-px) solid var(--color-ffffff0a); border-radius:var(--radius-control); background:var(--color-ffffff08); color:var(--color-fff); text-align:center; font-family:inherit; cursor:pointer; }
+.focus-completion-choices button[data-recommended="true"] { background:var(--activity-break); color:var(--color-042231); }
+.focus-completion-choices small { min-height:var(--measure-10-px); font-size:var(--measure-8-px); font-weight:800; letter-spacing:.04em; }
+.focus-completion-choices strong { font-size:var(--measure-11-px); }
+.focus-completion-choices span { font-size:var(--text-xs); opacity:.72; font-variant-numeric:tabular-nums; }
+.focus-completion button:focus-visible { outline:var(--measure-2-px) solid var(--color-fff); outline-offset:var(--measure-2-px); }
+#focus-player[data-focus-experience="2026"] .focus-task-empty,
+#tasks-player .tasks-module-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--measure-6-px); min-height:0; margin:0; text-align:center; color:var(--color-ffffff8c); }
+#focus-player[data-focus-experience="2026"] .focus-task-empty[hidden],#tasks-player .tasks-module-empty[hidden] { display:none; }
+#focus-player[data-focus-experience="2026"] .focus-task-empty-icon { display:block; flex:0 0 var(--measure-40-px); width:var(--measure-40-px); height:var(--measure-40-px); border:0; color:var(--activity-tasks); }
+#focus-player[data-focus-experience="2026"] .focus-task-empty-icon svg,#tasks-player .tasks-module-empty > svg { width:var(--measure-40-px); height:var(--measure-40-px); stroke:var(--activity-tasks); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+#focus-player[data-focus-experience="2026"] .focus-task-empty strong,#tasks-player .tasks-module-empty strong { color:var(--color-fff); font-size:var(--measure-13-px); font-weight:800; line-height:var(--measure-18-px); }
+#focus-player[data-focus-experience="2026"] .focus-task-empty > span:not(.focus-task-empty-icon),#tasks-player .tasks-module-empty > span { max-width:var(--measure-320-px); font-size:var(--measure-11-px); line-height:var(--measure-15-px); }
+#focus-player[data-focus-experience="2026"] .focus-task-empty button,#tasks-player .tasks-module-empty button { min-height:var(--measure-30-px); padding:var(--space-1) var(--measure-14-px); border:0; border-radius:var(--measure-15-px); background:var(--activity-tasks); color:var(--color-10251a); font-family:inherit; font-size:var(--measure-11-px); line-height:var(--measure-16-px); font-weight:700; cursor:pointer; }
+#focus-player[data-focus-experience="2026"] .focus-task-empty { font-size:var(--text-xs); gap:var(--space-1); }
+#focus-player[data-focus-experience="2026"] .focus-task-empty-icon { display:none; }
+#tasks-player .tasks-module-row { height:var(--measure-34-px); flex-basis:var(--measure-34-px); }
+#tasks-player .tasks-module-row.is-current { background:var(--color-5ac8fa20); }
+#focus-player[data-focus-experience="2026"] .focus-task-row { position:relative; }
+#focus-player[data-focus-experience="2026"] .focus-task-row.current { background:var(--color-5ac8fa20); }
+#focus-player[data-focus-experience="2026"] .focus-task-row.current::after { position:absolute; content:''; left:var(--measure-27-px); right:var(--measure-6-px); bottom:0; height:var(--measure-3-px); border-radius:var(--measure-2-px); background:linear-gradient(90deg,var(--activity-break) calc(var(--task-progress,0)*100%),var(--color-5ac8fa20) 0); }
+.tasks-row-next { flex:0 0 auto; color:var(--color-ffffff80); font-size:var(--measure-8-px); }
+.tasks-row-next[hidden] { display:none; }
+#tasks-player[data-presentation="scene"] .is-next .tasks-cycle-dots,#focus-player[data-focus-experience="2026"] .is-next .focus-task-cycles { display:none; }
+#tasks-player .tasks-module-row.is-current::after { position:absolute; content:''; left:var(--measure-30-px); right:var(--measure-8-px); bottom:0; height:var(--measure-3-px); border-radius:var(--measure-2-px); background:linear-gradient(90deg,var(--activity-break) calc(var(--task-progress,0)*100%),var(--color-5ac8fa20) 0); }
+#tasks-player .is-done .tasks-module-check { background:var(--activity-tasks); border-color:var(--activity-tasks)!important; color:var(--color-0a2712)!important; }
+#tasks-player .tasks-module-add { height:var(--measure-26-px); border:var(--measure-1-px) dashed var(--color-ffffff30); border-radius:var(--measure-13-px); background:transparent; }
+#tasks-player[data-task-list-empty="true"]:not([data-presentation="rail"]) { grid-template-columns:1fr; grid-template-areas:'list' 'add'; }
+#tasks-player[data-task-list-empty="true"]:not([data-presentation="rail"]) .tasks-current { display:none; }
+#tasks-player[data-task-list-empty="true"] .tasks-module-heading { display:none; }
+#tasks-player[data-presentation="scene"] .tasks-module-empty { gap:var(--space-1); }
+#tasks-player[data-presentation="scene"] .tasks-module-empty > svg { width:var(--measure-24-px); height:var(--measure-24-px); }
+#tasks-player[data-presentation="scene"] .tasks-module-empty strong { font-size:var(--text-s); line-height:var(--measure-16-px); }
+#tasks-player[data-presentation="scene"] .tasks-module-empty > span { font-size:var(--text-xs); line-height:var(--measure-14-px); }
+#tasks-player[data-presentation="rail"][data-task-list-empty="true"] .tasks-list-pane { display:flex; height:100%; }
+#tasks-player[data-presentation="rail"][data-task-list-empty="true"] .tasks-current { display:none; }
+#tasks-player[data-presentation="rail"] .tasks-module-empty { align-items:flex-start; gap:var(--measure-5-px); text-align:left; }
+#tasks-player[data-presentation="rail"] .tasks-module-empty > :is(svg,span) { display:none; }
+#tasks-player[data-presentation="rail"] .tasks-module-empty strong { font-size:var(--text-s); line-height:var(--measure-16-px); }
+#tasks-player[data-presentation="rail"] .tasks-module-empty button { min-height:var(--measure-26-px); padding:var(--measure-3-px) var(--measure-9-px); font-size:var(--text-xs); }
+#tasks-player .tasks-module-list:empty { flex:0; }
+.just-completed :is(.tasks-module-check,.focus-task-check)::after { content:''; position:absolute; inset:var(--measure-neg-4-px); border:var(--measure-1-px) solid var(--activity-tasks); border-radius:50%; animation:focus-task-ripple var(--time-600) ease-out forwards; pointer-events:none; }
+.just-completed :is(.tasks-module-check,.focus-task-check) { position:relative; }
+.just-completed :is(.tasks-module-check,.focus-task-check) path { stroke-dasharray:25; animation:focus-check-draw var(--time-350) ease-out both; }
+.just-completed :is(.tasks-module-select,.focus-task-select) { position:relative; }
+.just-completed :is(.tasks-module-select,.focus-task-select)::after { content:''; position:absolute; left:0; right:0; top:50%; height:var(--measure-1-px); background:currentColor; transform-origin:left; animation:focus-task-strike var(--time-350) ease-out both; }
+@keyframes focus-task-ripple { from { opacity:.75; transform:scale(.85); } to { opacity:0; transform:scale(1.6); } }
+@keyframes focus-check-draw { from { stroke-dashoffset:25; } to { stroke-dashoffset:0; } }
+@keyframes focus-task-strike { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+.focus-summary-reference-ring { position:relative; width:var(--measure-56-px); height:var(--measure-56-px); }
+.focus-summary-reference-ring > svg { width:100%; height:100%; fill:none; stroke:var(--color-ffffff14); stroke-width:4; transform:rotate(-90deg); }
+.focus-summary-reference-ring .reference-ring-fill { stroke:var(--focus-accent,var(--activity-focus)); stroke-linecap:round; stroke-dasharray:1; stroke-dashoffset:calc(1 - var(--focus-progress,0)); transition:stroke-dashoffset var(--dur-progress) var(--ease-progress); }
+.focus-summary-reference-ring .focus-ring-value { color:var(--focus-accent,var(--activity-focus)); }
+#nook-layout .focus-summary-reference-ring .focus-summary-clock { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:var(--measure-13-px)!important; font-weight:800; letter-spacing:-.04em; }
+.focus-summary-link-label { color:var(--color-ffffff8c); font-size:var(--text-xs); }
+@media (prefers-reduced-motion:reduce) { .focus-ring-value,.reference-ring-fill,.just-completed *,.just-completed *::after { animation:none!important; transition:none!important; } }
+body[data-motion="false"] :is(.focus-ring-value,.reference-ring-fill,.just-completed *),body[data-motion="false"] .just-completed *::after,[data-focus-motion="false"] .focus-ring-value { animation:none!important; transition:none!important; }
+@container focus-session (max-width:175px) { .focus-reference-ring { width:var(--measure-96-px); height:var(--measure-96-px); left:calc(50% - var(--measure-48-px)); bottom:var(--measure-8-px); } #focus-player[data-focus-experience="2026"] .focus-reference-ring .focus-clock { font-size:var(--measure-22-px); top:var(--measure-26-px); } #focus-total-duration { top:var(--measure-59-px); } }
+
+/* The icon occupies the button centre, independent of its SVG path or old padding. */
+#focus-player button:not([hidden]):has(> svg:only-child),
+#focus-player[data-focus-experience="2026"] .focus-card-controls :is(#focus-start,#focus-toggle):not([hidden]),
+.focus-summary :is(.focus-summary-toggle,.focus-summary-done,.focus-summary-configure):not([hidden]) {
+  display:grid;
+  place-items:center;
+  padding:0!important;
+  line-height:1;
+}
+#focus-player button > svg,
+.focus-summary :is(.focus-summary-toggle,.focus-summary-done,.focus-summary-configure) > svg {
+  display:block;
+  align-self:center;
+  justify-self:center;
+  flex:none;
+  width:var(--measure-16-px);
+  height:var(--measure-16-px);
+  margin:0;
+}
+#focus-player[data-focus-experience="2026"] .focus-card-controls :is(#focus-start,#focus-toggle) > svg,
+.focus-summary .focus-summary-toggle > svg {
+  width:var(--measure-20-px);
+  height:var(--measure-20-px);
+}
+#focus-player[data-focus-experience="2026"] .focus-card-controls .focus-transport-exit {
+  position:absolute;
+  inset:0;
+  width:var(--measure-20-px);
+  height:var(--measure-20-px);
+  margin:auto;
+}

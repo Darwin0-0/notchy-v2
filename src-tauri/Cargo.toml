@@ -1,6 +1,6 @@
 [package]
 name = "notchy-v2"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "Notchy V2 — Tauri et services Rust pour Windows"
 
@@ -33,12 +33,12 @@ rand = "0.9"
 hex = "0.4"
 url = "2"
 rcgen = "0.14"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pemfile = "2"
 socket2 = "0.6"
 if-addrs = "0.15"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "tiff", "bmp"] }
-lopdf = "0.38"
+lopdf = "0.42.0"
 tempfile = "3"
 include_dir = "0.7"
 chrono = "0.4"

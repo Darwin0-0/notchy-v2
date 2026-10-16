@@ -11,3 +11,6 @@ pub mod spotify;
 pub mod desktop;
 pub mod startup;
 pub mod server;
+pub mod health;
+pub mod settings;
+pub mod discovery;

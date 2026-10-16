@@ -16,7 +16,7 @@ function fixture(music) {
   const nodes = new Map(), badges=[{},{}];
   const node = id => {if(!nodes.has(id))nodes.set(id,{hidden:false,disabled:false,dataset:{},setAttribute(key,value){this[key]=value;},getAttribute(key){return this[key]??null;},closest(){return null;},classList:{toggle(){}},querySelector(){return node(id+'-child');},querySelectorAll(){return [];},replaceChildren(){}});return nodes.get(id);};
   const commands=['open','toggle','next','previous','shuffle','repeat'].map(command=>({...node('command-'+command),dataset:{musicCommand:command}}));
-  const scope={music:normalizeMusic(music),disposed:false,player:node('player'),live:{},notch:{dataset:{},querySelectorAll:()=>badges},
+  const scope={musicEmpty:node('music-empty-reference'),music:normalizeMusic(music),disposed:false,player:node('player'),live:{},notch:{dataset:{},querySelectorAll:()=>badges},
     builtinVisible:()=>true,renderLiveActivities(){},byId:node,fileDragging:false,state:'open',t:value=>value,text:(target,value)=>target.textContent=value,
     textUI:(target,value)=>target.textContent=value,toggle:node('toggle'),coverImages:[],spectrumArtwork:'',musicError:'',connectionLost:false,commandBusy:false,commands,
     clearSpectrum(){},renderTime(){},syncClock(){},renderHomeSummaries(){},musicQueueLifecycle(){},motionEnabled:()=>true,

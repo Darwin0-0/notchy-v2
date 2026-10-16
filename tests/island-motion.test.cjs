@@ -10,8 +10,8 @@ const frame = key => {
 
 test('island constants preserve all three specified states and immutable motion values', () => {
   assert.deepEqual(ISLAND_CONFIG.states, {rest: {width: 128, height: 10, radius: 6}, compact: {width: 240, height: 40, radius: 10}, expanded: {width: 594, height: 324, radius: 14}});
-  assert.deepEqual(ISLAND_CONFIG.layout, {header: 48, side: 20, bottom: 20, footer: 32, gap: 8, columns: 4, rows: 4});
-  assert.deepEqual(ISLAND_CONFIG.activities,{widths:[240,300,360],height:42,radius:6,shoulder:8,peekScale:1,sceneHeight:330,expandedHeight:330,headerTop:8,headerHeight:32,sceneTop:64,side:20,bottom:20,gap:12});
+  assert.deepEqual(ISLAND_CONFIG.layout, {header: 48, side: 16, bottom: 16, footer: 32, gap: 8, columns: 4, rows: 4});
+  assert.deepEqual(ISLAND_CONFIG.activities,{widths:[240,300,360],height:42,radius:6,shoulder:8,peekScale:1,sceneHeight:324,expandedHeight:324,headerTop:8,headerHeight:32,sceneTop:48,side:16,bottom:16,gap:8});
   assert(Object.isFrozen(ISLAND_CONFIG.layout));
   assert.equal(ISLAND_CONFIG.spring.stiffness, 400);
   assert.equal(ISLAND_CONFIG.spring.damping, 30);
@@ -26,17 +26,31 @@ test('island constants preserve all three specified states and immutable motion 
 });
 
 test('discreet stays thin with any activity count and only hover reveals the dynamic row', () => {
-  assert.deepEqual(closedBandSize('discreet'), {width:128,band:10,radius:6,shoulder:0,progress:0});
+  assert.deepEqual(closedBandSize('rest'), {width:128,band:10,radius:6,shoulder:0,progress:0});
   for (let count=1; count<=4; count++) {
     const activities=Array.from({length:count},(_,index)=>({id:['focus','music','transfer','file'][index]}));
     const width=[240,300,360][Math.min(count,3)-1];
-    assert.deepEqual(closedBandSize('discreet',{activities}), {width:128,band:10,radius:6,shoulder:0,progress:0});
-    const peek=closedBandSize('hover',{activities});
+    assert.deepEqual(closedBandSize('rest',{activities}), {width:128,band:10,radius:6,shoulder:0,progress:0});
+    const peek=closedBandSize('compact',{activities});
     for (const [key,value] of Object.entries({width,band:42,radius:6,shoulder:8})) assert(Math.abs(peek[key]-value)<1e-9,key);
     assert.equal(peek.progress,0,'preview never becomes the central panel');
   }
-  assert.deepEqual(closedBandSize('hover'), {width:240,band:40,radius:10,shoulder:0,progress:0});
-  assert.deepEqual(closedBandSize('discreet',{ready:true,activities:[{id:'music'}]}), {width:128,band:10,radius:6,shoulder:0,progress:0}, 'a stale introduction flag cannot override the discreet geometry');
+  assert.deepEqual(closedBandSize('compact'), {width:240,band:40,radius:10,shoulder:0,progress:0});
+  assert.deepEqual(closedBandSize('rest',{ready:true,activities:[{id:'music'}]}), {width:128,band:10,radius:6,shoulder:0,progress:0}, 'a stale introduction flag cannot override the discreet geometry');
+});
+
+test('completed work gives the surface a restrained spring pulse and can be interrupted', () => {
+  const motion = createSurfaceMotion(), target = {width:594,height:324,band:48,radius:14,progress:1,shoulder:0};
+  assert.equal(motion.pulse(),false);
+  motion.setTarget(target,{snap:true}); motion.step(0); assert.equal(motion.pulse(),true);
+  let maximum=324;
+  for(let now=16;now<=600;now+=16) maximum=Math.max(maximum,motion.step(now).height);
+  assert(maximum>324 && maximum<324*1.03); assert.equal(motion.isActive(),false);
+  assert.equal(motion.step(620).height,324);
+  motion.pulse(); const before=motion.step(636); motion.setTarget({...target,width:128,height:10,band:10,radius:6,progress:0});
+  assert.equal(motion.step(636).height,before.height,'retargeting starts at the current surface');
+  for(let now=652;now<=1252;now+=16) motion.step(now);
+  assert.equal(motion.step(1268).height,10); assert.equal(motion.pulse(Infinity),false);
 });
 
 test('activity selection uses real Focus, paused media and one transfer without changing their data', () => {
@@ -107,7 +121,7 @@ test('reversing during expansion preserves the current frame and velocity, while
 });
 
 test('ears share the size spring and every closing or opening contour stays valid and bounded', () => {
-  const row={...closedBandSize('hover',{activities:[{id:'focus'},{id:'music'},{id:'transfer'}]})};row.height=row.band;
+  const row={...closedBandSize('compact',{activities:[{id:'focus'},{id:'music'},{id:'transfer'}]})};row.height=row.band;
   const open={...frame('expanded'),band:48};
   for (const [start,end] of [[open,row],[row,frame('rest')],[row,open]]) {
     const motion=createSurfaceMotion();motion.setTarget(start);motion.step(0);motion.setTarget(end);
@@ -145,7 +159,7 @@ test('plain states keep straight top corners while activity rows add painted ear
   assert.equal(tiny.height, 1);
   assert.equal(tiny.radius, 0);
   assert(!tiny.path.includes('NaN'));
-  const activity=closedBandSize('hover',{activities:[{id:'focus'}]});
+  const activity=closedBandSize('compact',{activities:[{id:'focus'}]});
   const ears=shape({...activity,height:activity.band},960);
   assert.equal(ears.width,240);assert.equal(ears.totalWidth,256);assert.equal(ears.shoulder,8);assert.equal(ears.radius,6);
   assert.equal((ears.path.match(/C/g)||[]).length,2,'preview keeps the smaller painted ears');
@@ -153,7 +167,7 @@ test('plain states keep straight top corners while activity rows add painted ear
 });
 
 test('preview reduces both lower corners and shoulders without changing the cubic shape or screen margins', () => {
-  const row=closedBandSize('hover',{activities:[{id:'focus'}]});
+  const row=closedBandSize('compact',{activities:[{id:'focus'}]});
   const preview=shape({...row,height:row.band},960);
   assert.equal(preview.shoulder,8); assert.equal(preview.radius,6); assert.equal(preview.height,42);
   const cubic=[...preview.path.matchAll(/C([^A-Za-z]+)/g)].map(match=>match[1].trim().split(/\s+/).map(Number));

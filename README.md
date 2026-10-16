@@ -47,7 +47,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 
 1. [Download the Windows installer](https://github.com/Darwin0-0/notchy-v2/releases/latest) and run setup. No build tools are needed; setup downloads WebView2 if it is missing.
 2. Hover over the notch for a quick preview, then click to open the controls. Move away to return to the discreet view. Keyboard editing, file dialogs and active drags stay protected while you use them.
-3. Right-click to arrange or remove Music, Focus, Tasks, Weather and Shelf. Open **Tray** for files and LocalSend.
+3. Open **Settings → Modules** to arrange Music, Focus, Tasks, Weather and Shelf. Open **Tray** for files and LocalSend; save a copy to Downloads whenever you need one.
 4. Choose your city, add a task and start a session. Settings stay open while you move between controls; the close button or Escape dismisses them.
 
 Your personal profiles and files stay in local data folders and are excluded from the source repository. Weather uses a public forecast service; Spotify is optional, and LocalSend connects devices on your local network. Setup and privacy details are in the [development guide](docs/DEVELOPMENT.md).
@@ -60,13 +60,13 @@ You do not need to know the whole codebase to make Notchy better. A clear bug re
 
 Have an idea for a module? Start with the [module design contract and JSON manifest](docs/MODULES.md). It gives a proposal a shared shape before code is added; external modules are not loaded by the app yet.
 
-## What we are refining
+## Architecture
 
-- Everyday interactions: opening, hovering, resizing and dismissing the notch.
-- The flow between tasks, focused work and breaks.
-- Clearer feedback for file actions and LocalSend transfers.
+Notchy has three main places: **Nook** for your activities, **Tray** for files and nearby sharing, and **Settings** for General, Modules, Scenarios and Health. Select an activity card to open its detailed controls; return to Nook without losing the current song, task or timer.
 
-These are areas for discussion and improvement, not delivery promises.
+The Rust core owns native settings, network diagnostics, device discovery and file operations. The interface reuses those results and keeps its presentation separate from them. Shared [design tokens](docs/tokens.md) keep activity colors, status colors, type and motion consistent. LocalSend works on the same local network without internet; when automatic discovery is unavailable, add a private IP or use the explicit local-network search in Health.
+
+Small contributions fit here: improve a real interaction, test an empty or error state, or help refine one module. The [development guide](docs/DEVELOPMENT.md) explains how to run and verify a change.
 
 ## Thanks, and licensing
 

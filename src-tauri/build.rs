@@ -17,8 +17,7 @@ fn assert_plain_tree(path: &Path) {
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).parent().unwrap().canonicalize().unwrap();
     let dist = root.join("dist");
-    let mut assets = vec!["index.html", "notch.css", "welcome.css", "i18n.js", "notch.js", "focus.js", "welcome.js", "assets/manrope-latin.woff2", "assets/manrope-OFL.txt"];
-    if root.join("focus-lab.html").is_file() { assets.push("focus-lab.html"); }
+    let assets = vec!["index.html", "tokens.css", "tokens.js", "ia.css", "ia.js", "empty-states.css", "empty-states.js", "notch.css", "welcome.css", "experience.css", "experience-polish.css", "focus-experience.css", "sharing-experience.css", "experience.js", "sharing-experience.js", "i18n.js", "notch.js", "focus.js", "welcome.js", "assets/manrope-latin.woff2", "assets/manrope-OFL.txt"];
     for name in assets.iter().copied().chain(["assets/spotify.ico"]) {
         let input = root.join(name).canonicalize().unwrap();
         assert!(input.starts_with(&root), "Public UI input must stay inside the project");
@@ -38,6 +37,6 @@ fn main() {
     }
     fs::copy(root.join("assets/spotify.ico"), dist.join("spotify.ico")).unwrap();
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
-        tauri_build::AppManifest::new().commands(&["desktop_command"])
+        tauri_build::AppManifest::new().commands(&["desktop_command", "health_run", "settings_get", "settings_set", "favorites_list", "favorites_add", "discovery_validate", "discovery_scan", "discovery_first_candidates"])
     )).unwrap();
 }

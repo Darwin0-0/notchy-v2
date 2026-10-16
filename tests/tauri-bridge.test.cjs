@@ -56,12 +56,12 @@ test('Native geometry serializes animations and coalesces to the latest frame',a
   const replies=[];let active=0,peak=0;
   const context=fixture({invoker:()=>new Promise(resolve=>{active++;peak=Math.max(peak,active);replies.push(value=>{active--;resolve(value);});})});
   const first=context.window.notchyDesktop.sendGeometry({height:300,state:'open'});
-  const second=context.window.notchyDesktop.sendGeometry({height:100,state:'hover'});
-  const last=context.window.notchyDesktop.sendGeometry({height:14,state:'discreet'});
+  const second=context.window.notchyDesktop.sendGeometry({height:100,state:'compact'});
+  const last=context.window.notchyDesktop.sendGeometry({height:14,state:'rest'});
   assert.equal(context.calls.length,1);assert.equal(first,second);assert.equal(second,last);
   replies[0]({maxHeight:800});
   for(let i=0;i<8;i++)await Promise.resolve();
-  assert.equal(context.calls.length,2);assert.equal(context.calls[1].args.value.value.state,'discreet');
+  assert.equal(context.calls.length,2);assert.equal(context.calls[1].args.value.value.state,'rest');
   replies[1]({maxHeight:800});await last;assert.equal(peak,1);
 });
 test('Startup exposes only confirmed LocalSend availability for incoming request monitoring',()=>{

@@ -42,14 +42,14 @@ test('the file drop preview opens temporarily, restores the previous state and p
     renderMusic() {}, renderLiveActivities() {}, update() {}, getModuleEditorActive: () => false,
     builtinVisible: id => id === 'shelf', uploadFiles: files => uploaded.push(files), stageFiles: files => staged.push(files)
   };
-  require('node:vm').runInNewContext(`let state='discreet',view='nook',fileDragging=false,dragDepth=0,fileDragCount=null,fileDragPreviousState=null,shelfLoaded=true,shelfBusy=false;
+  require('node:vm').runInNewContext(`let state='rest',view='nook',fileDragging=false,dragDepth=0,fileDragCount=null,fileDragPreviousState=null,shelfLoaded=true,shelfBusy=false;
     function setState(value){state=value;} ${source.slice(from, to)}
     this.api={fileDragOver,clearFileDrag,fileDrop,getState:()=>state,setView:value=>{view=value;}};`, scope);
   const file = {name: 'report.pdf'}, event = {target: {}, clientX: 400, clientY: 4, preventDefault() {}, dataTransfer: {types: ['Files'], items: [{kind: 'file'}], files: [file]}};
   scope.api.fileDragOver(event); assert.equal(scope.api.getState(), 'open');
   assert.equal(nodes.get('shelf-drag-title').textContent, 'Déposer 1 fichier');
   assert.equal(nodes.get('shelf-drag-preview').hidden, false);
-  scope.api.clearFileDrag(); assert.equal(scope.api.getState(), 'discreet'); assert.equal(nodes.get('shelf-drag-preview').hidden, true);
+  scope.api.clearFileDrag(); assert.equal(scope.api.getState(), 'rest'); assert.equal(nodes.get('shelf-drag-preview').hidden, true);
   scope.api.fileDragOver(event); scope.api.fileDrop(event); assert.equal(staged.length, 1); assert.equal(uploaded.length, 0);
   scope.api.setView('tray'); scope.api.fileDragOver(event); scope.api.fileDrop(event);
   assert.equal(uploaded.length, 1); assert.equal(uploaded[0][0], file);

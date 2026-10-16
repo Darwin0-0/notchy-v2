@@ -1,6 +1,7 @@
 (function (root) {
   'use strict';
-  const MOTION = Object.freeze({entrance: 300, mascot: 420, wordmark: 360, slide: 360, exit: 180, reduced: 150, introStart: 120, introEnd: 1900, wakeAt: 300, wake: 220, curiousAt: 560, look: 220, nameAt: 780, returnAt: 1180, settle: 400, gazeX: 2, gazeY: -.5, tilt: 3, easing: 'cubic-bezier(.2,.8,.2,1)'});
+  const NOTCH_TOKENS = typeof module === 'object' && module.exports ? require('./tokens.js') : root.NOTCH_TOKENS;
+  const MOTION = NOTCH_TOKENS.welcomeMotion;
   // Exact head geometry from Notchy V1's robot-companion.js; torso, arms and props are omitted.
   const MIMO_HEAD = Object.freeze({shell: 'M25 8H39C51 8 58 16 58 28V37C58 50 51 55 39 55H25C13 55 6 50 6 37V28C6 16 13 8 25 8Z M25 12C15 12 10 18 10 28V37C10 47 15 51 25 51H39C49 51 54 47 54 37V28C54 18 49 12 39 12Z', mouth: 'M29.5 39h5a2.5 2.5 0 0 1-5 0Z'});
   const steps = [
@@ -22,11 +23,11 @@
     const card = node('div', 'welcome-card'), intro = node('div', 'welcome-intro'), brand = node('div', 'welcome-brand');
     const mascot = node('div', 'welcome-mascot');
     const mark = svgNode('svg', {width: 56, height: 56, viewBox: '0 0 64 64', 'aria-hidden': 'true', 'data-mimo-source': 'notchy-v1'}); mark.classList.add('welcome-mimo');
-    mark.append(svgNode('path', {class: 'welcome-mimo-shell', d: MIMO_HEAD.shell, fill: '#ffffff', 'fill-rule': 'evenodd'}));
+    mark.append(svgNode('path', {class: 'welcome-mimo-shell', d: MIMO_HEAD.shell, fill: NOTCH_TOKENS.palette.white, 'fill-rule': 'evenodd'}));
     // Gaze and waking use parent groups, leaving the circles' blink transform independent.
     const features = svgNode('g', {class: 'welcome-mimo-features'}), eyelids = svgNode('g', {class: 'welcome-mimo-eyelids'});
-    eyelids.append(svgNode('circle', {class: 'welcome-mimo-eye', cx: 23, cy: 32, r: 4.5, fill: '#ffffff'}), svgNode('circle', {class: 'welcome-mimo-eye', cx: 41, cy: 32, r: 4.5, fill: '#ffffff'}));
-    features.append(eyelids, svgNode('path', {d: MIMO_HEAD.mouth, fill: '#ffffff'})); mark.append(features);
+    eyelids.append(svgNode('circle', {class: 'welcome-mimo-eye', cx: 23, cy: 32, r: 4.5, fill: NOTCH_TOKENS.palette.white}), svgNode('circle', {class: 'welcome-mimo-eye', cx: 41, cy: 32, r: 4.5, fill: NOTCH_TOKENS.palette.white}));
+    features.append(eyelids, svgNode('path', {d: MIMO_HEAD.mouth, fill: NOTCH_TOKENS.palette.white})); mark.append(features);
     mascot.append(mark);
     const wordmark = node('div', 'welcome-wordmark', 'Notchy'); wordmark.setAttribute('aria-label', 'Notchy');
     brand.append(mascot, wordmark);
@@ -36,7 +37,7 @@
     const tutorial = node('div', 'welcome-tutorial'), top = node('div', 'welcome-tutorial-top'), counter = node('span', 'welcome-counter'); top.append(counter, control('start', 'Passer', 'welcome-skip'));
     const slides = steps.map(value => {
       const layer = node('div', 'welcome-slide'), illustration = node('div', 'welcome-illustration');
-      const drawing = svgNode('svg', {width: 150, height: 60, viewBox: '0 0 150 60', fill: 'none', stroke: '#6FE3C5', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true'}); drawing.classList.add('welcome-drawing'); drawing.innerHTML = value.drawing;
+      const drawing = svgNode('svg', {width: 150, height: 60, viewBox: '0 0 150 60', fill: 'none', stroke: NOTCH_TOKENS.palette.robotAccent, 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true'}); drawing.classList.add('welcome-drawing'); drawing.innerHTML = value.drawing;
       const title = node('h2', 'welcome-step-title', value.title), text = node('p', 'welcome-step-text', value.text);
       illustration.append(drawing); layer.append(illustration, title, text); tutorial.append(layer); return {layer, illustration, title, text};
     });
@@ -76,12 +77,12 @@
       void animation.finished.then(() => {const index = animations.indexOf(animation); if (index >= 0) {animations.splice(index, 1); if (elementAnimations.get(element) === animation) elementAnimations.delete(element); animation.cancel();}}, () => {});
     }
     function reveal(element, delay = 0, duration = MOTION.entrance) {
-      animate(element, [{opacity: 0, transform: 'translateY(6px)'}, {opacity: 1, transform: 'translateY(0px)'}], duration, delay);
+      animate(element, [{opacity: 0, transform: `translateY(${MOTION.revealY}px)`}, {opacity: 1, transform: 'translateY(0px)'}], duration, delay);
     }
     function greetMimo() {
       const center = ((wordmark.getBoundingClientRect?.().width || 96) + 12) / 2;
       host.dataset.mimoBeat = 'wake'; mascot.style.transform = `translateX(${center}px)`;
-      animate(mascot, [{opacity: 0, transform: `translate(${center}px,6px) rotate(-2deg)`}, {opacity: 1, transform: `translate(${center}px,0px) rotate(0deg)`}], MOTION.mascot);
+      animate(mascot, [{opacity: 0, transform: `translate(${center}px,${MOTION.revealY}px) rotate(${MOTION.wakeTilt}deg)`}, {opacity: 1, transform: `translate(${center}px,0px) rotate(0deg)`}], MOTION.mascot);
       scheduleIntro(() => {
         host.dataset.mimoBeat = 'awake';
         animate(eyelids, [{transform: 'scaleY(.12)'}, {transform: 'scaleY(1)'}], MOTION.wake);
@@ -94,12 +95,12 @@
       scheduleIntro(() => {
         host.dataset.mimoBeat = 'name'; mascot.style.transform = '';
         animate(mascot, [{transform: `translateX(${center}px) rotate(${MOTION.tilt}deg)`}, {transform: 'translateX(0px) rotate(0deg)'}], MOTION.wordmark);
-        animate(wordmark, [{opacity: 0, transform: 'translateX(8px)'}, {opacity: 1, transform: 'translateX(0px)'}], MOTION.wordmark);
+        animate(wordmark, [{opacity: 0, transform: `translateX(${MOTION.wordmarkX}px)`}, {opacity: 1, transform: 'translateX(0px)'}], MOTION.wordmark);
       }, MOTION.nameAt);
       scheduleIntro(() => {
         host.dataset.mimoBeat = 'ready'; features.style.transform = '';
         animate(features, [{transform: `translate(${MOTION.gazeX}px,${MOTION.gazeY}px)`}, {transform: 'translate(0px,0px)'}], MOTION.entrance);
-        animate(mascot, [{transform: 'translateY(0px) rotate(0deg)'}, {transform: 'translateY(1.5px) rotate(1.5deg)', offset: .45}, {transform: 'translateY(0px) rotate(0deg)'}], MOTION.settle);
+        animate(mascot, [{transform: 'translateY(0px) rotate(0deg)'}, {transform: `translateY(${MOTION.settleY}px) rotate(${MOTION.settleTilt}deg)`, offset: .45}, {transform: 'translateY(0px) rotate(0deg)'}], MOTION.settle);
       }, MOTION.returnAt);
     }
     function moveSlide(slide, entering, direction = 1) {

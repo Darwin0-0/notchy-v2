@@ -159,11 +159,11 @@ test('the module editor resolves preset module IDs to saved slots and cancellati
     const context = {disposed: false, moduleEditing: false, view: 'nook', state: 'open', document: {activeElement: returnFocus}, modulePreviousView: '', modulePreviousState: '', moduleReturnFocus: null,
       moduleDraft: null, modulePicked: null, moduleMessage: '', moduleSelected: 0, scenarioController: scenario.controller,
       moduleDefinitions: Object.fromEntries(getModuleDefinitions().map(item => [item.id, item])),
-      getModules: () => JSON.parse(before), moduleEditorLayout() {if (context.moduleEditing) context.visibleSlots = moduleEditorPresentation(context.moduleDraft, context.modulePicked).indices;}, setModules: value => writes.push(value), t: value => value,
+      moduleOrder:modules.enabled, moduleDraftOrder:null, configuredModuleOrder:()=>modules.slots.filter(Boolean), getModules: () => JSON.parse(before), moduleEditorLayout() {if (context.moduleEditing) context.visibleSlots = moduleEditorPresentation(context.moduleDraft, context.modulePicked).indices;}, setModules: value => writes.push(value), t: value => value,
       modulesPlayer: {querySelector: selector => ({focus: () => focused.push(selector)}), contains: () => false}, menu: {querySelector: () => ({focus() {}})}};
     require('node:vm').runInNewContext(`${source.slice(begin, end)}this.open = openModuleEditor; this.close = closeModuleEditor;`, context);
     assert.equal(context.open({target: {closest: () => ({dataset: {module: id, homeSlot: visualSlot}})}}), true);
-    assert.equal(context.moduleSelected, expectedSlot); assert.equal(focused[0], `[data-module-slot-box="${expectedSlot}"]`);
+    assert.equal(context.moduleSelected, expectedSlot); assert.equal(focused[0], '.experience-switch');
     assert(context.visibleSlots.includes(expectedSlot), 'the chosen insertion slot must be visible before it receives focus');
     assert.equal(context.close(false), true); assert.equal(context.moduleDraft, null); assert.equal(context.moduleEditing, false);
     assert.equal(writes.length, 0); assert.equal(JSON.stringify(modules), before); assert.equal(JSON.stringify(scenario.controller.getPreferences()), scenarioBefore);

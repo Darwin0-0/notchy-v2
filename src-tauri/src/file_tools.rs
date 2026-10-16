@@ -1003,7 +1003,7 @@ fn worker_request(request: &Value) -> anyhow::Result<Value> {
             let document = Document::load_mem(&bytes)
                 .map_err(|_| anyhow::anyhow!("Ce PDF n’a pas pu être lu."))?;
             anyhow::ensure!(
-                !document.is_encrypted(),
+                !document.is_encrypted() && !document.was_encrypted(),
                 "Ce PDF est protégé par un mot de passe."
             );
             let pages = document.get_pages();
@@ -1218,6 +1218,63 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Bonjour Notchy"));
+    }
+    #[test]
+    fn deeply_nested_pdf_objects_are_rejected_without_aborting() {
+        fn pdf(depth: usize) -> Vec<u8> {
+            let objects = [
+                format!("<< /Type /Catalog /Pages 2 0 R /X {}{} >>", "[".repeat(depth), "]".repeat(depth)),
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Contents 4 0 R >>".into(),
+                "<< /Length 0 >>\nstream\n\nendstream".into(),
+            ];
+            let mut bytes = b"%PDF-1.4\n".to_vec();
+            let mut offsets = Vec::new();
+            for (index, object) in objects.iter().enumerate() {
+                offsets.push(bytes.len());
+                writeln!(bytes, "{} 0 obj\n{object}\nendobj", index + 1).unwrap();
+            }
+            let xref = bytes.len();
+            write!(bytes, "xref\n0 5\n0000000000 65535 f \n").unwrap();
+            for offset in offsets {
+                writeln!(bytes, "{offset:010} 00000 n ").unwrap();
+            }
+            write!(bytes, "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").unwrap();
+            bytes
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let control = fixture(&directory.path().join("control.pdf"), &pdf(2));
+        let result = worker_request(&json!({"command":"extract","file":control})).unwrap();
+        assert_eq!(result["kind"], "pdf");
+        assert_eq!(result["pages"], 1);
+        // This small fixture previously exhausted the parser stack in the worker.
+        let nested = pdf(10_380);
+        assert!(nested.len() < 50_000);
+        let source = fixture(&directory.path().join("nested.pdf"), &nested);
+        assert!(worker_request(&json!({"command":"extract","file":source})).is_err());
+    }
+    #[test]
+    fn encrypted_pdfs_remain_rejected_after_automatic_empty_password_decryption() {
+        let bytes = image_pdf(&image::load_from_memory(&png()).unwrap()).unwrap();
+        let mut document = Document::load_mem(&bytes).unwrap();
+        document.trailer.set("ID", Object::Array(vec![Object::string_literal("notchy-pdf-fixture"); 2]));
+        let state = lopdf::EncryptionState::try_from(lopdf::EncryptionVersion::V2 {
+            document: &document,
+            owner_password: "fixture-owner",
+            user_password: "",
+            key_length: 128,
+            permissions: lopdf::Permissions::all(),
+        }).unwrap();
+        document.encrypt(&state).unwrap();
+        let mut encrypted = Vec::new();
+        document.save_to(&mut encrypted).unwrap();
+        let loaded = Document::load_mem(&encrypted).unwrap();
+        assert!(!loaded.is_encrypted());
+        assert!(loaded.was_encrypted());
+        let directory = tempfile::tempdir().unwrap();
+        let source = fixture(&directory.path().join("encrypted.pdf"), &encrypted);
+        let error = worker_request(&json!({"command":"extract","file":source})).unwrap_err();
+        assert!(error.to_string().contains("protégé par un mot de passe"));
     }
     #[tokio::test]
     async fn already_cancelled_jobs_never_start_a_process() {

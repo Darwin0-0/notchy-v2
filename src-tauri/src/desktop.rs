@@ -17,8 +17,8 @@ pub struct Geometry {
 #[serde(rename_all = "lowercase")]
 pub enum NotchState {
     #[default]
-    Discreet,
-    Hover,
+    Rest,
+    Compact,
     Open,
 }
 #[derive(Default)]
@@ -318,6 +318,18 @@ fn open_uri_with(uri: &str, launch: impl FnOnce(&[u16]) -> isize) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn native_geometry_accepts_exactly_the_frontend_state_vocabulary() {
+        for (name, expected) in [("rest", super::NotchState::Rest),("compact", super::NotchState::Compact),("open", super::NotchState::Open)] {
+            let value=serde_json::json!({"width":240.0,"height":40.0,"band":40.0,"radius":6.0,"shoulder":0.0,"state":name});
+            let geometry: super::Geometry=serde_json::from_value(value).unwrap();
+            assert_eq!(geometry.state,expected);
+            assert_eq!(serde_json::to_value(expected).unwrap(),name);
+        }
+        for name in ["discreet","hover","expanded","unknown"] {
+            assert!(serde_json::from_value::<super::NotchState>(serde_json::json!(name)).is_err());
+        }
+    }
     use super::*;
     #[cfg(windows)]
     #[test]
@@ -348,7 +360,7 @@ mod tests {
         assert!(!window.0.is_null());
         assert_eq!(unsafe { IsWindowVisible(window.0) }, 0, "the test never shows a window or moves the mouse");
         shape_native_window(window.0, Geometry { width: 240., height: 40., band: 40.,
-            radius: 10., shoulder: 0., state: NotchState::Hover }, 960., 1.5).unwrap();
+            radius: 10., shoulder: 0., state: NotchState::Compact }, 960., 1.5).unwrap();
         let window_context = unsafe { GetWindowDpiAwarenessContext(window.0) };
         for worker_context in [DPI_AWARENESS_CONTEXT_UNAWARE, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
             DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2] {
@@ -364,7 +376,7 @@ mod tests {
                 assert_eq!(sample.inside, inside, "physical cursor coordinates must match the 150% native contour");
                 assert_ne!(unsafe { AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(), caller_context) }, 0,
                     "sampling must not change the Tokio worker's subsequent DPI context");
-                assert_eq!(observer.update(Some(sample), NotchState::Hover),
+                assert_eq!(observer.update(Some(sample), NotchState::Compact),
                     Some(PointerEvent { inside, moved: !inside }), "the physical departure reaches the native event pipeline");
             }
             assert!(sample_window_cursor(window.0, |_| false).is_none());
@@ -380,7 +392,7 @@ mod tests {
         };
         for factor in [1., 1.2] {
             let geometry = Geometry { width: 280. * factor, height: 42. * factor, band: 42. * factor,
-                radius: 22. * factor, shoulder: 20. * factor, state: NotchState::Discreet };
+                radius: 22. * factor, shoulder: 20. * factor, state: NotchState::Rest };
             for t in [0., 0.1, 0.25, 0.5, 0.75, 0.9, 1.] {
                 let x = bezier(t, 11. * factor, 20. * factor, 20. * factor);
                 let y = bezier(t, 0., 9. * factor, 20. * factor);
@@ -399,7 +411,7 @@ mod tests {
     #[test]
     fn plain_rest_compact_and_open_contours_keep_their_existing_quadratic_corners() {
         for (width, height, radius) in [(128., 10., 6.), (240., 40., 20.), (594., 324., 32.)] {
-            let geometry = Geometry { width, height, band: height, radius, shoulder: 0., state: NotchState::Discreet };
+            let geometry = Geometry { width, height, band: height, radius, shoulder: 0., state: NotchState::Rest };
             for y in [0., height - radius, height - radius / 2., height - 0.01] {
                 let expected = if y < height - radius { 0. } else {
                     radius * (1. - ((height - y) / radius).max(0.).sqrt()).powi(2)
@@ -425,13 +437,13 @@ mod tests {
             fn drop(&mut self) { unsafe { DeleteObject(self.0); } }
         }
         let geometries = [
-            Geometry { width: 128., height: 10., band: 10., radius: 6., shoulder: 0., state: NotchState::Discreet },
-            Geometry { width: 240., height: 40., band: 40., radius: 20., shoulder: 0., state: NotchState::Hover },
+            Geometry { width: 128., height: 10., band: 10., radius: 6., shoulder: 0., state: NotchState::Rest },
+            Geometry { width: 240., height: 40., band: 40., radius: 20., shoulder: 0., state: NotchState::Compact },
             Geometry { width: 594., height: 324., band: 48., radius: 32., shoulder: 0., state: NotchState::Open },
-            Geometry { width: 280., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Discreet },
-            Geometry { width: 340., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Discreet },
-            Geometry { width: 400., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Discreet },
-            Geometry { width: 480., height: 50.4, band: 50.4, radius: 26.4, shoulder: 24., state: NotchState::Hover },
+            Geometry { width: 280., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Rest },
+            Geometry { width: 340., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Rest },
+            Geometry { width: 400., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Rest },
+            Geometry { width: 480., height: 50.4, band: 50.4, radius: 26.4, shoulder: 24., state: NotchState::Compact },
         ];
         for scale in [1_f64, 1.25, 1.5, 2.] {
             let class: Vec<u16> = "STATIC".encode_utf16().chain(Some(0)).collect();
@@ -481,13 +493,13 @@ mod tests {
     }
     #[test]
     fn geometry_accepts_reference_bottom_corners_without_relaxing_other_bounds() {
-        let rest = Geometry { width: 128., height: 10., band: 10., radius: 6., shoulder: 0., state: NotchState::Discreet };
+        let rest = Geometry { width: 128., height: 10., band: 10., radius: 6., shoulder: 0., state: NotchState::Rest };
         assert!(rest.valid());
-        assert!(Geometry { width: 240., height: 40., radius: 20., state: NotchState::Hover, ..rest }.valid());
+        assert!(Geometry { width: 240., height: 40., radius: 20., state: NotchState::Compact, ..rest }.valid());
         assert!(Geometry { width: 440., height: 240., radius: 32., state: NotchState::Open, ..rest }.valid());
         let activity = Geometry { width: 280., height: 42., band: 42., radius: 22., shoulder: 20., ..rest };
         assert!(activity.valid());
-        assert!(Geometry { width: 336., height: 50.4, band: 50.4, radius: 26.4, shoulder: 24., state: NotchState::Hover }.valid());
+        assert!(Geometry { width: 336., height: 50.4, band: 50.4, radius: 26.4, shoulder: 24., state: NotchState::Compact }.valid());
         assert!(!Geometry { radius: 22.1, ..activity }.valid(), "ear plus bottom radius cannot exceed the row height");
         assert!(Geometry { radius: 10., ..rest }.valid());
         assert!(!Geometry { radius: 10.1, ..rest }.valid());
@@ -503,11 +515,11 @@ mod tests {
         let inside = Some(PointerSample { inside: true, position: (400, 10) });
         let stationary_outside = Some(PointerEvent { inside: false, moved: false });
         let stationary_inside = Some(PointerEvent { inside: true, moved: false });
-        assert_eq!(observer.update(outside, NotchState::Discreet), stationary_outside);
-        assert_eq!(observer.update(outside, NotchState::Discreet), None);
-        assert_eq!(observer.update(inside, NotchState::Discreet), Some(PointerEvent { inside: true, moved: true }));
-        assert_eq!(observer.update(inside, NotchState::Hover), stationary_inside);
-        assert_eq!(observer.update(inside, NotchState::Hover), None);
+        assert_eq!(observer.update(outside, NotchState::Rest), stationary_outside);
+        assert_eq!(observer.update(outside, NotchState::Rest), None);
+        assert_eq!(observer.update(inside, NotchState::Rest), Some(PointerEvent { inside: true, moved: true }));
+        assert_eq!(observer.update(inside, NotchState::Compact), stationary_inside);
+        assert_eq!(observer.update(inside, NotchState::Compact), None);
         assert_eq!(observer.update(inside, NotchState::Open), stationary_inside);
         assert_eq!(observer.update(outside, NotchState::Open), Some(PointerEvent { inside: false, moved: true }));
         assert_eq!(observer.update(outside, NotchState::Open), None);
@@ -519,14 +531,14 @@ mod tests {
     fn pointer_geometry_changes_are_not_movement_and_outside_motion_is_reported() {
         let mut observer = PointerObserver::default();
         let sample = |inside, y| Some(PointerSample { inside, position: (400, y) });
-        observer.update(sample(false, 200), NotchState::Discreet);
+        observer.update(sample(false, 200), NotchState::Rest);
         assert_eq!(observer.update(sample(false, 200), NotchState::Open), Some(PointerEvent { inside: false, moved: false }));
         assert_eq!(observer.update(sample(true, 200), NotchState::Open), Some(PointerEvent { inside: true, moved: false }));
-        assert_eq!(observer.update(sample(false, 200), NotchState::Hover), Some(PointerEvent { inside: false, moved: false }));
-        let moved = observer.update(sample(false, 210), NotchState::Hover).unwrap();
+        assert_eq!(observer.update(sample(false, 200), NotchState::Compact), Some(PointerEvent { inside: false, moved: false }));
+        let moved = observer.update(sample(false, 210), NotchState::Compact).unwrap();
         assert_eq!(moved, PointerEvent { inside: false, moved: true });
         assert_eq!(serde_json::to_value(moved).unwrap(), serde_json::json!({"inside":false,"moved":true}));
-        assert_eq!(observer.update(sample(false, 210), NotchState::Hover), None);
+        assert_eq!(observer.update(sample(false, 210), NotchState::Compact), None);
     }
     #[test]
     fn refuses_user_provided_commands_and_local_paths() {

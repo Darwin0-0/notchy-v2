@@ -16,38 +16,10 @@ use std::{
 };
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-const KEYS: [&str; 6] = [
-    "notchy-minimal-appearance-v1",
-    "notchy-minimal-modules-v1",
-    "notchy-minimal-focus-v1",
-    "notchy-minimal-welcome-v1",
-    "notchy-language-v1",
-    "notchy-scenarios-v1",
-];
-fn valid_scenarios(text: &str) -> bool {
-    if text.len() > 4096 { return false; }
-    let Ok(value) = serde_json::from_str::<Value>(text) else { return false; };
-    let Some(object) = value.as_object().filter(|object| object.len() == 6) else { return false; };
-    let scenario = |value: &Value| matches!(value.as_str(), Some("focus" | "ambience" | "day" | "complete" | "minimal"));
-    if !matches!(value["mode"].as_str(), Some("auto" | "manual"))
-        || !object.contains_key("selected")
-        || !(value["selected"].is_null() || scenario(&value["selected"]))
-        || !value["manualUntil"].as_u64().is_some_and(|time| time <= 9_007_199_254_740_991)
-        || !object.contains_key("lastMorningDay")
-        || !(value["lastMorningDay"].is_null() || value["lastMorningDay"].as_str().is_some_and(|day| day.len() == 10 && chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").is_ok()))
-    { return false; }
-    let Some(rules) = value["rules"].as_object().filter(|rules| rules.len() == 4) else { return false; };
-    let Some(guards) = value["guards"].as_object().filter(|guards| guards.len() == 3) else { return false; };
-    ["work", "break", "morning", "idle"].iter().all(|key| {
-        rules.get(*key).and_then(Value::as_object).is_some_and(|rule| {
-            rule.len() == 2 && rule.get("enabled").is_some_and(Value::is_boolean)
-                && rule.get("scenario").is_some_and(&scenario)
-        })
-    }) && ["undo", "manualLock", "interacting"].iter().all(|key| guards.get(*key).is_some_and(Value::is_boolean))
-}
-fn valid_language(value: &str) -> bool {
-    matches!(value, "fr" | "en")
-}
+use notchy::settings::{KEYS, restore_preferences, preference_input, persist_preferences};
+#[cfg(test)]
+use notchy::settings::{valid_module_order, valid_peer_favorites, valid_scenarios, valid_language};
+
 fn tray_labels(language: &str) -> [&'static str; 3] {
     if language == "en" {
         ["Open Notchy V2", "Hide", "Quit"]
@@ -110,6 +82,126 @@ mod scenario_preference_tests {
         assert!(!valid_scenarios(&" ".repeat(4097))); assert!(!valid_scenarios("null"));
     }
 }
+#[cfg(test)]
+mod experience_preference_tests {
+    use super::{persist_preferences, preference_input, restore_preferences, valid_module_order, valid_peer_favorites, KEYS};
+    use serde_json::{json, Value};
+    use std::collections::BTreeMap;
+
+    const ORDER: &str = "notchy-module-order-v1";
+    const FAVORITES: &str = "notchy-peer-favorites-v1";
+
+    fn order() -> Value {
+        json!(["shelf", "weather", "music", "tasks", "focus"])
+    }
+    fn favorite(index: usize) -> Value {
+        json!({"identity":format!("{index:064x}"), "alias":"Téléphone de test 📱", "deviceType":"mobile"})
+    }
+
+    #[test]
+    fn module_order_accepts_only_one_of_each_known_module() {
+        assert!(valid_module_order(&order().to_string()));
+        assert!(valid_module_order(r#"["music","focus","weather","tasks","shelf"]"#));
+        for invalid in [json!([]), json!(["shelf", "music"]), json!(["shelf", "weather", "music", "tasks", "shelf"]),
+            json!(["shelf", "weather", "music", "tasks", "health"]), json!(["shelf", "weather", "music", "tasks", 1]),
+            json!(["shelf", "weather", "music", "tasks", "focus", "health"]), json!({"order":order()}), Value::Null] {
+            assert!(!valid_module_order(&invalid.to_string()), "{invalid}");
+        }
+        assert!(!valid_module_order(&format!("{}{}", " ".repeat(512), order())));
+    }
+
+    #[test]
+    fn favorites_are_typed_bounded_unique_and_control_free() {
+        assert!(valid_peer_favorites("[]"));
+        let mut maximum = (0..32).map(favorite).collect::<Vec<_>>();
+        maximum[0]["alias"] = json!("📱".repeat(120));
+        maximum[1]["deviceType"] = json!("desktop");
+        assert!(valid_peer_favorites(&json!(maximum).to_string()), "Unicode aliases are counted as characters, not UTF-8 bytes");
+        let mut too_many = maximum.clone(); too_many.push(favorite(32));
+        assert!(!valid_peer_favorites(&json!(too_many).to_string()));
+        let mut duplicate = maximum.clone(); duplicate[1]["identity"] = duplicate[0]["identity"].clone();
+        assert!(!valid_peer_favorites(&json!(duplicate).to_string()));
+        for (field, invalid) in [("identity", json!("A".repeat(64))), ("identity", json!("g".repeat(64))),
+            ("identity", json!("a".repeat(63))), ("identity", json!(7)), ("alias", json!("📱".repeat(121))),
+            ("alias", json!("")), ("alias", json!("Phone\nInjected")), ("alias", json!("Phone\u{0085}Injected")),
+            ("alias", json!(null)), ("deviceType", json!("web")), ("deviceType", json!(true))] {
+            let mut broken = favorite(0); broken[field] = invalid;
+            assert!(!valid_peer_favorites(&json!([broken]).to_string()), "invalid {field}");
+        }
+        let mut extra = favorite(0); extra["address"] = json!("192.168.1.42");
+        assert!(!valid_peer_favorites(&json!([extra]).to_string()));
+        let mut missing = favorite(0); missing.as_object_mut().unwrap().remove("deviceType");
+        assert!(!valid_peer_favorites(&json!([missing]).to_string()));
+        for text in ["null", "{}", "[null]", "[[]]", "[", &" ".repeat(20_001)] {
+            assert!(!valid_peer_favorites(text));
+        }
+    }
+
+    #[test]
+    fn preference_commands_whitelist_and_validate_both_new_values_and_deletion() {
+        assert_eq!(KEYS.len(), 8);
+        for (key, value) in [(ORDER, order().to_string()), (FAVORITES, json!([favorite(0)]).to_string())] {
+            let command = json!({"key":key,"value":value});
+            assert_eq!(preference_input(&command).unwrap(), (key, Some(value.as_str())));
+            let remove = json!({"key":key,"value":null});
+            assert_eq!(preference_input(&remove).unwrap(), (key, None));
+            for invalid in [json!({"key":key,"value":"{}"}), json!({"key":key,"value":[]}),
+                json!({"key":key}), json!({"key":key,"value":value,"extra":true})] {
+                assert_eq!(preference_input(&invalid).unwrap_err().status, 400);
+            }
+        }
+        assert_eq!(preference_input(&json!({"key":"arbitrary-preference","value":"[]"})).unwrap_err().status, 400);
+        for (key, value) in [("notchy-minimal-appearance-v1", "{}"), ("notchy-minimal-modules-v1", "{}"),
+            ("notchy-minimal-focus-v1", "{}"), ("notchy-minimal-welcome-v1", "done"), ("notchy-language-v1", "en")] {
+            let command = json!({"key":key,"value":value});
+            assert_eq!(preference_input(&command).unwrap(), (key, Some(value)));
+        }
+    }
+
+    #[test]
+    fn restoration_drops_invalid_new_preferences_without_changing_existing_values() {
+        let existing = BTreeMap::from([
+            ("notchy-minimal-appearance-v1".into(), "{\"theme\":\"dark\"}".into()),
+            ("notchy-minimal-modules-v1".into(), "{\"shelf\":true}".into()),
+            ("notchy-minimal-focus-v1".into(), "{\"deadline\":12345}".into()),
+            ("notchy-minimal-welcome-v1".into(), "done".into()),
+            ("notchy-language-v1".into(), "en".into()),
+        ]);
+        let mut saved = existing.clone();
+        saved.insert(ORDER.into(), order().to_string());
+        saved.insert(FAVORITES.into(), json!([favorite(0)]).to_string());
+        saved.insert("arbitrary-preference".into(), "[]".into());
+        let restored = restore_preferences(saved);
+        assert_eq!(restored.len(), existing.len() + 2);
+        for (key, value) in &existing { assert_eq!(restored.get(key), Some(value)); }
+        let mut invalid = restored;
+        invalid.insert(ORDER.into(), "[\"music\",\"music\"]".into());
+        invalid.insert(FAVORITES.into(), json!([favorite(0), favorite(0)]).to_string());
+        assert_eq!(restore_preferences(invalid), existing);
+    }
+
+    #[tokio::test]
+    async fn native_json_roundtrip_restores_new_keys_without_an_origin_or_session_binding() {
+        let temporary = tempfile::tempdir().unwrap();
+        tokio::fs::create_dir(temporary.path().join(".desktop-profile")).await.unwrap();
+        let saved = BTreeMap::from([(ORDER.into(), order().to_string()),
+            (FAVORITES.into(), json!([favorite(0)]).to_string()), ("notchy-language-v1".into(), "en".into())]);
+        for (key, value) in &saved {
+            assert!(preference_input(&json!({"key":key,"value":value})).is_ok());
+        }
+        persist_preferences(temporary.path(), &saved).await.unwrap();
+        let path = temporary.path().join(".desktop-profile/tauri-preferences.json");
+        let bytes = tokio::fs::read(&path).await.unwrap();
+        let from_disk: BTreeMap<String, String> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(from_disk, saved);
+        assert_eq!(restore_preferences(from_disk), saved);
+        assert!(!temporary.path().join(".desktop-profile/tauri-preferences.tmp").exists());
+        let remaining = BTreeMap::from([("notchy-language-v1".into(), "fr".into())]);
+        persist_preferences(temporary.path(), &remaining).await.unwrap();
+        let from_disk = serde_json::from_slice(&tokio::fs::read(path).await.unwrap()).unwrap();
+        assert_eq!(restore_preferences(from_disk), remaining, "atomic replacement supports later removals");
+    }
+}
 struct DesktopState {
     services: Arc<Services>,
     server: Arc<Server>,
@@ -118,6 +210,7 @@ struct DesktopState {
     startup: Arc<Startup>,
     geometry: Mutex<Geometry>,
     preferences: tokio::sync::Mutex<BTreeMap<String, String>>,
+    discovery_scan: tokio::sync::Mutex<()>,
     tray_items: Mutex<Option<[tauri::menu::MenuItem<tauri::Wry>; 3]>>,
     visible: AtomicBool,
     dialog: AtomicBool,
@@ -134,7 +227,7 @@ fn initial_geometry() -> Geometry {
         band: 10.,
         radius: 6.,
         shoulder: 0.,
-        state: NotchState::Discreet,
+        state: NotchState::Rest,
     }
 }
 fn trusted(window: &WebviewWindow, state: &DesktopState) -> bool {
@@ -170,52 +263,18 @@ fn hide(window: &WebviewWindow, state: &DesktopState) {
     let _ = window.hide();
 }
 async fn preference(state: &DesktopState, value: Value) -> Result<Value, ApiError> {
-    let object = value
-        .as_object()
-        .filter(|object| object.len() == 2)
-        .ok_or_else(|| ApiError::new(400, "Préférence invalide."))?;
-    let key = object
-        .get("key")
-        .and_then(Value::as_str)
-        .filter(|key| KEYS.contains(key))
-        .ok_or_else(|| ApiError::new(400, "Préférence inconnue."))?;
-    let value = object
-        .get("value")
-        .ok_or_else(|| ApiError::new(400, "Préférence invalide."))?;
-    if !value.is_null()
-        && !value.as_str().is_some_and(|text| {
-            text.len() <= 262144
-                && if key == "notchy-minimal-welcome-v1" {
-                    text == "done"
-                } else if key == "notchy-language-v1" {
-                    valid_language(text)
-                } else if key == "notchy-scenarios-v1" {
-                    valid_scenarios(text)
-                } else {
-                    serde_json::from_str::<Value>(text).is_ok()
-                }
-        })
-    {
-        return Err(ApiError::new(400, "Préférence invalide."));
-    }
+    let (key, value) = preference_input(&value)?;
     let mut preferences = state.preferences.lock().await;
     let mut next = preferences.clone();
-    if let Some(text) = value.as_str() {
+    if let Some(text) = value {
         next.insert(key.into(), text.into());
     } else {
         next.remove(key);
     }
-    let destination = state.data.join(".desktop-profile/tauri-preferences.json");
-    let temporary = destination.with_extension("tmp");
-    tokio::fs::write(
-        &temporary,
-        serde_json::to_vec(&next).map_err(|_| ApiError::new(500, "Préférence invalide."))?,
-    )
-    .await?;
-    tokio::fs::rename(&temporary, &destination).await?;
+    persist_preferences(&state.data, &next).await?;
     *preferences = next;
     if key == "notchy-language-v1" {
-        let labels = tray_labels(value.as_str().unwrap_or("fr"));
+        let labels = tray_labels(value.unwrap_or("fr"));
         if let Some(items) = state.tray_items.lock().unwrap().as_ref() {
             for (item, label) in items.iter().zip(labels) {
                 item.set_text(label).map_err(|_| ApiError::new(503, "Menu de Notchy indisponible."))?;
@@ -223,6 +282,85 @@ async fn preference(state: &DesktopState, value: Value) -> Result<Value, ApiErro
         }
     }
     Ok(json!({"ok":true}))
+}
+
+fn native_guard(window:&WebviewWindow,state:&DesktopState)->Result<(),String> {
+    trusted(window,state).then_some(()).ok_or_else(||"Origine refusée.".into())
+}
+fn diagnostic_port(value:Option<u16>)->Result<u16,String> {
+    match value.unwrap_or(notchy::discovery::PORT) {port if port==notchy::discovery::PORT=>Ok(port),_=>Err("Le diagnostic utilise le port LocalSend configuré.".into())}
+}
+fn local_scan_ip()->Result<std::net::Ipv4Addr,String> {
+    notchy::health::local_ipv4().ok_or_else(||"Aucune interface IPv4 privée disponible.".into())
+}
+async fn replace_preferences(state:&DesktopState,next:BTreeMap<String,String>)->Result<Value,String> {
+    // The caller owns the existing preference mutex across read/merge/write.
+    persist_preferences(&state.data,&next).await.map_err(|error|error.message)?;
+    Ok(notchy::settings::snapshot(&next))
+}
+fn refresh_preferences_tray(state:&DesktopState,preferences:&BTreeMap<String,String>)->Result<(),String> {
+    if let Some(items)=state.tray_items.lock().unwrap().as_ref() {
+        for (item,label) in items.iter().zip(tray_labels(preferences.get("notchy-language-v1").map(String::as_str).unwrap_or("fr"))) {
+            item.set_text(label).map_err(|_|"Menu de Notchy indisponible.".to_string())?;
+        }
+    }
+    Ok(())
+}
+#[tauri::command]
+async fn health_run(window:WebviewWindow,state:State<'_,Arc<DesktopState>>,localsend_port:Option<u16>)->Result<Value,String> {
+    native_guard(&window,&state)?; let port=diagnostic_port(localsend_port)?;
+    let spotify=state.services.spotify.command(json!("status")).await.map_err(|error|error.message)?;
+    let status=spotify["status"].as_str().unwrap_or("unknown").to_owned();
+    let report=tokio::task::spawn_blocking(move ||notchy::health::run(port,&status)).await.map_err(|_|"Diagnostic indisponible.".to_string())?;
+    serde_json::to_value(report).map_err(|_|"Diagnostic indisponible.".into())
+}
+#[tauri::command]
+async fn settings_get(window:WebviewWindow,state:State<'_,Arc<DesktopState>>)->Result<Value,String> {
+    native_guard(&window,&state)?; Ok(notchy::settings::snapshot(&*state.preferences.lock().await))
+}
+#[tauri::command]
+async fn settings_set(window:WebviewWindow,state:State<'_,Arc<DesktopState>>,patch:Value)->Result<Value,String> {
+    native_guard(&window,&state)?; let mut preferences=state.preferences.lock().await;
+    let next=notchy::settings::merge(&preferences,&patch).map_err(|error|error.message)?;
+    let result=replace_preferences(&state,next.clone()).await?; *preferences=next; refresh_preferences_tray(&state,&preferences)?; Ok(result)
+}
+#[tauri::command]
+async fn favorites_list(window:WebviewWindow,state:State<'_,Arc<DesktopState>>)->Result<Value,String> {
+    native_guard(&window,&state)?; Ok(json!(notchy::settings::favorites_list(&*state.preferences.lock().await)))
+}
+#[tauri::command]
+async fn favorites_add(window:WebviewWindow,state:State<'_,Arc<DesktopState>>,favorite:Value)->Result<Value,String> {
+    native_guard(&window,&state)?; let mut preferences=state.preferences.lock().await;
+    let next=notchy::settings::favorites_add(&preferences,&favorite).map_err(|error|error.message)?;
+    replace_preferences(&state,next.clone()).await?; *preferences=next;
+    Ok(json!(notchy::settings::favorites_list(&preferences)))
+}
+#[tauri::command]
+async fn discovery_validate(window:WebviewWindow,state:State<'_,Arc<DesktopState>>,address:String)->Result<Value,String> {
+    native_guard(&window,&state)?;let endpoint=notchy::discovery::parse_manual(&address).map_err(|error|error.message)?;
+    Ok(json!({"address":endpoint.to_string(),"ip":endpoint.ip().to_string(),"port":endpoint.port()}))
+}
+#[tauri::command]
+async fn discovery_first_candidates(window:WebviewWindow,state:State<'_,Arc<DesktopState>>)->Result<Value,String> {
+    native_guard(&window,&state)?;let local=local_scan_ip()?;
+    let candidates=notchy::discovery::first_candidates(local,notchy::discovery::PORT).map_err(|error|error.message)?;
+    Ok(json!({"localIpv4":local,"port":notchy::discovery::PORT,"candidates":candidates.iter().map(ToString::to_string).collect::<Vec<_>>(),"verified":false}))
+}
+#[tauri::command]
+async fn discovery_scan(window:WebviewWindow,state:State<'_,Arc<DesktopState>>)->Result<Value,String> {
+    use futures_util::{stream,StreamExt};
+    native_guard(&window,&state)?;let local=local_scan_ip()?;
+    let _scan=state.discovery_scan.try_lock().map_err(|_|"Une recherche locale est déjà en cours.".to_string())?;
+    let candidates=notchy::discovery::scan_subnet(local,notchy::discovery::PORT).await.map_err(|error|error.message)?;
+    let count=candidates.len();let nearby=state.services.nearby.clone();let files=state.services.files.clone();
+    let verified=stream::iter(candidates.into_iter().take(32)).map(|endpoint| {
+        let nearby=nearby.clone();let files=files.clone();async move {
+            tokio::time::timeout(Duration::from_secs(3),nearby.command(json!({"command":"connect","address":endpoint.to_string()}),&files)).await.is_ok_and(|result|result.is_ok())
+        }
+    }).buffer_unordered(8).filter(|accepted|std::future::ready(*accepted)).count().await;
+    let mut snapshot=state.services.nearby.snapshot().await;
+    snapshot["scan"]=json!({"localIpv4":local,"port":notchy::discovery::PORT,"tcpCandidates":count,"handshakesAccepted":verified,"bounded":true});
+    Ok(snapshot)
 }
 async fn open_shelf(state: &DesktopState, id: Value, reveal: bool) -> Result<Value, ApiError> {
     let id = id
@@ -274,6 +412,65 @@ async fn open_shelf(state: &DesktopState, id: Value, reveal: bool) -> Result<Val
     })
     .await
     .map_err(|_| ApiError::new(503, "Ouverture indisponible."))?
+}
+
+fn export_ids(value: Value) -> Result<Vec<String>, ApiError> {
+    let ids: Vec<String> = serde_json::from_value(value).map_err(|_| ApiError::new(400, "Sélection invalide."))?;
+    if ids.is_empty() || ids.len() > notchy::shelf::MAX_FILES || ids.iter().enumerate().any(|(index, id)|
+        !notchy::shelf::valid_id(id) || ids[..index].contains(id)) {
+        return Err(ApiError::new(400, "Sélection invalide."));
+    }
+    Ok(ids)
+}
+fn checked_export_directory(data: &std::path::Path) -> PathBuf {
+    data.join(".desktop-profile").join("downloads")
+}
+async fn export_shelf(window: &WebviewWindow, state: &DesktopState, value: Value) -> Result<Value, ApiError> {
+    let ids = export_ids(value)?;
+    // The UI supplies opaque IDs only; it never chooses an arbitrary output path.
+    let directory = if state.checking {checked_export_directory(&state.data)}
+        else {window.app_handle().path().download_dir().map_err(|_| ApiError::new(503, "Le dossier Téléchargements est indisponible."))?};
+    struct ActiveDownload<'a>(&'a AtomicU64);
+    impl Drop for ActiveDownload<'_> {fn drop(&mut self) {self.0.fetch_sub(1, Ordering::Relaxed);}}
+    state.downloads.fetch_add(1, Ordering::Relaxed);
+    let _active = ActiveDownload(&state.downloads);
+    let mut saved = Vec::new();
+    for id in ids {
+        match state.services.shelf.export_copy(&id, &directory).await {
+            Ok(path) => saved.push(json!({"id":id,"name":path.file_name().unwrap_or_default().to_string_lossy()})),
+            Err(cause) => return Ok(json!({"ok":false,"saved":saved,"error":cause.message})),
+        }
+    }
+    Ok(json!({"ok":true,"saved":saved}))
+}
+#[cfg(test)]
+mod export_selection_tests {
+    use super::{checked_export_directory, export_ids};
+    use serde_json::json;
+    #[test]
+    fn exports_accept_only_nonempty_unique_opaque_ids() {
+        assert_eq!(export_ids(json!(["a".repeat(32), "b".repeat(32)])).unwrap().len(), 2);
+        for invalid in [json!([]),json!(["../secret"]),json!(["a".repeat(32),"a".repeat(32)]),json!({"path":"C:/"}),json!([1]),json!((0..21).map(|id|format!("{id:032x}")).collect::<Vec<_>>())] {
+            assert!(export_ids(invalid).is_err());
+        }
+    }
+    #[tokio::test]
+    async fn native_check_exports_exact_bytes_to_its_isolated_directory_twice() {
+        let fixture = tempfile::tempdir().unwrap();
+        let shelf = notchy::shelf::Shelf::new(fixture.path().join(".shelf")).await.unwrap();
+        let bytes = b"Notchy isolated export fixture";
+        let added = shelf.add_stream("isolated-notes.txt", futures_util::stream::iter([
+            Ok::<_, std::io::Error>(bytes::Bytes::from_static(bytes))
+        ]), Some(bytes.len() as u64)).await.unwrap();
+        let id = added["item"]["id"].as_str().unwrap();
+        let directory = checked_export_directory(fixture.path());
+        for name in ["isolated-notes.txt", "isolated-notes (1).txt"] {
+            let saved = shelf.export_copy(id, &directory).await.unwrap();
+            assert_eq!(saved.file_name().unwrap(), name);
+            assert_eq!(tokio::fs::read(saved).await.unwrap(), bytes);
+        }
+        assert!(shelf.open(id, false).await.is_ok(), "Export preserves the Shelf original");
+    }
 }
 
 #[tauri::command]
@@ -360,6 +557,7 @@ async fn desktop_command(
             }
             "shelf-open" => open_shelf(&state, argument, false).await,
             "shelf-reveal" => open_shelf(&state, argument, true).await,
+            "shelf-export" => export_shelf(&window, &state, argument).await,
             "preference" => preference(&state, argument).await,
             "startup" => {
                 let enabled = argument.as_bool().ok_or_else(|| ApiError::new(400, "Préférence de démarrage invalide."))?;
@@ -379,7 +577,7 @@ async fn desktop_command(
                 if let Ok(size) = window.inner_size() {
                     report["windowSize"] = json!({"width":size.width,"height":size.height});
                 }
-                let finished = report["phase"] == "discreet" || report["phase"] == "error";
+                let finished = report["phase"] == "rest" || report["phase"] == "error";
                 reports.push(report);
                 let pass = reports.iter().any(|r| {
                     r["phase"] == "open"
@@ -393,8 +591,8 @@ async fn desktop_command(
                         && r["body"] == "rgba(0, 0, 0, 0)"
                         && r["errors"].as_array().is_some_and(Vec::is_empty)
                 }) && reports.iter().any(|r| {
-                    r["phase"] == "discreet"
-                        && r["state"] == "discreet"
+                    r["phase"] == "rest"
+                        && r["state"] == "rest"
                         && r["geometry"]["height"] == 10
                         && r["geometry"]["width"] == 128
                         && r["geometry"]["radius"] == 6
@@ -441,7 +639,7 @@ pub fn run() {
     // Window checks use isolated data and must never activate a running user instance.
     let builder=if checking{builder}else{builder.plugin(tauri_plugin_single_instance::init(|app,arguments,_|{if arguments.iter().any(|argument|argument=="--autostart"){return;}if let (Some(window),Some(state))=(app.get_webview_window("main"),app.try_state::<Arc<DesktopState>>()){show(&window,&state,"open");}}))};
     let application=builder
-      .invoke_handler(tauri::generate_handler![desktop_command])
+      .invoke_handler(tauri::generate_handler![desktop_command,health_run,settings_get,settings_set,favorites_list,favorites_add,discovery_validate,discovery_scan,discovery_first_candidates])
       .setup(move|app|{
         let data=data_override.clone().unwrap_or_else(||if checking{std::env::temp_dir().join(format!("notchy-tauri-check-{}",std::process::id()))}else if cfg!(debug_assertions){PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned()}else{app.path().app_data_dir().unwrap()});
         std::fs::create_dir_all(data.join(".desktop-profile"))?;
@@ -449,7 +647,7 @@ pub fn run() {
         let native=packaged;
         let preferences_file=data.join(".desktop-profile/tauri-preferences.json");
         let preferences:BTreeMap<String,String>=match std::fs::read(&preferences_file){Ok(bytes)=>{if bytes.len()>1024*1024{return Err("Préférences trop volumineuses.".into());}serde_json::from_slice(&bytes)?},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>BTreeMap::new(),Err(error)=>return Err(error.into())};
-        let preferences=preferences.into_iter().filter(|(key,value)|KEYS.contains(&key.as_str())&&value.len()<=262144&&(key!="notchy-language-v1"||valid_language(value))&&(key!="notchy-scenarios-v1"||valid_scenarios(value))).collect::<BTreeMap<_,_>>();
+        let preferences=restore_preferences(preferences);
         let startup=Arc::new(Startup::new(&data,&std::env::current_exe()?,data_override.as_deref(),std::env::args().any(|argument|argument=="--localsend"),cfg!(windows)&&!cfg!(debug_assertions)&&!checking));
         let startup_status=startup.initialize(data_override.is_none());
         let labels=tray_labels(preferences.get("notchy-language-v1").map(String::as_str).unwrap_or("fr"));
@@ -462,7 +660,7 @@ pub fn run() {
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
         let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"localSendActive":nearby_active,"startup":startup_status});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
-        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:AtomicBool::new(false),checking,reports:tokio::sync::Mutex::new(Vec::new())});
+        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:AtomicBool::new(false),checking,reports:tokio::sync::Mutex::new(Vec::new())});
         app.manage(state.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();
         let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}/?desktop=1").parse()?))

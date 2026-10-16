@@ -56,6 +56,8 @@ const MAX_JSON: usize = 65536;
 const MAX_OFFER_JSON: usize = 1024 * 1024;
 const MAX_PEERS: usize = 64;
 const PEER_TTL: u64 = 90000;
+const FIRST_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 
 fn now() -> u64 {
     SystemTime::now()
@@ -105,6 +107,19 @@ fn is_lan(address: IpAddr, allow_loopback: bool) -> bool {
         IpAddr::V6(v6) => v6.to_ipv4_mapped(),
     };
     v4.is_some_and(|ip| ip.is_private() || ip.is_link_local() || allow_loopback && ip.is_loopback())
+}
+
+fn manual_address(value: &str, allow_loopback: bool) -> Option<SocketAddr> {
+    if value.len() > 64 || value != value.trim() {
+        return None;
+    }
+    let address = value.parse::<SocketAddr>().ok().or_else(|| {
+        value
+            .parse::<IpAddr>()
+            .ok()
+            .map(|ip| SocketAddr::new(ip, PORT))
+    })?;
+    (address.port() != 0 && is_lan(address.ip(), allow_loopback)).then_some(address)
 }
 
 fn safe_name(name: &str) -> bool {
@@ -313,19 +328,20 @@ impl Peer {
     }
 
     fn public(&self) -> Value {
-        json!({"id":self.id,"alias":self.alias,"deviceType":self.device_type,"deviceModel":self.device_model,"secure":self.protocol == "https"})
+        let identity = digest(format!("{}:{}", self.protocol, self.fingerprint).as_bytes());
+        json!({"id":self.id,"identity":identity,"alias":self.alias,"deviceType":self.device_type,"deviceModel":self.device_model,"secure":self.protocol == "https"})
     }
     fn url(&self, action: &str) -> String {
         format!(
-            "{}://{}:{}{}{}",
-            self.protocol, self.address, self.port, PREFIX, action
+            "{}://{}{}{}",
+            self.protocol, SocketAddr::new(self.address, self.port), PREFIX, action
         )
     }
 }
 
 #[derive(Debug)]
 struct PinnedCertificate {
-    fingerprint: String,
+    fingerprint: Option<String>,
     provider: Arc<rustls::crypto::CryptoProvider>,
 }
 
@@ -338,7 +354,11 @@ impl ServerCertVerifier for PinnedCertificate {
         _: &[u8],
         _: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        if digest(end_entity.as_ref()) != self.fingerprint {
+        if self
+            .fingerprint
+            .as_ref()
+            .is_some_and(|fingerprint| digest(end_entity.as_ref()) != *fingerprint)
+        {
             return Err(rustls::Error::General(
                 "LocalSend certificate identity changed".into(),
             ));
@@ -441,6 +461,7 @@ struct ClientFingerprint(String);
 struct ConnectionService<S> {
     inner: S,
     fingerprint: Option<ClientFingerprint>,
+    received_request: Arc<AtomicBool>,
 }
 impl<B, S> tower::Service<axum::http::Request<B>> for ConnectionService<S>
 where
@@ -453,6 +474,7 @@ where
         self.inner.poll_ready(context)
     }
     fn call(&mut self, mut request: axum::http::Request<B>) -> Self::Future {
+        self.received_request.store(true, Ordering::Release);
         if let Some(fingerprint) = self.fingerprint.clone() {
             request.extensions_mut().insert(fingerprint);
         }
@@ -460,31 +482,91 @@ where
     }
 }
 
-struct ConnectionStream {
-    inner: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+struct ConnectionStream<S> {
+    inner: S,
     _permit: OwnedSemaphorePermit,
+    first_request: Option<Arc<AtomicBool>>,
+    deadline: Pin<Box<tokio::time::Sleep>>,
 }
-impl AsyncRead for ConnectionStream {
+impl<S> ConnectionStream<S> {
+    fn new(inner: S, permit: OwnedSemaphorePermit, received_request: Arc<AtomicBool>) -> Self {
+        Self {
+            inner,
+            _permit: permit,
+            first_request: Some(received_request),
+            deadline: Box::pin(tokio::time::sleep(FIRST_REQUEST_TIMEOUT)),
+        }
+    }
+
+    fn poll_deadline(&mut self, context: &mut Context<'_>) -> io::Result<()> {
+        if self
+            .first_request
+            .as_ref()
+            .is_some_and(|received| received.load(Ordering::Acquire))
+        {
+            self.first_request = None;
+            self.activity();
+        }
+        if self.deadline.as_mut().poll(context).is_ready() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "LocalSend connection timed out",
+            ));
+        }
+        Ok(())
+    }
+
+    fn activity(&mut self) {
+        // Only a complete first request ends the absolute protocol/header deadline.
+        if self.first_request.is_none() {
+            self.deadline
+                .as_mut()
+                .reset(tokio::time::Instant::now() + CONNECTION_IDLE_TIMEOUT);
+        }
+    }
+}
+impl<S: AsyncRead + Unpin> AsyncRead for ConnectionStream<S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         context: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(context, buffer)
+        if let Err(error) = self.poll_deadline(context) {
+            return Poll::Ready(Err(error));
+        }
+        let filled = buffer.filled().len();
+        let result = Pin::new(&mut self.inner).poll_read(context, buffer);
+        if matches!(result, Poll::Ready(Ok(()))) && buffer.filled().len() > filled {
+            self.activity();
+        }
+        result
     }
 }
-impl AsyncWrite for ConnectionStream {
+impl<S: AsyncWrite + Unpin> AsyncWrite for ConnectionStream<S> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         context: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(context, bytes)
+        if let Err(error) = self.poll_deadline(context) {
+            return Poll::Ready(Err(error));
+        }
+        let result = Pin::new(&mut self.inner).poll_write(context, bytes);
+        if matches!(result, Poll::Ready(Ok(length)) if length > 0) {
+            self.activity();
+        }
+        result
     }
     fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Err(error) = self.poll_deadline(context) {
+            return Poll::Ready(Err(error));
+        }
         Pin::new(&mut self.inner).poll_flush(context)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Err(error) = self.poll_deadline(context) {
+            return Poll::Ready(Err(error));
+        }
         Pin::new(&mut self.inner).poll_shutdown(context)
     }
 }
@@ -496,7 +578,7 @@ struct LocalAcceptor {
     allow_loopback: bool,
 }
 impl<S: Send + 'static> Accept<tokio::net::TcpStream, S> for LocalAcceptor {
-    type Stream = ConnectionStream;
+    type Stream = ConnectionStream<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>;
     type Service = ConnectionService<S>;
     type Future = Pin<Box<dyn Future<Output = io::Result<(Self::Stream, Self::Service)>> + Send>>;
     fn accept(&self, stream: tokio::net::TcpStream, service: S) -> Self::Future {
@@ -524,14 +606,13 @@ impl<S: Send + 'static> Accept<tokio::net::TcpStream, S> for LocalAcceptor {
                 .peer_certificates()
                 .and_then(|certs| certs.first())
                 .map(|certificate| ClientFingerprint(digest(certificate.as_ref())));
+            let received_request = Arc::new(AtomicBool::new(false));
             Ok((
-                ConnectionStream {
-                    inner: stream,
-                    _permit: permit,
-                },
+                ConnectionStream::new(stream, permit, received_request.clone()),
                 ConnectionService {
                     inner: service,
                     fingerprint,
+                    received_request,
                 },
             ))
         })
@@ -751,7 +832,14 @@ impl LocalSend {
         tools: &Arc<FileTools>,
     ) -> Result<Value, ApiError> {
         if !valid_command(&value) {
-            return Err(ApiError::new(400, "Commande LocalSend invalide."));
+            return Err(ApiError::new(
+                400,
+                if value["command"] == "connect" {
+                    "Adresse IP locale ou port invalide."
+                } else {
+                    "Commande LocalSend invalide."
+                },
+            ));
         }
         if self.disposed.load(Ordering::Acquire) {
             return Ok(self.snapshot_error("LocalSend est fermé.").await);
@@ -762,6 +850,7 @@ impl LocalSend {
                 self.announce(true).await;
                 Ok(self.snapshot().await)
             }
+            "connect" => self.connect(value["address"].as_str().unwrap()).await,
             "stop" => {
                 self.stop().await;
                 Ok(self.snapshot().await)
@@ -788,7 +877,11 @@ impl LocalSend {
     }
 
     async fn remember(&self, value: &Value, address: IpAddr) -> Option<Peer> {
-        let mut peer = Peer::parse(value, address, self.options.allow_loopback, false)?;
+        let peer = Peer::parse(value, address, self.options.allow_loopback, false)?;
+        self.remember_peer(peer).await
+    }
+
+    async fn remember_peer(&self, mut peer: Peer) -> Option<Peer> {
         if peer.fingerprint == self.identity.fingerprint {
             return None;
         }
@@ -807,9 +900,18 @@ impl LocalSend {
     }
 
     fn client(&self, peer: &Peer) -> Result<reqwest::Client, ApiError> {
+        self.peer_client(peer, Some(peer.fingerprint.clone()))
+    }
+
+    fn peer_client(
+        &self,
+        peer: &Peer,
+        fingerprint: Option<String>,
+    ) -> Result<reqwest::Client, ApiError> {
         let mut builder = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
+            .tls_info(true)
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(90))
             .pool_max_idle_per_host(0);
@@ -826,7 +928,7 @@ impl LocalSend {
                 .map_err(|_| ApiError::new(503, "TLS indisponible."))?
                 .dangerous()
                 .with_custom_certificate_verifier(Arc::new(PinnedCertificate {
-                    fingerprint: peer.fingerprint.clone(),
+                    fingerprint,
                     provider,
                 }))
                 .with_client_auth_cert(certs, key)
@@ -836,6 +938,56 @@ impl LocalSend {
         builder
             .build()
             .map_err(|_| ApiError::new(503, "Client LocalSend indisponible."))
+    }
+
+    async fn connect(self: &Arc<Self>, value: &str) -> Result<Value, ApiError> {
+        let address = manual_address(value, self.options.allow_loopback).ok_or_else(|| {
+            ApiError::new(400, "Indique une adresse IP locale et un port valide, par exemple 192.168.1.42:53317.")
+        })?;
+        self.start().await?;
+        let endpoint = Peer {
+            id: token(),
+            alias: String::new(),
+            device_type: "desktop".into(),
+            device_model: None,
+            protocol: "https".into(),
+            fingerprint: String::new(),
+            address: address.ip(),
+            port: address.port(),
+            seen_at: now(),
+        };
+        // Bootstrap only this user-selected numeric endpoint; subsequent sends pin its certificate.
+        let response = self
+            .peer_client(&endpoint, None)?
+            .post(endpoint.url("register"))
+            .json(&self.information())
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|_| ApiError::new(503, "Cet appareil LocalSend est indisponible. Vérifie l’IP, le port et le même réseau Wi-Fi."))?;
+        if response.status() != StatusCode::OK {
+            return Err(ApiError::new(503, "Cet appareil a refusé la connexion LocalSend."));
+        }
+        let certificate = response
+            .extensions()
+            .get::<reqwest::tls::TlsInfo>()
+            .and_then(|info| info.peer_certificate())
+            .map(digest)
+            .ok_or_else(|| ApiError::new(503, "L’identité TLS de cet appareil est indisponible."))?;
+        let information = read_response(response).await?;
+        let mut peer = Peer::parse(
+            &information,
+            address.ip(),
+            self.options.allow_loopback,
+            false,
+        )
+        .filter(|peer| peer.protocol == "https" && peer.fingerprint == certificate)
+        .ok_or_else(|| ApiError::new(503, "L’identité LocalSend ne correspond pas au certificat de cet appareil."))?;
+        peer.port = address.port();
+        self.remember_peer(peer)
+            .await
+            .ok_or_else(|| ApiError::new(409, "Cet appareil ne peut pas être ajouté à la recherche actuelle."))?;
+        Ok(self.snapshot().await)
     }
 
     async fn start(self: &Arc<Self>) -> Result<(), ApiError> {
@@ -925,7 +1077,7 @@ impl LocalSend {
                 .http1()
                 .timer(hyper_util::rt::TokioTimer::new())
                 .max_headers(30)
-                .header_read_timeout(Duration::from_secs(15));
+                .header_read_timeout(FIRST_REQUEST_TIMEOUT);
             if server
                 .serve(app.into_make_service_with_connect_info::<SocketAddr>())
                 .await
@@ -1584,6 +1736,12 @@ pub fn valid_command(value: &Value) -> bool {
     };
     match value["command"].as_str().unwrap_or_default() {
         "discover" | "stop" => object.len() == 1,
+        "connect" => {
+            object.len() == 2
+                && value["address"]
+                    .as_str()
+                    .is_some_and(|address| manual_address(address, false).is_some())
+        }
         "accept" | "reject" | "cancel" => {
             object.len() == 2 && value["id"].as_str().is_some_and(opaque)
         }
@@ -2096,6 +2254,104 @@ async fn receive_file(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn idle_protocol_detection_releases_the_connection_slot() {
+        for prefix in [b"".as_slice(), b"P".as_slice()] {
+            let connections = Arc::new(Semaphore::new(1));
+            let (input, mut peer) = tokio::io::duplex(64);
+            let mut stream = ConnectionStream::new(
+                input,
+                connections.clone().acquire_owned().await.unwrap(),
+                Arc::new(AtomicBool::new(false)),
+            );
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(100);
+            stream.deadline.as_mut().reset(deadline);
+            if !prefix.is_empty() {
+                peer.write_all(prefix).await.unwrap();
+                stream.read_exact(&mut [0]).await.unwrap();
+                assert_eq!(stream.deadline.deadline(), deadline);
+            }
+            let pending = tokio::spawn(async move {
+                stream.read(&mut [0]).await.unwrap_err()
+            });
+            let error = tokio::time::timeout(Duration::from_secs(1), pending)
+                .await
+                .expect("idle protocol detection kept a connection slot")
+                .unwrap();
+            assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+            assert_eq!(connections.available_permits(), 1);
+            drop(peer);
+        }
+    }
+
+    #[tokio::test]
+    async fn first_request_allows_consent_and_refreshes_streaming_inactivity() {
+        let connections = Arc::new(Semaphore::new(1));
+        let (input, mut peer) = tokio::io::duplex(64);
+        let received_request = Arc::new(AtomicBool::new(false));
+        let mut stream = ConnectionStream::new(
+            input,
+            connections.clone().acquire_owned().await.unwrap(),
+            received_request.clone(),
+        );
+        let mut service = ConnectionService {
+            inner: Router::<()>::new(),
+            fingerprint: None,
+            received_request,
+        };
+        tower::Service::call(&mut service, Request::new(Body::empty()))
+            .await
+            .unwrap();
+        stream.deadline.as_mut().reset(tokio::time::Instant::now());
+        let response = b"consent response";
+        stream.write_all(response).await.unwrap();
+        let mut received = vec![0; response.len()];
+        peer.read_exact(&mut received).await.unwrap();
+        assert_eq!(received, response);
+        assert!(stream.first_request.is_none());
+        assert!(CONNECTION_IDLE_TIMEOUT > Options::default().consent);
+
+        let short_deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        stream.deadline.as_mut().reset(short_deadline);
+        peer.write_all(b"upload chunk").await.unwrap();
+        stream.read_exact(&mut [0; 12]).await.unwrap();
+        assert!(stream.deadline.deadline() > short_deadline + Duration::from_secs(80));
+        stream.deadline.as_mut().reset(short_deadline);
+        stream.write_all(b"reply").await.unwrap();
+        assert!(stream.deadline.deadline() > short_deadline + Duration::from_secs(80));
+        drop(stream);
+        assert_eq!(connections.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn established_connections_release_the_slot_when_activity_stops() {
+        let connections = Arc::new(Semaphore::new(1));
+        let (input, _peer) = tokio::io::duplex(64);
+        let mut stream = ConnectionStream::new(
+            input,
+            connections.clone().acquire_owned().await.unwrap(),
+            Arc::new(AtomicBool::new(true)),
+        );
+        futures_util::future::poll_fn(|context| {
+            stream.poll_deadline(context).unwrap();
+            Poll::Ready(())
+        })
+        .await;
+        stream
+            .deadline
+            .as_mut()
+            .reset(tokio::time::Instant::now() + Duration::from_millis(100));
+        let pending = tokio::spawn(async move {
+            stream.read(&mut [0]).await.unwrap_err()
+        });
+        let error = tokio::time::timeout(Duration::from_secs(1), pending)
+            .await
+            .expect("idle established connection kept a connection slot")
+            .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(connections.available_permits(), 1);
+    }
+
     async fn fixture() -> (tempfile::TempDir, Arc<LocalSend>, reqwest::Client, String) {
         let directory = tempfile::Builder::new()
             .prefix("notchy-rust-localsend-")
@@ -2194,6 +2450,112 @@ mod tests {
     }
 
     #[test]
+    fn manual_addresses_are_numeric_local_endpoints_without_url_escape() {
+        for address in [
+            "10.0.0.2",
+            "172.16.0.8:53317",
+            "192.168.1.2:1",
+            "169.254.2.8:65535",
+            "[::ffff:192.168.1.2]:53317",
+        ] {
+            assert!(manual_address(address, false).is_some(), "{address}");
+            assert!(valid_command(&json!({"command":"connect","address":address})));
+        }
+        assert_eq!(manual_address("10.0.0.2", false).unwrap().port(), PORT);
+        for address in [
+            "", "localhost", "phone.local", "https://192.168.1.2", "192.168.1.2/path",
+            "192.168.1.2:53317?x=1", "name@192.168.1.2", "192.168.1.2#x",
+            "192.168.1.2:0", "192.168.1.2:65536", "192.168.1.2:-1", "192.168.1.2:http",
+            " 192.168.1.2", "192.168.1.2 ", "8.8.8.8", "172.32.0.1", "127.0.0.1",
+            "::1", "[fe80::1%3]:53317", "0.0.0.0", "224.0.0.167", "255.255.255.255",
+        ] {
+            assert!(manual_address(address, false).is_none(), "{address}");
+            assert!(!valid_command(&json!({"command":"connect","address":address})));
+        }
+        assert!(!valid_command(&json!({"command":"connect","address":"10.0.0.2","extra":true})));
+        assert!(manual_address("127.0.0.1:53317", true).is_some());
+    }
+
+    #[test]
+    fn favorite_identity_tracks_the_certificate_instead_of_presence_or_alias() {
+        let mut peer = Peer::parse(
+            &json!({"version":"2.2","protocol":"https","port":53317,"fingerprint":"a".repeat(64),"alias":"First alias"}),
+            "192.168.1.2".parse().unwrap(),
+            false,
+            false,
+        )
+        .unwrap();
+        let identity = peer.public()["identity"].clone();
+        assert_eq!(identity.as_str().unwrap().len(), 64);
+        peer.id = token();
+        peer.alias = "Renamed device".into();
+        peer.address = "192.168.1.3".parse().unwrap();
+        peer.port = 12345;
+        assert_eq!(peer.public()["identity"], identity);
+        peer.fingerprint = "b".repeat(64);
+        assert_ne!(peer.public()["identity"], identity);
+        peer.address = "::ffff:192.168.1.3".parse().unwrap();
+        assert_eq!(peer.url("register"), "https://[::ffff:192.168.1.3]:12345/api/localsend/v2/register");
+    }
+
+    #[tokio::test]
+    async fn manual_connection_registers_a_real_tls_peer_with_stable_identity() {
+        let (_sender_directory, sender, _, _) = fixture().await;
+        let (_receiver_directory, receiver, _, _) = fixture().await;
+        let address = format!("127.0.0.1:{}", receiver.port.load(Ordering::Acquire));
+        let state = sender.connect(&address).await.unwrap();
+        assert_eq!(state["peers"].as_array().unwrap().len(), 1);
+        let first = state["peers"][0].clone();
+        assert_eq!(first["secure"], true);
+        assert!(receiver.state.lock().await.peers.values().any(|peer| peer.fingerprint == sender.identity.fingerprint));
+        let peer = sender.state.lock().await.peers.values().next().unwrap().clone();
+        assert_eq!(peer.fingerprint, receiver.identity.fingerprint);
+        assert_eq!(peer.port as u64, receiver.port.load(Ordering::Acquire));
+        sender.stop().await;
+        let reconnected = sender.connect(&address).await.unwrap();
+        assert_eq!(reconnected["peers"][0]["identity"], first["identity"]);
+        assert_ne!(reconnected["peers"][0]["id"], first["id"]);
+        sender.dispose().await;
+        receiver.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn manual_connection_never_adds_a_peer_with_a_mismatched_tls_identity() {
+        let (_sender_directory, sender, _, _) = fixture().await;
+        let (_receiver_directory, receiver, _, _) = fixture().await;
+        let mut information = receiver.information();
+        information["fingerprint"] = if receiver.identity.fingerprint == "a".repeat(64) {
+            "b".repeat(64)
+        } else {
+            "a".repeat(64)
+        }.into();
+        let app = Router::new().route(
+            "/api/localsend/v2/register",
+            axum::routing::post(move || {
+                let information = information.clone();
+                async move { axum::Json(information) }
+            }),
+        );
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = axum_server::Handle::new();
+        let config = receiver.identity.server_config().await.unwrap();
+        let server = tokio::spawn(
+            axum_server::from_tcp_rustls(listener, config)
+                .handle(handle.clone())
+                .serve(app.into_make_service()),
+        );
+        let failure = sender.connect(&address.to_string()).await.unwrap_err();
+        assert_eq!(failure.status, 503);
+        assert!(failure.message.contains("identité"));
+        assert!(sender.snapshot().await["peers"].as_array().unwrap().is_empty());
+        handle.shutdown();
+        server.await.unwrap().unwrap();
+        sender.dispose().await;
+        receiver.dispose().await;
+    }
+
+    #[test]
     fn validates_lan_names_and_metadata_without_rejecting_duplicate_basenames() {
         for address in [
             "10.0.0.2",
@@ -2271,7 +2633,7 @@ mod tests {
     #[test]
     fn pinned_tls_verifier_rejects_changed_certificate_before_application_data() {
         let verifier = PinnedCertificate {
-            fingerprint: digest(b"expected certificate"),
+            fingerprint: Some(digest(b"expected certificate")),
             provider: Arc::new(rustls::crypto::ring::default_provider()),
         };
         let server = ServerName::try_from("localhost").unwrap();

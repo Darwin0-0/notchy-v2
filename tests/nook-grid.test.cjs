@@ -113,11 +113,11 @@ test('four core destinations stay accessible while Nook uses the shared split Fo
   enabled=['music']; scope.render();
   assert.deepEqual(buttons.filter(button=>button.disabled).map(button=>button.dataset.islandPage),['focus','tasks']);
   assert.equal(buttons.find(button=>button.dataset.islandPage==='essential').disabled,false);
-  scope.closingTo='discreet'; scope.render(); assert.equal(scope.islandFooter.inert,true,'the outgoing navigation cannot accept clicks');
+  scope.closingTo='rest'; scope.render(); assert.equal(scope.islandFooter.inert,true,'the outgoing navigation cannot accept clicks');
   scope.closingTo=null; scope.view='tasks'; scope.render(); assert.equal(presentations.at(-1),'tasks','the direct task route keeps its own presentation');
 });
 
-function scenarioFixture({page='music',value,enabled=[...installed],state='discreet'}={}) {
+function scenarioFixture({page='music',value,enabled=[...installed],state='rest'}={}) {
   let clock=0, serial=0, activity={focusActive:false,focusRunning:false,focusPhase:'work',focusSession:1,musicPlaying:false,transferActive:false};
   const timers=new Map(), changes=[], renders=[], saves=[];
   const scope={islandPage:page,scenarioReturnPage:null,state,view:'nook',isModuleEnabled:id=>enabled.includes(id),
@@ -139,7 +139,7 @@ test('manual scenarios choose a Nook template without waking a closed island or 
     const enabled=[...installed], before=JSON.stringify(enabled), f=scenarioFixture({page:'tasks',enabled});
     assert.equal(f.controller.pick(scenario),true);
     assert.equal(f.scope.islandPage,page); assert.equal(f.renders.at(-1),page);
-    assert.equal(f.scope.state,'discreet'); assert.equal(JSON.stringify(enabled),before);
+    assert.equal(f.scope.state,'rest'); assert.equal(JSON.stringify(enabled),before);
     f.controller.dispose();
   }
   for(const [enabled,page] of [[['focus','weather'],'focus'],[['weather','shelf'],'essential']]) {
@@ -151,10 +151,10 @@ test('automatic Focus and Undo restore the actual prior Nook page even when the 
   const f=scenarioFixture({page:'tasks'});
   f.activity({focusActive:true,focusRunning:true});
   assert.equal(f.controller.getPreferences().selected,'focus'); assert.equal(f.scope.islandPage,'focus');
-  assert.equal(f.scope.scenarioReturnPage,'tasks'); assert.equal(f.scope.state,'discreet');
+  assert.equal(f.scope.scenarioReturnPage,'tasks'); assert.equal(f.scope.state,'rest');
   f.advance(4999); assert.equal(f.controller.undo(),true);
   assert.equal(f.controller.getPreferences().selected,null); assert.equal(f.scope.islandPage,'tasks');
-  assert.equal(f.scope.scenarioReturnPage,null); assert.equal(f.renders.at(-1),'tasks'); assert.equal(f.scope.state,'discreet');
+  assert.equal(f.scope.scenarioReturnPage,null); assert.equal(f.renders.at(-1),'tasks'); assert.equal(f.scope.state,'rest');
   f.controller.dispose();
 });
 
@@ -166,20 +166,20 @@ test('a manual scenario supersedes an automatic return page and preference-only 
   const preferences=f.controller.getPreferences(), renderCount=f.renders.length;
   preferences.mode='manual'; f.controller.configure(preferences);
   assert.equal(f.scope.islandPage,'essential'); assert.equal(f.renders.length,renderCount,'changing mode alone does not replace the displayed template');
-  assert.equal(f.scope.state,'discreet'); f.controller.dispose();
+  assert.equal(f.scope.state,'rest'); f.controller.dispose();
 });
 
 test('a persisted scenario is mapped before the first Nook render without opening or rewriting preferences', () => {
   for(const [selected,page] of [['focus','focus'],['ambience','music'],['day','essential'],['complete','essential'],['minimal','music'],[null,'music']]) {
     const renders=[],saves=[],timers=new Map();let serial=0;
-    const scope={createScenarioController,scenarioPreferences:{mode:'manual',selected},scenarioController:null,islandPage:'music',state:'discreet',
+    const scope={createScenarioController,scenarioPreferences:{mode:'manual',selected},scenarioController:null,islandPage:'music',state:'rest',
       scenarioStorageKey:'test-scenario-preferences',scenarioActivity:()=>({}),configuredModuleOrder:()=>[...installed],scenarioInteracting:()=>false,
       isModuleEnabled:id=>installed.includes(id),scenarioChanged(){assert.fail('restoration does not apply a new scenario');},
       window:{setTimeout(callback,delay){timers.set(++serial,{callback,delay});return serial;},clearTimeout:id=>timers.delete(id),localStorage:{setItem:(key,value)=>saves.push([key,value])}},
       renderScenarios(){},renderAppearance(){},renderHomeLayout(){renders.push(scope.islandPage);},renderModules(){},renderFocus(){},renderFiles(){},renderWeather(){}};
     vm.runInNewContext(productionSection('  function scenarioNookPage(','  function scenarioChanged(')+
-      productionSection('  scenarioController = createScenarioController({value: scenarioPreferences,',"  setState('discreet');"),scope);
-    assert.deepEqual(renders,[page]); assert.equal(scope.state,'discreet'); assert.equal(scope.scenarioController.getPreferences().selected,selected);
+      productionSection('  scenarioController = createScenarioController({value: scenarioPreferences,',"  setState('rest');"),scope);
+    assert.deepEqual(renders,[page]); assert.equal(scope.state,'rest'); assert.equal(scope.scenarioController.getPreferences().selected,selected);
     assert.deepEqual(saves,[]); assert.equal(timers.size,0); scope.scenarioController.dispose();
   }
 });
@@ -207,7 +207,7 @@ function headerNavigationFixture({view='nook',page='tasks'}={}) {
     modulePlacementPlan,scenarioModulePlan,nookGridPlan,
     renderIslandNavigation(){},renderMenuSelection(){},renderHomeLayout(){renders.push(Array.from(scope.getHomeSlots()));},
     musicLifecycle(){},renderFocus(){},renderShelf(){},renderFiles(){},filesLifecycle(){},renderWeather(){},weatherLifecycle(){},
-    renderSettings(){},renderScenarios(){},renderModules(){},nearbyLifecycle(){},renderModuleFeedback(){},renderLocalSend(){},update(){},
+    renderExperience(){},renderSettings(){},renderScenarios(){},renderModules(){},nearbyLifecycle(){},renderModuleFeedback(){},renderLocalSend(){},update(){},
     setState(){assert.fail('header navigation must not resize or close the panel');},motionEnabled:()=>false,
     activityScene:{promote(){assert.fail('the Tasks destination must not promote another module');}}};
   vm.runInNewContext(productionSection('  function getHomeSlots() {','  function getModuleOrder()')+
@@ -248,7 +248,7 @@ test('returning to a visible Shelf summary reloads an invalidated file cache onc
     toggle:{},menu:{},panel:{setAttribute(){}},byId:()=>({}),getModuleEditorActive:()=>false,builtinVisible:()=>false,
     getHomeSlots:()=>['weather','shelf',null,null],scenarioController:null,
     renderIslandNavigation(){},renderMenuSelection(){},renderHomeLayout(){},musicLifecycle(){},renderFocus(){},renderShelf(){},renderFiles(){},filesLifecycle(){},
-    renderWeather(){},weatherLifecycle(){},renderSettings(){},renderScenarios(){},renderModules(){},nearbyLifecycle(){},renderModuleFeedback(){},renderLocalSend(){},update(){},
+    renderWeather(){},weatherLifecycle(){},renderExperience(){},renderSettings(){},renderScenarios(){},renderModules(){},nearbyLifecycle(){},renderModuleFeedback(){},renderLocalSend(){},update(){},
     loadShelf(){loads.push('shelf');scope.shelfLoaded=true;}};
   vm.runInNewContext(productionSection('  function selectViewButton(','  function renderMenuSelection('),scope);
   scope.selectViewButton({dataset:{view:'nook'}});

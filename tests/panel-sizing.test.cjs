@@ -18,7 +18,7 @@ function fixture() {
   const home = {dataset: {}, style: {setProperty(name, value) {homeProperties[name] = value;}}};
   const context = {
     ISLAND_CONFIG, closedBandSize, homeModuleLayout, nookGridPlan, shape, islandPage:'music',
-    disposed: false, state: 'open', view: 'music', closingTo: null, fileDragging: false, editorActive: false,
+    disposed: false, state: 'open', view: 'music', closingTo: null, fileDragging: false, editorActive: false, ia: {render() {}},
     musicActive: false, focusActive: false, transferActive: false, animations: false,
     appearance: {format: 'balanced', radius: 18}, welcomeReady: false, welcomeStage: 'welcome', moduleFeedback: null,
     window: {innerWidth: 1280, innerHeight: 800, performance: {now: () => 10}, cancelAnimationFrame() {}, requestAnimationFrame: () => 1},
@@ -84,7 +84,7 @@ test('Compact, Standard and Large formats change only the bounded content width'
       assert.equal(f.context.expandedLayer.style.height,'324px');
     }
     f.context.window.innerWidth=390;
-    assert.equal(f.run().width,350,'a selected format never overrides the available screen width');
+    assert.equal(f.run().width,358,'a selected format never overrides the available screen width');
     f.context.window.innerWidth=1280;
     assertOpenSize(f.run(),'restored ' + format,width);
   }
@@ -99,16 +99,17 @@ test('header, content, bottom inset and core navigation share one explicit heigh
     assert.equal(f.context.menu.hidden, false, view + ' header remains reachable');
     assert.equal(f.context.menu.inert, false, view + ' header remains interactive');
     const body = parseFloat(f.properties['--panel-height']);
-    assert.equal(body, core ? 224 : 256, view + ' body');
+    assert.equal(body, 260, view + ' body');
     assert.equal(f.properties['--island-body-height'], body + 'px');
-    assert.equal(body + value.band + 20 + (core ? 32 : 0), value.height, view + ' content cannot overlap the footer');
+    assert.equal(body + value.band + 16, value.height, view + ' content fits without a parallel footer navigation');
+    assert.equal(f.context.islandFooter.hidden,true);
   }
   f.context.view = 'nook'; f.context.editorActive = true;
   f.context.homeLayout = {mode:'activities',items:[{id:'music'},{id:'focus'},{id:'weather'}]};
   assert.equal(f.run().band, 48);
   assert.equal(f.run().height,324,'the editor never inherits the previous three-card scene height');
   assert.equal(f.properties['--island-header-height'],'48px','navigation keeps its common header height while editing');
-  assert.equal(f.properties['--panel-height'], '256px', 'the module editor does not reserve core navigation');
+  assert.equal(f.properties['--panel-height'], '260px', 'the module editor does not reserve core navigation');
 });
 
 test('stored corner preferences map to restrained radii shared by the painted and native surface', () => {
@@ -133,7 +134,7 @@ test('the open navigation keeps the same header height and side inset across sce
   const assertHeader = label => {
     f.run();
     assert.equal(f.properties['--island-header-height'], '48px', label + ' header height');
-    assert.equal(f.properties['--island-side'], '20px', label + ' side inset');
+    assert.equal(f.properties['--island-side'], '16px', label + ' side inset');
     assert.equal(f.context.menu.hidden, false, label + ' navigation visible');
     assert.equal(f.context.menu.inert, false, label + ' navigation interactive');
   };
@@ -147,7 +148,7 @@ test('the open navigation keeps the same header height and side inset across sce
   for (const view of ['music','focus','tasks','weather','tray','settings','scenarios','files']) {
     f.context.view = view; assertHeader(view);
   }
-  assert.match(css, /\.notch\s+#notch-menu\s*\{[^}]*height:\s*var\(--island-header-height,48px\);[^}]*padding:\s*8px\s+var\(--island-side,20px\);/, 'navigation uses one stable position for every open route');
+  assert.match(css, /\.notch\s+#notch-menu\s*\{[^}]*height:\s*var\(--island-header-height,var\(--measure-48-px\)\);[^}]*padding:\s*var\(--space-2\)\s+var\(--island-side,var\(--space-5\)\);/, 'navigation uses one stable position for every open route through shared tokens');
 });
 
 test('welcome, LocalSend and a file drop share the island without an unrelated header', () => {
@@ -157,15 +158,15 @@ test('welcome, LocalSend and a file drop share the island without an unrelated h
     f.context.welcomeStage = stage;
     const value = f.run();
     assert.equal(value.width,width,stage); assert.equal(value.height,height,stage); assert.equal(value.radius,radius,stage); assert.equal(value.band,0,stage);
-    assert.equal(f.properties['--panel-height'], Math.max(0,height - 20) + 'px',stage);
+    assert.equal(f.properties['--panel-height'], Math.max(0,height - 16) + 'px',stage);
     assert.equal(f.context.menu.hidden, true); assert.equal(f.context.menu.inert, true);
   }
   f.context.view = 'localsend'; const localSend = f.run();
   assertOpenSize(localSend,'LocalSend'); assert.equal(localSend.band,0);
-  assert.equal(f.properties['--panel-height'],'304px');
+  assert.equal(f.properties['--panel-height'],'308px');
   f.context.view = 'tray'; f.context.editorActive = true; f.context.fileDragging = true;
   const drop = f.run(); assertOpenSize(drop, 'file drop'); assert.equal(drop.band, 0);
-  assert.equal(f.properties['--panel-height'], '304px');
+  assert.equal(f.properties['--panel-height'], '308px');
   assert.equal(f.context.menu.hidden, true); assert.equal(f.context.menu.inert, true);
   f.context.fileDragging = false; f.context.editorActive = false; f.context.view = 'settings';
   assertOpenSize(f.run(), 'settings after drop');
@@ -179,7 +180,7 @@ test('long auxiliary content scrolls inside its fixed body instead of growing th
   for (const view of ['settings', 'scenarios', 'files', 'tray', 'weather', 'localsend']) {
     f.context.view = view;
     assertOpenSize(f.run(), view);
-    assert(parseFloat(f.properties['--panel-height']) <= 304);
+    assert(parseFloat(f.properties['--panel-height']) <= 308);
   }
   f.context.editorActive = true;
   assertOpenSize(f.run(), 'module editor');
@@ -193,9 +194,9 @@ test('narrow and short work areas cap every route and restore the common size on
   for (const view of ['nook', 'music', 'focus', 'tasks', 'settings', 'scenarios', 'weather', 'tray', 'files', 'welcome', 'localsend']) {
     f.context.view = view;
     const value = f.run();
-    assert.equal(value.width, 280, view + ' preserves the two side margins');
+    assert.equal(value.width, 288, view + ' preserves the two side margins');
     assert.equal(value.height, 204, view + ' stays within the short browser viewport');
-    assert.equal(f.context.expandedLayer.style.width, '280px');
+    assert.equal(f.context.expandedLayer.style.width, '288px');
     assert.equal(f.context.expandedLayer.style.height, '204px');
     assert(parseFloat(f.properties['--panel-height']) >= 0);
   }
@@ -206,7 +207,7 @@ test('narrow and short work areas cap every route and restore the common size on
 });
 
 test('real activities choose the hover row and every return to discreet stays thin', () => {
-  const f = fixture(); f.context.state = 'discreet';
+  const f = fixture(); f.context.state = 'rest';
   let value = f.run();
   assert.equal(value.width, 128); assert.equal(value.height, 10); assert.equal(value.band, 10); assert.equal(value.radius,6);
   assert.equal(f.properties['--closed-width'], '128px'); assert.equal(f.properties['--closed-height'], '10px');
@@ -215,11 +216,11 @@ test('real activities choose the hover row and every return to discreet stays th
     assert.equal(value.width,128,activity);assert.equal(value.height,10,activity);assert.equal(value.band,10,activity);assert.equal(value.shoulder,0,activity);
     f.context[activity] = false;
   }
-  f.context.state='hover'; value=f.run(); assert.equal(value.width,240); assert.equal(value.height,40); assert.equal(value.radius,10);
-  f.context.state='discreet'; value=f.run(); assert.equal(value.width,128); assert.equal(value.height,10);
+  f.context.state='compact'; value=f.run(); assert.equal(value.width,240); assert.equal(value.height,40); assert.equal(value.radius,10);
+  f.context.state='rest'; value=f.run(); assert.equal(value.width,128); assert.equal(value.height,10);
   assert.equal(f.context.menu.hidden, true); assert.equal(f.context.menu.inert, true);
   f.context.state = 'open'; assertOpenSize(f.run(), 'reopened');
-  f.context.closingTo = 'discreet'; f.run();
+  f.context.closingTo = 'rest'; f.run();
   assert.equal(f.context.menu.hidden, false); assert.equal(f.context.menu.inert, true, 'the exiting layer must not accept clicks');
 });
 
@@ -231,18 +232,18 @@ test('home layout uses the shared side inset and gap without widening the single
   assert.equal(f.context.homeLayout.mode,'grid');
   assert.deepEqual(f.context.homeLayout.items,nookGridPlan('music',['music']),'home uses its full grid composition without a legacy module width');
   f.context.window.innerWidth = 352;
-  value = f.run(); assert.equal(value.width, 312);
+  value = f.run(); assert.equal(value.width, 320);
   assert.deepEqual(f.context.homeLayout.items,nookGridPlan('music',['music']),'a smaller screen retains cell positions without enlarging the shell');
-  assert.equal(f.context.expandedLayer.style.width, '312px');
+  assert.equal(f.context.expandedLayer.style.width, '320px');
 });
 
 test('one, two and three placed modules keep the final reference scene height', () => {
   const f=fixture();f.context.view='nook';f.context.scene={mode:'activities',items:[{id:'focus'},{id:'music'},{id:'transfer'}]};
-  let value=f.run();assert.equal(value.width,567);assert.equal(value.height,330);assert.equal(f.properties['--island-body-height'],'246px');
-  assert.equal(value.band,64);assert.equal(f.properties['--island-side'],'20px');assert.equal(f.context.islandFooter.hidden,true);
-  f.context.scene.items.pop();assert.equal(f.run().height,330,'one rail card keeps the reference scene height');assert.equal(f.properties['--island-body-height'],'246px');
-  f.context.scene.items.push({id:'transfer'});f.context.view='settings';assert.equal(f.run().height,324,'settings keep their existing size');assert.equal(f.properties['--island-side'],'20px');assert.equal(f.context.notch.dataset.activityScene,'false');
-  f.context.view='nook';f.context.state='discreet';assert.equal(f.run().height,10,'activity count cannot enlarge discreet mode');
+  let value=f.run();assert.equal(value.width,567);assert.equal(value.height,324);assert.equal(f.properties['--island-body-height'],'260px');
+  assert.equal(value.band,48);assert.equal(f.properties['--island-side'],'16px');assert.equal(f.context.islandFooter.hidden,true);
+  f.context.scene.items.pop();assert.equal(f.run().height,324,'one rail card keeps the reference scene height');assert.equal(f.properties['--island-body-height'],'260px');
+  f.context.scene.items.push({id:'transfer'});f.context.view='settings';assert.equal(f.run().height,324,'settings keep their existing size');assert.equal(f.properties['--island-side'],'16px');assert.equal(f.context.notch.dataset.activityScene,'false');
+  f.context.view='nook';f.context.state='rest';assert.equal(f.run().height,10,'activity count cannot enlarge discreet mode');
   f.context.state='open';f.context.desktopMaxHeight=300;assert.equal(f.run().height,292,'the scene still fits the work area');
 });
 
@@ -269,20 +270,20 @@ test('paint permits a gentle rebound of at most three percent and still respects
   assert.equal(f.properties['--menu-opacity'], '1');
   f.context.window.innerWidth = 352; f.run();
   assert.equal(f.properties['--width'], '320px', 'the rebound cannot cross the screen margins');
-  assert.equal(f.context.expandedLayer.style.width, '312px');
+  assert.equal(f.context.expandedLayer.style.width, '320px');
 });
 
 test('native activity geometry includes its painted ears without exceeding the work area', () => {
   const f=fixture(),sent=[];f.context.desktop={sendGeometry:value=>{sent.push(value);return Promise.resolve(null);}};f.useProductionPaint();
-  for (const viewport of [320,960]) for (let count=1;count<=3;count++) for (const state of ['discreet','hover']) {
+  for (const viewport of [320,960]) for (let count=1;count<=3;count++) for (const state of ['rest','compact']) {
     f.context.window.innerWidth=viewport;f.context.state=state;
     f.context.activities=Array.from({length:count},(_,index)=>({id:['focus','music','transfer'][index]}));
-    f.run();const value=sent.at(-1), scale=state==='hover'?ISLAND_CONFIG.activities.peekScale:1;
+    f.run();const value=sent.at(-1), scale=state==='compact'?ISLAND_CONFIG.activities.peekScale:1;
     assert(Math.abs(value.width-(parseFloat(f.properties['--width'])+2*value.shoulder))<1e-7,'Windows receives the full painted width');
     assert(value.width<=viewport-32+1e-7,'ears stay inside the same screen margins');
-    assert.equal(value.shoulder,state==='hover'?8*scale:0);assert(Math.abs(value.height-(state==='hover'?42*scale:10))<1e-7);
+    assert.equal(value.shoulder,state==='compact'?8*scale:0);assert(Math.abs(value.height-(state==='compact'?42*scale:10))<1e-7);
     assert(value.radius+value.shoulder<=value.height+1e-7);
-    if(viewport===960)assert.equal(value.width,state==='hover'?[240,300,360][count-1]*scale+16*scale:128);
+    if(viewport===960)assert.equal(value.width,state==='compact'?[240,300,360][count-1]*scale+16*scale:128);
   }
 });
 
@@ -313,7 +314,7 @@ test('natural height measures visible content, margins and padding with either c
 
 test('entering settings recalculates dimensions after its form becomes visible', () => {
   const calls = [], settingsPlayer = {hidden: true};
-  const context = {settingsPlayer, view: 'settings', getModuleEditorActive: () => false,
+  const context = {settingsPlayer, view: 'settings', ia: null, getModuleEditorActive: () => false,
     renderAppearance() {}, renderSettingsConnections() {}, update() {calls.push(settingsPlayer.hidden);}};
   const functions = functionSection('  function renderSettings() {', '  function renderSettingsConnections()');
   vm.runInNewContext(`${functions}\nthis.render = renderSettings;`, context);

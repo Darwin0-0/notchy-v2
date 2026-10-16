@@ -89,7 +89,7 @@ test('shared Focus clock supports 180 minutes, rolls only changed digits and res
   assert.equal(f.text(f.clock), '180:00'); assert.equal(f.clock.children.length, 6); assert.equal(f.effects.length, 0);
   renderClock(f.clock, 10799, {motion: true});
   assert.equal(f.effects.length, 8, 'four changed digits each fade out and in');
-  assert(f.effects.every(effect => effect.options.duration === 240));
+  assert(f.effects.every(effect => effect.options.duration === require('../tokens.js').dur.base));
   await Promise.resolve(); assert.equal(f.text(f.clock), '179:59');
   assert(f.clock.children.every(cell => cell.children.length === 1), 'old digits are removed');
   renderClock(f.clock, 10798, {motion: false});

@@ -1,0 +1,32 @@
+#notch-menu > [data-view] { order: initial!important; }
+#notch-menu > [data-view="nook"] { order: 0!important; }
+#notch-menu > [data-view="tray"] { order: 1!important; }
+#notch-menu > [data-view="settings"] { order: 2!important; margin-left:auto; }
+#notch-menu > [data-view]:not([data-view="nook"]):not([data-view="tray"]):not([data-view="settings"]) { display:none!important; }
+#notch #notch-panel > #settings-player.ia-settings { display:flex; flex-direction:column; gap:var(--space-2); height:100%; min-height:0; padding:0; overflow:hidden; }
+#notch #notch-panel > #settings-player.ia-settings[hidden] { display:none; }
+.ia-tabs { display:flex; align-items:center; flex:none; gap:var(--space-1); padding:var(--space-1); background:var(--color-161618); border-radius:var(--radius-control); }
+.ia-tabs button { flex:1; min-width:0; min-height:var(--space-8); padding:var(--space-1) var(--space-2); border:0; border-radius:var(--radius-control); background:transparent; color:var(--status-idle); font:600 var(--text-s)/1.2 var(--font-ui); }
+.ia-tabs [aria-selected="true"] { background:var(--color-ffffff14); color:var(--color-fff); }
+.ia-settings-body { flex:1; min-height:0; min-width:0; overflow:auto; scrollbar-width:none; }
+.ia-settings-body > [hidden] { display:none!important; }
+.ia-settings-body > :not([hidden]) { min-height:100%; }
+.ia-settings-body #modules-player,.ia-settings-body #health-player { height:100%; }
+.ia-settings-body #modules-player { position:relative; inset:auto; z-index:auto; }
+.ia-general { display:flex; flex-direction:column; gap:var(--space-2); min-height:0!important; }
+.ia-general .settings-experience-links { display:none; }
+.ia-general .settings-header { display:none; }
+.ia-general .settings-grid { flex:none; }
+.ia-general .settings-preferences { margin:0; }
+.ia-diagnostics { flex:none; margin-top:var(--space-2); padding:var(--space-2) var(--space-3); border-radius:var(--radius-control); background:var(--color-161618); font:var(--text-xs)/1.5 var(--font-ui); }
+.ia-diagnostics summary { color:var(--status-idle); cursor:pointer; }
+.ia-diagnostic-rows p { display:flex; justify-content:space-between; gap:var(--space-2); margin:var(--space-2) 0; }
+.ia-diagnostic-rows p span { text-align:right; color:var(--status-idle); }
+.ia-diagnostic-rows [data-status="ok"] strong { color:var(--status-success); }
+.ia-diagnostic-rows [data-status="warn"] strong { color:var(--status-warning); }
+.ia-diagnostic-rows [data-status="blocked"] strong { color:var(--status-error); }
+.ia-diagnostics > p:empty { display:none; }
+.ia-diagnostics > button { margin-top:var(--space-1); padding:var(--space-2) var(--space-3); border:0; border-radius:var(--radius-control); background:var(--color-ffffff14); color:var(--color-fff); font:600 var(--text-xs)/1.2 var(--font-ui); }
+.ia-settings-body #health-player { display:flex; flex-direction:column; min-height:100%; height:auto; }
+.ia-settings-body #health-player[hidden] { display:none; }
+.ia-settings-body #health-player .experience-health-grid { flex:none; }

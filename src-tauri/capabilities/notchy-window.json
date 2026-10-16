@@ -12,6 +12,14 @@
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "allow-desktop-command"
+    "allow-desktop-command",
+    "allow-health-run",
+    "allow-settings-get",
+    "allow-settings-set",
+    "allow-favorites-list",
+    "allow-favorites-add",
+    "allow-discovery-validate",
+    "allow-discovery-scan",
+    "allow-discovery-first-candidates"
   ]
 }

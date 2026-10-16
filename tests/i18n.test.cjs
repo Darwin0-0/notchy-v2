@@ -47,7 +47,7 @@ test('Source HTML binding translates only marked nodes and restores their French
   i18n.setLocale('fr'); render(); assert.equal(fixed.nodeValue, 'Réglages');
 });
 test('The native preference bridge hydrates and stores the same language key without replacing Focus', async () => {
-  const app = fs.readFileSync(path.join(__dirname, '../src-tauri/src/app.rs'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../src-tauri/src/settings.rs'), 'utf8');
   const keys = [...app.match(/const KEYS:[\s\S]*?= \[([\s\S]*?)\];/)[1].matchAll(/"([^"]+)"/g)].map(match => match[1]);
   const calls = []; class Storage {constructor() {this.values = new Map();} getItem(key) {return this.values.get(key) ?? null;} setItem(key, value) {this.values.set(key, String(value));} removeItem(key) {this.values.delete(key);}}
   const localStorage = new Storage(), context = {Storage, localStorage, location: new URL('http://127.0.0.1:1234/?desktop=1'), URL, Request, Headers, ArrayBuffer, Uint8Array, DataView, TextDecoder};
