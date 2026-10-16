@@ -10,7 +10,7 @@ Music, tasks, weather and files—right where you need them.
 
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D4) ![Status: actively evolving](https://img.shields.io/badge/status-actively%20evolving-62d7be) [![Contributions welcome](https://img.shields.io/badge/contributions-welcome-8b6ce7)](CONTRIBUTING.md)
 
-[Get started](docs/DEVELOPMENT.md#build-and-run-on-windows) · [Help improve Notchy](CONTRIBUTING.md) · [Report a bug](https://github.com/Darwin0-0/notchy-v2/issues/new)
+[Download for Windows](https://github.com/Darwin0-0/notchy-v2/releases/latest) · [Help improve Notchy](CONTRIBUTING.md) · [Report a bug](https://github.com/Darwin0-0/notchy-v2/issues/new)
 
 </div>
 
@@ -45,7 +45,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 
 ## Start small, make it yours
 
-1. [Build and run Notchy](docs/DEVELOPMENT.md#build-and-run-on-windows) on Windows. A packaged download is not available yet.
+1. [Download the Windows installer](https://github.com/Darwin0-0/notchy-v2/releases/latest) and run setup. No build tools are needed; setup downloads WebView2 if it is missing.
 2. Hover over the notch for a quick preview, then click to open the controls. Move away to return to the discreet view. Keyboard editing, file dialogs and active drags stay protected while you use them.
 3. Right-click to arrange or remove Music, Focus, Tasks, Weather and Shelf. Open **Tray** for files and LocalSend.
 4. Choose your city, add a task and start a session. Settings stay open while you move between controls; the close button or Escape dismisses them.

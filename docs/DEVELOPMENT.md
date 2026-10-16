@@ -4,7 +4,7 @@ Notchy targets Windows with a Rust engine, a Tauri WebView interface and small W
 
 ## Installing and first launch
 
-The Windows x64 setup contains the application, its interface and the required Notchy helpers. End users do not need Rust, Node.js or the source repository. If the shared WebView2 runtime is absent, setup downloads its bootstrapper; that step needs an internet connection. The development prerequisites below are for compiling Notchy, not for using the installer.
+The [Windows x64 setup](https://github.com/Darwin0-0/notchy-v2/releases/latest) contains the application, its interface and the required Notchy helpers. End users do not need Rust, Node.js or the source repository. If the shared WebView2 runtime is absent, setup downloads its bootstrapper; that step needs an internet connection. The development prerequisites below are for compiling Notchy, not for using the installer.
 
 The first visible launch plays Mimo's entrance before the welcome screen. A hidden window does not consume the animation. Choosing **Start** or completing the guide saves onboarding completion; subsequent launches remain discreet. Reduced motion and the animation setting are respected.
 
