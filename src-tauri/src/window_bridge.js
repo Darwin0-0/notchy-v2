@@ -57,9 +57,22 @@
       .then(unlisten => {if (disposed) unlisten(); else remove = unlisten;}).catch(() => {});
     return () => {disposed = true; remove?.();};
   };
+  let startup = Object.freeze({supported: config.startup?.supported === true, enabled: config.startup?.enabled === true,
+    ...(typeof config.startup?.error === 'string' ? {error: config.startup.error} : {})});
+  const setStartup = async enabled => {
+    if (typeof enabled !== 'boolean') return {ok: false, ...startup, error: 'Invalid startup preference.'};
+    const reply = await request('startup', enabled);
+    if (typeof reply.supported === 'boolean' && typeof reply.enabled === 'boolean') {
+      startup = Object.freeze({supported: reply.supported, enabled: reply.enabled,
+        ...(typeof reply.error === 'string' ? {error: reply.error} : {})});
+    }
+    return {...reply, supported: startup.supported, enabled: startup.enabled};
+  };
   Object.defineProperty(window, 'notchyDesktop', {value: Object.freeze({
     isDesktop: true,
     localSendActive: config.localSendActive === true,
+    get startup() { return startup; },
+    setStartup,
     sendGeometry,
     setInteractive: value => typeof value === 'boolean' && void request('interactive', value),
     focus: () => void request('focus'), hide: () => void request('hide'), quit: () => void request('quit'),

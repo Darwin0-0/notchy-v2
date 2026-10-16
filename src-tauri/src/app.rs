@@ -1,6 +1,7 @@
 use notchy::{
     desktop::{self, Geometry, NotchState},
     server::{Server, Services},
+    startup::Startup,
     ApiError,
 };
 use serde_json::{json, Value};
@@ -114,6 +115,7 @@ struct DesktopState {
     server: Arc<Server>,
     data: PathBuf,
     origin: String,
+    startup: Arc<Startup>,
     geometry: Mutex<Geometry>,
     preferences: tokio::sync::Mutex<BTreeMap<String, String>>,
     tray_items: Mutex<Option<[tauri::menu::MenuItem<tauri::Wry>; 3]>>,
@@ -359,6 +361,13 @@ async fn desktop_command(
             "shelf-open" => open_shelf(&state, argument, false).await,
             "shelf-reveal" => open_shelf(&state, argument, true).await,
             "preference" => preference(&state, argument).await,
+            "startup" => {
+                let enabled = argument.as_bool().ok_or_else(|| ApiError::new(400, "Préférence de démarrage invalide."))?;
+                let startup = state.startup.clone();
+                let status = tokio::task::spawn_blocking(move || startup.set(enabled)).await
+                    .map_err(|_| ApiError::new(503, "Démarrage avec Windows indisponible."))?;
+                Ok(serde_json::to_value(status).unwrap())
+            }
             "diagnostic" if state.checking => {
                 if serde_json::to_vec(&argument).map_or(true, |bytes| bytes.len() > 16384) {
                     return Err(ApiError::new(400, "Diagnostic invalide."));
@@ -430,7 +439,7 @@ pub fn run() {
     let (data_override, checking) = arguments();
     let builder=tauri::Builder::default();
     // Window checks use isolated data and must never activate a running user instance.
-    let builder=if checking{builder}else{builder.plugin(tauri_plugin_single_instance::init(|app,_,_|{if let (Some(window),Some(state))=(app.get_webview_window("main"),app.try_state::<Arc<DesktopState>>()){show(&window,&state,"open");}}))};
+    let builder=if checking{builder}else{builder.plugin(tauri_plugin_single_instance::init(|app,arguments,_|{if arguments.iter().any(|argument|argument=="--autostart"){return;}if let (Some(window),Some(state))=(app.get_webview_window("main"),app.try_state::<Arc<DesktopState>>()){show(&window,&state,"open");}}))};
     let application=builder
       .invoke_handler(tauri::generate_handler![desktop_command])
       .setup(move|app|{
@@ -441,6 +450,8 @@ pub fn run() {
         let preferences_file=data.join(".desktop-profile/tauri-preferences.json");
         let preferences:BTreeMap<String,String>=match std::fs::read(&preferences_file){Ok(bytes)=>{if bytes.len()>1024*1024{return Err("Préférences trop volumineuses.".into());}serde_json::from_slice(&bytes)?},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>BTreeMap::new(),Err(error)=>return Err(error.into())};
         let preferences=preferences.into_iter().filter(|(key,value)|KEYS.contains(&key.as_str())&&value.len()<=262144&&(key!="notchy-language-v1"||valid_language(value))&&(key!="notchy-scenarios-v1"||valid_scenarios(value))).collect::<BTreeMap<_,_>>();
+        let startup=Arc::new(Startup::new(&data,&std::env::current_exe()?,data_override.as_deref(),std::env::args().any(|argument|argument=="--localsend"),cfg!(windows)&&!cfg!(debug_assertions)&&!checking));
+        let startup_status=startup.initialize(data_override.is_none());
         let labels=tray_labels(preferences.get("notchy-language-v1").map(String::as_str).unwrap_or("fr"));
         let services=Arc::new(tauri::async_runtime::block_on(Services::new(data.clone(),native.clone()))?);
         if !checking&&std::env::args().any(|argument|argument=="--localsend"){
@@ -449,9 +460,9 @@ pub fn run() {
         let server=Arc::new(tauri::async_runtime::block_on(Server::start(services.clone(),if checking{0}else{58252}))?);
         let origin=format!("http://127.0.0.1:{}",server.port);
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
-        let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"localSendActive":nearby_active});
+        let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"localSendActive":nearby_active,"startup":startup_status});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
-        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:AtomicBool::new(false),checking,reports:tokio::sync::Mutex::new(Vec::new())});
+        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:AtomicBool::new(false),checking,reports:tokio::sync::Mutex::new(Vec::new())});
         app.manage(state.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();
         let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}/?desktop=1").parse()?))

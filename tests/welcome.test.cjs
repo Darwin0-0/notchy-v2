@@ -122,6 +122,35 @@ test('hiding an unfinished introduction cannot reopen it later', () => {
   welcome.dispose();
 });
 
+test('the first introduction waits for the native window to become visible', () => {
+  const f = fixture(), stages = [];
+  f.document.hidden = true;
+  const welcome = create({host: f.host, stageChanged: stage => stages.push(stage)});
+  welcome.show(); f.advance(5000);
+  assert.equal(welcome.inspect().stage, 'idle'); assert.equal(f.timers.size, 0); assert.equal(f.animations.length, 0);
+  f.document.hidden = false; f.document.fire('visibilitychange');
+  f.advance(119); assert.equal(welcome.inspect().stage, 'idle');
+  f.advance(1); assert.equal(welcome.inspect().stage, 'logo');
+  f.advance(1780); assert.equal(welcome.inspect().stage, 'welcome');
+  assert.deepEqual(stages, ['idle', 'idle', 'logo', 'welcome']);
+  welcome.dispose();
+});
+
+test('hiding the window during Mimo restarts the unfinished encounter once visible', () => {
+  const f = fixture(), welcome = create({host: f.host});
+  welcome.show(); f.advance(680); assert.equal(welcome.inspect().stage, 'logo');
+  f.document.hidden = true; f.document.fire('visibilitychange'); f.advance(5000);
+  assert.equal(welcome.inspect().stage, 'idle'); assert.equal(f.timers.size, 0); assert.equal(welcome.inspect().blinking, false);
+  f.document.hidden = false; f.document.fire('visibilitychange'); f.advance(120);
+  assert.equal(welcome.inspect().stage, 'logo'); assert.equal(welcome.inspect().beat, 'wake');
+  f.advance(1780); assert.equal(welcome.inspect().stage, 'welcome');
+  const count = f.animations.length;
+  f.document.hidden = true; f.document.fire('visibilitychange');
+  f.document.hidden = false; f.document.fire('visibilitychange');
+  assert.equal(welcome.inspect().stage, 'welcome'); assert.equal(f.animations.length, count, 'a completed entrance does not replay on every resume');
+  welcome.dispose();
+});
+
 test('Escape returns from the guide to Discover without dismissing the welcome', () => {
   const f = fixture(); const welcome = create({host: f.host, motion: false});
   welcome.show('tutorial');

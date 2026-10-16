@@ -2,6 +2,16 @@
 
 Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. Its frontend uses four scripts (`i18n.js`, `notch.js`, `focus.js`, `welcome.js`) and two stylesheets (`notch.css`, `welcome.css`).
 
+## Installing and first launch
+
+The Windows x64 setup contains the application, its interface and the required Notchy helpers. End users do not need Rust, Node.js or the source repository. If the shared WebView2 runtime is absent, setup downloads its bootstrapper; that step needs an internet connection. The development prerequisites below are for compiling Notchy, not for using the installer.
+
+The first visible launch plays Mimo's entrance before the welcome screen. A hidden window does not consume the animation. Choosing **Start** or completing the guide saves onboarding completion; subsequent launches remain discreet. Reduced motion and the animation setting are respected.
+
+A normal release registers itself to start at Windows sign-in on its first launch. **Start with Windows** in Settings changes the current user's startup registration, without administrator access, a background service or a Notchy delay. A saved opt-out is preserved. Removing the Windows startup entry also leaves it disabled until the user enables it again. Uninstall removes only the matching installed copy's registration; an update or a separate portable profile is preserved.
+
+Debug builds and `--desktop-check` never register themselves. A release with an explicit `--data-root` also avoids automatic registration, but its user can enable startup explicitly in Settings; the registered command preserves that profile and its LocalSend option. The dedicated `.desktop-profile/startup.json` stores a boolean preference, while the interface reads the actual registration status.
+
 ## Build and run on Windows
 
 Prerequisites:

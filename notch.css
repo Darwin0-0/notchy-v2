@@ -1514,6 +1514,12 @@ body[data-motion="false"] :is(.localsend-player,.localsend-live) * { animation: 
 #settings-player .settings-language { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 28px; min-height: 28px; margin: 10px 0 0; padding: 0 0 0 4px; color: #ffffff99; font-size: 12px; font-weight: 600; line-height: 16px; }
 #settings-player .settings-language select { width: auto; min-height: 28px; height: 28px; margin: 0; padding: 0 10px; border: 0; border-radius: var(--ui-radius-control); background: #ffffff1a; color: #fff; font: inherit; cursor: pointer; }
 #settings-player .settings-language option { color: #000; background: #fff; }
+#settings-player .settings-preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 10px; }
+#settings-player .settings-preferences .settings-language { flex: 1 1 140px; min-width: 0; margin: 0; }
+#settings-player .settings-startup { display: flex; flex: 1 1 200px; align-items: center; justify-content: space-between; gap: 10px; min-height: 28px; color: #ffffffb3; font-size: 12px; line-height: 16px; }
+#settings-player .settings-startup input { flex: 0 0 42px; accent-color: var(--settings-accent); }
+#settings-player .settings-startup-status { margin: 8px 4px 0; color: #f5b4ac; font-size: 11px; line-height: 16px; }
+#settings-player :is(.settings-startup,.settings-startup-status)[hidden] { display: none; }
 #settings-player .settings-replay { display: flex; align-items: center; gap: 8px; width: 100%; margin: 12px 0 0; }
 #settings-player .settings-replay button { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; height: auto; width: auto; margin: 0; padding: 4px 6px; border: 0; border-radius: 8px; background: transparent; color: #ffffff99; font: 600 11px/16px 'Manrope',system-ui,sans-serif; text-align: left; cursor: pointer; }
 #settings-player .settings-replay .settings-close { margin-left: auto; }

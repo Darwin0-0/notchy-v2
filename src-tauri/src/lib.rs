@@ -9,4 +9,5 @@ pub mod music;
 pub mod weather;
 pub mod spotify;
 pub mod desktop;
+pub mod startup;
 pub mod server;

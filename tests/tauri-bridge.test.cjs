@@ -3,14 +3,14 @@ const {test} = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src-tauri/src/window_bridge.js'), 'utf8');
 const key = 'notchy-minimal-modules-v1';
-function fixture({saved={},preferences={},invoker,localSendActive=false}={}) {
+function fixture({saved={},preferences={},invoker,localSendActive=false,startup}={}) {
   const calls=[],fetches=[],listeners=[],events=[];
   class Storage {constructor(){this.values=new Map(Object.entries(saved));}getItem(key){return this.values.get(key)??null;}setItem(key,value){this.values.set(key,String(value));}removeItem(key){this.values.delete(key);}}
   class EventSource {constructor(url,options){events.push({url,options});}}
   const localStorage=new Storage();
   const window={fetch:async(input,options)=>{fetches.push({input,options});return {ok:true};},EventSource,__TAURI__:{core:{invoke:async(command,args)=>{calls.push({command,args});return invoker?invoker(command,args):{ok:true};}},event:{listen:async(name,callback)=>{const entry={name,callback,removed:false};listeners.push(entry);return ()=>{entry.removed=true;};}}}};
   const location=new URL('http://127.0.0.1:58252/?desktop=1');
-  vm.runInNewContext(source.replace('__NOTCHY_CONFIG__',JSON.stringify({token:'private-session',keys:[key],preferences,checking:false,localSendActive})),{window,Storage,localStorage,location,URL,Request,Headers,ArrayBuffer,Uint8Array,DataView,TextDecoder});
+  vm.runInNewContext(source.replace('__NOTCHY_CONFIG__',JSON.stringify({token:'private-session',keys:[key],preferences,checking:false,localSendActive,startup})),{window,Storage,localStorage,location,URL,Request,Headers,ArrayBuffer,Uint8Array,DataView,TextDecoder});
   return {window,calls,fetches,listeners,events,localStorage};
 }
 test('Tauri credentials apply only to this server and replace legacy public header',async()=>{
@@ -73,4 +73,23 @@ test('The opaque interface no longer exposes desktop capture',()=>{
   const context=fixture();
   assert.equal(typeof context.window.notchyDesktop.captureBackdrop,'undefined');
   assert.equal(context.calls.length,0);
+});
+test('Windows startup shows confirmed state and updates it only from native replies',async()=>{
+  const context=fixture({startup:{supported:true,enabled:true},invoker:(_,args)=>({ok:true,supported:true,enabled:args.value.value})});
+  assert.equal(context.window.notchyDesktop.startup.enabled,true);
+  const reply=await context.window.notchyDesktop.setStartup(false);
+  assert.equal(reply.ok,true);assert.equal(reply.enabled,false);assert.equal(context.window.notchyDesktop.startup.enabled,false);
+  assert.equal(context.calls[0].args.value.command,'startup');assert.equal(context.calls[0].args.value.value,false);
+  assert.equal(context.localStorage.values.size,0);
+  const invalid=await context.window.notchyDesktop.setStartup('true');assert.equal(invalid.ok,false);assert.equal(context.calls.length,1);
+  assert.equal(fixture().window.notchyDesktop.startup.supported,false);
+});
+test('Windows startup errors preserve the actual native registration instead of reporting a successful change',async()=>{
+  const context=fixture({startup:{supported:true,enabled:false},invoker:()=>({ok:false,supported:true,enabled:false,error:'Registration refused'})});
+  const reply=await context.window.notchyDesktop.setStartup(true);
+  assert.equal(reply.ok,false);assert.equal(reply.enabled,false);assert.equal(context.window.notchyDesktop.startup.enabled,false);
+  assert.equal(context.window.notchyDesktop.startup.error,'Registration refused');
+  const failure=fixture({startup:{supported:true,enabled:true},invoker:()=>{throw new Error('Unavailable');}});
+  const rejected=await failure.window.notchyDesktop.setStartup(false);
+  assert.equal(rejected.ok,false);assert.equal(rejected.enabled,true);assert.equal(failure.window.notchyDesktop.startup.enabled,true);
 });

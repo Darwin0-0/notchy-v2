@@ -14,6 +14,7 @@
     'Fichier en cours': 'Processing file', 'En pause': 'Paused', 'Prêt à reprendre': 'Ready to resume',
     'Essentiel': 'Essentials', 'À proximité': 'Nearby', 'Envoyer ou recevoir': 'Send or receive',
     'Langue': 'Language', 'Français': 'Français', 'English': 'English',
+    'Démarrer avec Windows': 'Start with Windows', 'Impossible de modifier le démarrage. Réessaie.': 'Could not change startup. Try again.',
     'Scénarios': 'Scenarios', 'Réglage des scénarios': 'Scenario settings', 'Suivre ton activité': 'Follow your activity',
     'MODE': 'MODE', 'Mode des scénarios': 'Scenario mode', 'Auto · recommandé': 'Auto · recommended', 'Manuel': 'Manual',
     'Un focus démarre': 'A focus session starts', 'Une pause commence': 'A break begins', 'Première ouverture du jour (5 h – 11 h)': 'First opening of the day (5 am – 11 am)',

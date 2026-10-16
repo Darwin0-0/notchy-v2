@@ -24,7 +24,7 @@ Notchy is a compact notch for Windows. Click to open your controls. Move away an
 
 Nook gives your current activity the main stage, with other ongoing activities beside it. Select a card to bring it forward. Your task list, Pomodoro and everyday essentials remain within reach, without interrupting your session or losing your place.
 
-Mimo wakes up, takes a curious look and welcomes you in. An optional quick guide helps you find your way; revisit it from Settings whenever you need a reminder.
+On your first launch, Mimo wakes up, takes a curious look and welcomes you in. An optional quick guide helps you find your way; revisit it from Settings whenever you need a reminder. The installed app starts with Windows and stays discreet after setup. You can turn this off in Settings.
 
 <p align="center"><img src="assets/previews/welcome.gif" alt="Mimo greeting on Notchy’s welcome screen, with a language choice"></p>
 

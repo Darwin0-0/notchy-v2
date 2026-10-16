@@ -123,14 +123,20 @@
       else if (stage === 'welcome') {if (previousStage !== 'logo') {reveal(mascot, 0, MOTION.mascot); reveal(wordmark, 100, MOTION.wordmark);} reveal(title, 40); reveal(description, 80); reveal(introActions, 120); reveal(language); focus(introActions.firstElementChild);}
       else if (stage === 'tour') {moveSlide(slides[step], true); reveal(top); reveal(tutorialActions, 80); reveal(slides[step].illustration); reveal(slides[step].title, 40); reveal(slides[step].text, 80); focus(next);}
     }
+    function beginIntro() {
+      clearIntroTimers(); stopAnimations(); setStage('idle');
+      // A hidden WebView must not consume the first encounter before Windows shows it.
+      if (document.hidden) return;
+      if (!motionEnabled()) setStage('welcome');
+      else {scheduleIntro('logo', MOTION.introStart); scheduleIntro('welcome', MOTION.introEnd);}
+    }
     function show(mode = 'welcome') {
       if (disposed) return false;
       const nextPage = mode === 'tutorial' ? 'tutorial' : 'welcome';
       if (active && page === nextPage) {render(); return true;}
       clearIntroTimers(); stopAnimations(); active = true; page = nextPage; step = 0; host.hidden = false;
       if (page === 'tutorial') setStage('tour');
-      else if (!motionEnabled()) setStage('welcome');
-      else {setStage('idle'); scheduleIntro('logo', MOTION.introStart); scheduleIntro('welcome', MOTION.introEnd);}
+      else beginIntro();
       return true;
     }
     function hide() {active = false; host.hidden = true; host.dataset.welcomeMotion = 'false'; clearIntroTimers(); stopAnimations(); if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = 0;}
@@ -148,7 +154,14 @@
     const changeLanguage = () => i18n?.setLocale(languageChoice.value);
     const settleIntro = () => {clearIntroTimers(); stopAnimations(); if (active && ['idle', 'logo'].includes(stage)) setStage('welcome'); else render();};
     const onReducedMotion = () => {if (reduced.matches) settleIntro(); else render();};
-    const onHidden = () => {if (document.hidden) {settleIntro(); if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = 0;} else render();};
+    const onHidden = () => {
+      if (document.hidden) {
+        clearIntroTimers(); stopAnimations();
+        if (active && page === 'welcome' && ['idle', 'logo'].includes(stage)) setStage('idle'); else render();
+        if (focusFrame) window.cancelAnimationFrame(focusFrame); focusFrame = 0;
+      } else if (active && page === 'welcome' && stage === 'idle') beginIntro();
+      else render();
+    };
     const motionObserver = typeof window.MutationObserver === 'function' ? new window.MutationObserver(() => {if ((typeof motion === 'function' ? motion() : motion) === false) settleIntro(); else render();}) : null;
     if (motionObserver && document.body) motionObserver.observe(document.body, {attributes: true, attributeFilter: ['data-motion']});
     languageChoice.addEventListener('change', changeLanguage);

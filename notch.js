@@ -699,9 +699,9 @@
     clearModuleFeedback(); selectViewButton({dataset: {view: 'welcome'}}); panel.scrollTop = 0; panel.scrollLeft = 0; setState('open'); welcome.show(mode);
     return true;
   }
-  function finishWelcome(nextState = welcomeReturnState) {
+  function finishWelcome(nextState = welcomeReturnState, completed = false) {
     welcome?.hide();
-    try { window.localStorage.setItem(welcomeStorageKey, 'done'); } catch {}
+    if (completed) try { window.localStorage.setItem(welcomeStorageKey, 'done'); } catch {}
     selectViewButton({dataset: {view: welcomeReturnView || 'nook'}}); setState(nextState);
   }
   function replayWelcome() { showWelcome(); }
@@ -1059,6 +1059,24 @@
   function disposeModules() { moduleEditing = false; moduleDraft = null; modulePicked = null; modulesPlayer.hidden = true; }
 
   const settingsPlayer = byId('settings-player'), scenariosPlayer = byId('scenarios-player');
+  let startupEnabled = desktop?.startup?.enabled === true, startupBusy = false, startupError = desktop?.startup?.error ? 'Impossible de modifier le démarrage. Réessaie.' : '';
+  function renderStartupSettings() {
+    byId('startup-control').hidden = desktop?.startup?.supported !== true;
+    const input = byId('startup-windows'); input.checked = startupEnabled; input.disabled = startupBusy;
+    const status = byId('startup-status'); status.hidden = !startupError; text(status, t(startupError));
+  }
+  async function startupInput(event) {
+    if (disposed || event.target.id !== 'startup-windows' || startupBusy || typeof desktop?.setStartup !== 'function') return;
+    const enabled = event.target.checked;
+    startupBusy = true; startupError = ''; renderStartupSettings();
+    try {
+      const result = await desktop.setStartup(enabled);
+      if (disposed) return;
+      if (typeof result?.enabled === 'boolean') startupEnabled = result.enabled;
+      if (result?.ok !== true) startupError = 'Impossible de modifier le démarrage. Réessaie.';
+    } catch {if (!disposed) startupError = 'Impossible de modifier le démarrage. Réessaie.';}
+    finally {if (!disposed) {startupBusy = false; renderStartupSettings(); if (view === 'settings') update();}}
+  }
   function renderSettings() {
     settingsPlayer.hidden = view !== 'settings' || getModuleEditorActive();
     renderAppearance();
@@ -1066,6 +1084,7 @@
     if (view === 'settings') update();
   }
   function renderSettingsConnections() {
+    renderStartupSettings();
     if (view !== 'settings') return;
     const focusSummary = focusComponent.summary();
     byId('settings-focus').disabled = !focusCoreEnabled();
@@ -3006,7 +3025,7 @@
   function selectViewButton(button) {
     if (!button) return;
     if (view === 'welcome' && button.dataset.view !== 'welcome' && welcome?.isActive()) {
-      welcome.hide(); try { window.localStorage.setItem(welcomeStorageKey, 'done'); } catch {}
+      welcome.hide();
     }
     view = button.dataset.view;
     if (view === 'music' || view === 'focus' || view === 'tasks') islandPage = view;
@@ -3093,6 +3112,7 @@
   document.addEventListener('drop', fileDrop);
   document.addEventListener('dragend', clearFileDrag);
   settingsPlayer.addEventListener('input', appearanceInput);
+  settingsPlayer.addEventListener('change', startupInput);
   settingsPlayer.addEventListener('click', settingsCommand);
   scenariosPlayer?.addEventListener('change', scenarioInput);
   scenariosPlayer?.addEventListener('click', scenarioClick);
@@ -3195,6 +3215,7 @@
     document.removeEventListener('drop', fileDrop);
     document.removeEventListener('dragend', clearFileDrag);
     settingsPlayer.removeEventListener('input', appearanceInput);
+    settingsPlayer.removeEventListener('change', startupInput);
     settingsPlayer.removeEventListener('click', settingsCommand);
     scenariosPlayer?.removeEventListener('change', scenarioInput);
     scenariosPlayer?.removeEventListener('click', scenarioClick);
@@ -3245,7 +3266,7 @@
     }),
   });
   window.addEventListener('pagehide', dispose, {once: true});
-  welcome = window.NotchyWelcome.create({host: byId('welcome-player'), start: () => finishWelcome('discreet'), tutorialFinish: () => finishWelcome('discreet'), stageChanged: stage => {welcomeStage = stage; if (view === 'welcome') update();}, motion: motionEnabled});
+  welcome = window.NotchyWelcome.create({host: byId('welcome-player'), start: () => finishWelcome('discreet', true), tutorialFinish: () => finishWelcome('discreet', true), stageChanged: stage => {welcomeStage = stage; if (view === 'welcome') update();}, motion: motionEnabled});
   document.addEventListener('change', languageChoice);
   removeLanguage = i18n.onChange(renderLanguage);
   for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();

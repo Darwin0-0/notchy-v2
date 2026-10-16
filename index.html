@@ -228,7 +228,11 @@
             <button type="button" data-settings-command="localsend"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><span class="settings-row-copy"><strong>LocalSend</strong><small id="settings-localsend-detail" data-i18n>Partager à proximité</small></span><svg class="settings-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
           </section>
         </div>
-        <label class="language-control settings-language"><span data-i18n>Langue</span><select id="settings-language" data-language-choice aria-label="Langue" data-i18n-aria-label="Langue"><option value="fr" lang="fr" data-i18n>Français</option><option value="en" lang="en" data-i18n>English</option></select></label>
+        <div class="settings-preferences">
+          <label class="language-control settings-language"><span data-i18n>Langue</span><select id="settings-language" data-language-choice aria-label="Langue" data-i18n-aria-label="Langue"><option value="fr" lang="fr" data-i18n>Français</option><option value="en" lang="en" data-i18n>English</option></select></label>
+          <label id="startup-control" class="settings-motion settings-startup" for="startup-windows" hidden><span data-i18n>Démarrer avec Windows</span><input id="startup-windows" type="checkbox" role="switch" aria-describedby="startup-status"></label>
+        </div>
+        <p id="startup-status" class="settings-startup-status" role="status" hidden></p>
         <div class="welcome-settings settings-replay"><button id="welcome-replay" type="button"><span data-i18n>Redécouvrir Notchy</span><span aria-hidden="true">↗</span></button><button class="settings-close" type="button" data-settings-command="close" data-i18n>Fermer les réglages</button></div>
       </section>
       <section id="focus-task-prompt" class="focus-task-prompt" role="group" aria-labelledby="focus-task-prompt-title" hidden>
