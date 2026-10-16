@@ -16,7 +16,7 @@ Music, tasks, weather and files—right where you need them.
 
 **Meet Notchy in 28 seconds.** Music, focus and nearby sharing, in one quiet space.
 
-https://github.com/user-attachments/assets/2d7da5f4-7fbd-425a-ac63-8856d356afb4
+https://github.com/user-attachments/assets/94bf59c0-2316-48e4-83d8-acb2e9363eca
 
 [Watch or download the film](assets/previews/notchy-film.mp4)
 
