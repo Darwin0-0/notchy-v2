@@ -1,6 +1,6 @@
 # Development
 
-Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. Its frontend uses four scripts (`i18n.js`, `notch.js`, `focus.js`, `welcome.js`) and two stylesheets (`notch.css`, `welcome.css`).
+Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. The interface uses plain JavaScript and CSS: `notch.js` coordinates the island, `focus.js` owns tasks and timers, and `welcome.js` owns onboarding. Dedicated components handle settings, sharing and local search, with shared design tokens and French/English text.
 
 ## Installing and first launch
 
@@ -58,6 +58,8 @@ $notchyDevData = [IO.Path]::GetFullPath(".\work\dev-profile")
 ```
 
 This avoids mixing development files and preferences with your normal profile. `work/` is ignored by Git. Only one normal application instance runs at a time; close your existing Notchy instance when testing this build.
+
+Local search in an explicit development or check profile uses only a pre-created sibling folder named `<profile>-search-fixtures`. Put disposable search files there before launching; it does not scan your personal libraries or register a global shortcut. Use **Ctrl+K** inside the app. The normal installed release searches the configured personal Windows libraries. See [Local search](LOCAL_SEARCH.md) for the scope and controls.
 
 ## Run the checks
 

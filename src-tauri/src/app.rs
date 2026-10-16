@@ -216,9 +216,12 @@ struct DesktopState {
     dialog: AtomicBool,
     downloads: AtomicU64,
     blur: AtomicU64,
-    quitting: AtomicBool,
+    quitting: Arc<AtomicBool>,
     checking: bool,
     reports: tokio::sync::Mutex<Vec<Value>>,
+    search: Option<Arc<notchy::search::SearchService>>,
+    search_error: Option<String>,
+    search_shortcut: Mutex<Option<Arc<Mutex<notchy::search_hotkey::ShortcutStatus>>>>,
 }
 fn initial_geometry() -> Geometry {
     Geometry {
@@ -286,6 +289,79 @@ async fn preference(state: &DesktopState, value: Value) -> Result<Value, ApiErro
 
 fn native_guard(window:&WebviewWindow,state:&DesktopState)->Result<(),String> {
     trusted(window,state).then_some(()).ok_or_else(||"Origine refusée.".into())
+}
+fn search_service(state: &DesktopState) -> Result<Arc<notchy::search::SearchService>, ApiError> {
+    state.search.clone().ok_or_else(|| ApiError::new(503, "La recherche locale est indisponible."))
+}
+fn search_status_value(state: &DesktopState) -> Value {
+    let mut value = state.search.as_ref().map(|service| json!(service.status())).unwrap_or_else(||
+        json!({"files":0,"indexing":false,"updatedAt":0,"roots":[],"lastError":state.search_error}));
+    value["shortcut"] = state.search_shortcut.lock().unwrap().as_ref()
+        .map(|shortcut| json!(*shortcut.lock().unwrap()))
+        .unwrap_or_else(|| json!({"shortcut":"Ctrl+Space","available":false}));
+    value
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SearchQueryInput { q: String, limit: Option<usize> }
+fn search_query_input(value: Value) -> Result<(String, usize), ApiError> {
+    let input: SearchQueryInput = serde_json::from_value(value).map_err(|_| ApiError::new(400, "Recherche invalide."))?;
+    let limit = input.limit.unwrap_or(8);
+    if input.q.chars().count() > 256 || input.q.chars().any(char::is_control) || !(1..=20).contains(&limit) {
+        return Err(ApiError::new(400, "Recherche invalide."));
+    }
+    Ok((input.q, limit))
+}
+fn search_result_id(value: Value) -> Result<String, ApiError> {
+    let object = value.as_object().filter(|value| value.len() == 1)
+        .ok_or_else(|| ApiError::new(400, "Résultat invalide."))?;
+    object.get("id").and_then(Value::as_str).filter(|id| notchy::shelf::valid_id(id))
+        .map(str::to_owned).ok_or_else(|| ApiError::new(400, "Résultat invalide."))
+}
+#[cfg(test)]
+mod search_input_tests {
+    use super::{search_query_input, search_result_id};
+    use serde_json::json;
+
+    #[test]
+    fn search_queries_are_literal_typed_and_bounded_in_unicode_characters() {
+        assert_eq!(search_query_input(json!({"q":"réunion"})).unwrap(), ("réunion".into(), 8));
+        assert!(search_query_input(json!({"q":"é".repeat(256),"limit":20})).is_ok());
+        for invalid in [json!({"q":"é".repeat(257)}), json!({"q":"report\nnotes"}),
+            json!({"q":"abc","limit":0}), json!({"q":"abc","limit":21}),
+            json!({"q":3}), json!({"q":"abc","path":"C:/"}), json!({}), json!(null)] {
+            assert_eq!(search_query_input(invalid).unwrap_err().status, 400);
+        }
+    }
+
+    #[test]
+    fn search_actions_accept_one_opaque_id_and_never_a_path() {
+        let id = "a".repeat(32);
+        assert_eq!(search_result_id(json!({"id":id})).unwrap(), id);
+        for invalid in [json!({"path":"C:/report.txt"}), json!({"id":"../report.txt"}),
+            json!({"id":"A".repeat(32)}), json!({"id":"a".repeat(31)}),
+            json!({"id":id,"path":"C:/"}), json!({"id":null}), json!(id), json!(null)] {
+            assert_eq!(search_result_id(invalid).unwrap_err().status, 400);
+        }
+    }
+}
+async fn search_stage_file(state: &DesktopState, id: String) -> Result<Value, ApiError> {
+    use tokio::io::AsyncReadExt;
+    let search = search_service(state)?;
+    let (name, reader, size) = tokio::task::spawn_blocking(move || search.share_source(&id)).await
+        .map_err(|_| ApiError::new(503, "Fichier indisponible."))?
+        .map_err(|_| ApiError::new(409, "Ce fichier a changé. Relance la recherche."))?;
+    struct CopyGuard<'a>(&'a AtomicU64);
+    impl Drop for CopyGuard<'_> { fn drop(&mut self) { self.0.fetch_sub(1, Ordering::Relaxed); } }
+    state.downloads.fetch_add(1, Ordering::Relaxed);
+    let _copying = CopyGuard(&state.downloads);
+    let stream = futures_util::stream::try_unfold(tokio::fs::File::from_std(reader), |mut file| async {
+        let mut bytes = vec![0; 64 * 1024];
+        let size = file.read(&mut bytes).await?;
+        bytes.truncate(size);
+        Ok::<_, std::io::Error>(if size == 0 { None } else { Some((bytes::Bytes::from(bytes), file)) })
+    });
+    state.services.shelf.add_search_stream(&name, stream, Some(size)).await
 }
 fn diagnostic_port(value:Option<u16>)->Result<u16,String> {
     match value.unwrap_or(notchy::discovery::PORT) {port if port==notchy::discovery::PORT=>Ok(port),_=>Err("Le diagnostic utilise le port LocalSend configuré.".into())}
@@ -558,6 +634,32 @@ async fn desktop_command(
             "shelf-open" => open_shelf(&state, argument, false).await,
             "shelf-reveal" => open_shelf(&state, argument, true).await,
             "shelf-export" => export_shelf(&window, &state, argument).await,
+            "search-status" => {
+                if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Recherche invalide.")); }
+                Ok(search_status_value(&state))
+            }
+            "search-query" => {
+                let (query, limit) = search_query_input(argument)?;
+                let search = search_service(&state)?;
+                let hits = tokio::task::spawn_blocking(move || search.query(&query, limit)).await
+                    .map_err(|_| ApiError::new(503, "Recherche indisponible."))?
+                    .map_err(|_| ApiError::new(503, "Recherche indisponible."))?;
+                let mut value = search_status_value(&state); value["hits"] = json!(hits); Ok(value)
+            }
+            "search-open" | "search-reveal" => {
+                let id = search_result_id(argument)?;
+                let search = search_service(&state)?;
+                let reveal = command == "search-reveal";
+                tokio::task::spawn_blocking(move || if reveal { search.reveal(&id) } else { search.open(&id) }).await
+                    .map_err(|_| ApiError::new(503, "Ouverture indisponible."))?
+                    .map_err(|_| ApiError::new(409, "Cet élément a changé ou nécessite une ouverture depuis l’Explorateur."))?;
+                Ok(json!({"ok":true}))
+            }
+            "search-reindex" => {
+                if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Recherche invalide.")); }
+                search_service(&state)?.request_reindex(); Ok(search_status_value(&state))
+            }
+            "search-stage" => search_stage_file(&state, search_result_id(argument)?).await,
             "preference" => preference(&state, argument).await,
             "startup" => {
                 let enabled = argument.as_bool().ok_or_else(|| ApiError::new(400, "Préférence de démarrage invalide."))?;
@@ -655,12 +757,19 @@ pub fn run() {
         if !checking&&std::env::args().any(|argument|argument=="--localsend"){
             let _=tauri::async_runtime::block_on(services.nearby.command(json!({"command":"discover"}),&services.files));
         }
+        let search_roots = if checking || data_override.is_some() {
+            data.file_name().map(|name| vec![data.with_file_name(format!("{}-search-fixtures", name.to_string_lossy()))]).unwrap_or_default()
+        } else { notchy::search::default_roots() };
+        let (search, search_error) = match notchy::search::SearchService::new(&data, search_roots) {
+            Ok(service) => { service.start_worker(); (Some(service), None) },
+            Err(error) => (None, Some(error)),
+        };
         let server=Arc::new(tauri::async_runtime::block_on(Server::start(services.clone(),if checking{0}else{58252}))?);
         let origin=format!("http://127.0.0.1:{}",server.port);
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
         let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"localSendActive":nearby_active,"startup":startup_status});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
-        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:AtomicBool::new(false),checking,reports:tokio::sync::Mutex::new(Vec::new())});
+        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None)});
         app.manage(state.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();
         let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}/?desktop=1").parse()?))
@@ -678,6 +787,15 @@ pub fn run() {
           })
           .build()?;
         desktop::layout(&window,initial_geometry())?;
+        if !checking && data_override.is_none() {
+            let search_window=window.clone(); let search_state=state.clone();
+            let shortcut=notchy::search_hotkey::start(app.handle().clone(), move || {
+                if !search_state.dialog.load(Ordering::Relaxed) && search_state.downloads.load(Ordering::Relaxed)==0 {
+                    show(&search_window,&search_state,"search"); let _=search_window.set_focus();
+                }
+            },state.quitting.clone());
+            *state.search_shortcut.lock().unwrap()=Some(shortcut);
+        }
         let events=state.clone();let event_window=window.clone();
         window.on_window_event(move|event|match event{
           tauri::WindowEvent::CloseRequested{api,..}=>{if !events.quitting.load(Ordering::Relaxed){api.prevent_close();hide(&event_window,&events);}},
@@ -735,6 +853,7 @@ pub fn run() {
                         let state = state.inner().clone();
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
+                            if let Some(search)=&state.search { search.stop(); }
                             state.server.dispose().await;
                             state.services.dispose().await;
                             app.exit(0);

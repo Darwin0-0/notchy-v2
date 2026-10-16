@@ -80,7 +80,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
   const {document, downloads, descendants} = dom();
   const nodes = new Map();
   function make(id, tag = 'section') {const node = document.createElement(tag); node.id = id; nodes.set(id, node); document.body.append(node); return node;}
-  for (const id of ['health-player', 'sharing-experience', 'modules-experience', 'settings-player', 'welcome-player', 'music-queue', 'startup-windows', 'notch-panel', 'notch-menu', 'notch-toggle', 'weather-city-input']) make(id);
+  for (const id of ['health-player', 'sharing-experience', 'modules-experience', 'settings-player', 'welcome-player', 'music-queue', 'startup-windows', 'notch-panel', 'notch-menu', 'notch-toggle', 'weather-city-input', 'search-player', 'search-toggle']) make(id);
   for (const id of ['shelf-player', 'shelf-nearby-peers', 'shelf-incoming', 'shelf-nearby', 'shelf-incoming-sender', 'shelf-incoming-files', 'shelf-incoming-accept', 'shelf-incoming-reject', 'shelf-nearby-status', 'shelf-nearby-toggle', 'shelf-transfer-cancel', 'shelf-share']) make(id);
   const nearbyHint = document.createElement('p'); nearbyHint.className = 'shelf-nearby-hint'; nodes.get('shelf-nearby').append(nearbyHint);
   const remove = make('shelf-remove', 'button'); remove.dataset.shelfCommand = 'remove';
@@ -96,7 +96,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
     nearby: {available: true, status: 'discovering', peers: plain(peers), transfer: null, incoming: null}, nearbyBusy: false, nearbyError: '', nearbyActionError: false, nearbyMutation: 0,
     nearbyPeer: '', nearbyReading: false, nearbyLoaded: true, nearbyIncomingShown: '', nearbyReceiveCompleted: '', nearbyTimer: 0,
     localSendContext: null, moduleEditing: false, state: 'open', view, islandPage: 'essential', weather: {}, weatherBusy: false, queueBusy: false, queueState: {status: 'disconnected'}, music: {available: false},
-    startupBusy: false, startupEnabled: false, desktop: {startup: {supported: false}}, weatherPickerOpen: false, queueOpen: false, welcome: null, scenarioController: null,
+    startupBusy: false, startupEnabled: false, desktop: {startup: {supported: false}}, weatherPickerOpen: false, queueOpen: false, welcome: null, scenarioController: null, search: null, searchShortcut: 'Ctrl+Space',
     moduleDefinitions: {}, toggle: nodes.get('notch-toggle'), menu: nodes.get('notch-menu'), panel: nodes.get('notch-panel'), notch: {dataset: {}}, settingsPlayer: nodes.get('settings-player'),
     shelfInput: {value: ''}, shelfPlayer: nodes.get('shelf-player'), weatherCityInput: nodes.get('weather-city-input'), t: translate,
     text(node, value) {node.textContent = value;}, textUI(node, value) {node.textContent = value;},
@@ -134,6 +134,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
     },
   };
   const code = [
+    production('  function renderSearchRoute() {', '  async function invokeSearch('),
     production('  function renderExperience() {', '  function settingsNaturalPanelHeight() {'),
     production('  function acceptedFile(', '  async function fileRequest('),
     production('  async function downloadShelfFiles(', '  async function shelfFileAction('),
@@ -363,5 +364,20 @@ test('Health routes through Settings and returning to Nook preserves its existin
   f.scope.closeLocalSend(true);
   assert.equal(f.scope.view, 'tray'); assert.equal(f.scope.state, 'open');
   assert.equal(f.nodes.get('sharing-experience').hidden, false); assert.equal(f.scope.islandPage, 'essential');
+  f.dispose();
+});
+
+test('an incoming LocalSend request during search returns to the previous usable route', () => {
+  const f = fixture({view: 'search'});
+  const closed = [];
+  f.scope.searchReturnView = 'tray';
+  f.scope.search = {close: options => closed.push(options)};
+  f.scope.openLocalSend('receive', {id: 'request-1', alias: 'Fixture phone', files: [file('a')]});
+  assert.equal(f.scope.view, 'localsend');
+  assert.equal(f.scope.localSendContext.returnView, 'tray');
+  assert.equal(closed.length, 1);
+  f.scope.closeLocalSend(false);
+  assert.equal(f.scope.view, 'tray');
+  assert.equal(f.scope.localSendContext, null);
   f.dispose();
 });

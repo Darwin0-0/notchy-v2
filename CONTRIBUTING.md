@@ -23,10 +23,11 @@ Follow the [Windows setup and development-profile instructions](docs/DEVELOPMENT
 | Appearance, spacing and responsive layouts | [notch.css](notch.css), [index.html](index.html) |
 | Mimo's welcome and tutorial | [welcome.js](welcome.js) |
 | Local services, Windows geometry and file handling | [src-tauri/src/](src-tauri/src/) |
+| Local search, keyboard navigation and indexing | [search.js](search.js), [search.css](search.css), [search.rs](src-tauri/src/search.rs) |
 | Windows media, audio and OCR helpers | [native/](native/) |
 | JavaScript behaviour checks | [tests/](tests/) |
 
-Prefer an existing function or component over a new script or dependency. Keep Tasks and Pomodoro in the same Focus module, and Mimo in the welcome flow. The current public scope is Music, Focus, Weather, Shelf and LocalSend; avoid adding unrelated collectors or modules to a small fix. Keep both French and English UI text consistent through [i18n.js](i18n.js), and preserve user-entered text and file or track names when changing language. Repository documentation is in English.
+Prefer an existing function or component over a new script or dependency. Keep Tasks and Pomodoro in the same Focus module, and Mimo in the welcome flow. The current public scope is Music, Focus, Weather, Shelf, LocalSend and the local-search utility; avoid adding unrelated collectors or modules to a small fix. Keep both French and English UI text consistent, and preserve user-entered text and file or track names when changing language. Most translations live in [i18n.js](i18n.js); search keeps its own small dictionary in [search.js](search.js). Repository documentation is in English.
 
 ## Check the behaviour you changed
 

@@ -500,6 +500,12 @@ impl Shelf {
         self.add_stream_with_origin(name, source, declared_size, false).await
     }
 
+    // Search imports copy the selected bytes and keep conservative origin protection.
+    pub async fn add_search_stream<S, E>(&self, name: &str, source: S, size: Option<u64>) -> Result<Value>
+    where S: Stream<Item = std::result::Result<Bytes, E>> + Send, E: std::fmt::Display + Send {
+        self.add_stream_with_origin(name, source, size, true).await
+    }
+
     async fn add_stream_with_origin<S, E>(
         &self,
         name: &str,

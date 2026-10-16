@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="experience-polish.css">
   <link rel="stylesheet" href="ia.css">
   <link rel="stylesheet" href="empty-states.css">
+  <link rel="stylesheet" href="search.css">
   <script src="tokens.js" defer></script>
   <script src="i18n.js" defer></script>
   <script src="welcome.js" defer></script>
@@ -22,6 +23,7 @@
   <script src="experience.js" defer></script>
   <script src="sharing-experience.js" defer></script>
   <script src="ia.js" defer></script>
+  <script src="search.js" defer></script>
   <script src="notch.js" defer></script>
 </head>
 <body>
@@ -64,9 +66,9 @@
     </button>
     <div id="music-hover-controls" class="music-hover-controls" role="group" aria-label="Lecteur multimédia" data-i18n-aria-label="Lecteur multimédia" hidden>
       <div class="music-hover-transport">
-        <button type="button" data-music-command="previous" aria-label="Morceau précédent" data-i18n-aria-label="Morceau précédent" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6v12L2 12zM22 6v12l-9-6z"/></svg></button>
+        <button type="button" data-music-command="previous" aria-label="Morceau précédent" data-i18n-aria-label="Morceau précédent" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5a1 1 0 0 1 1 1v12a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM18.5 5.3a1 1 0 0 1 1.5.86v11.68a1 1 0 0 1-1.5.86L8.8 12.86a1 1 0 0 1 0-1.72Z"/></svg></button>
         <button type="button" data-music-command="toggle" aria-label="Lire" data-i18n-aria-label="Lire" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path/></svg></button>
-        <button type="button" data-music-command="next" aria-label="Morceau suivant" data-i18n-aria-label="Morceau suivant" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6v12l9-6zM2 6v12l9-6z"/></svg></button>
+        <button type="button" data-music-command="next" aria-label="Morceau suivant" data-i18n-aria-label="Morceau suivant" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5a1 1 0 0 1 1 1v12a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM5.5 5.3l9.7 5.84a1 1 0 0 1 0 1.72L5.5 18.7a1 1 0 0 1-1.5-.86V6.16a1 1 0 0 1 1.5-.86Z"/></svg></button>
       </div><span class="music-hover-progress" role="progressbar" aria-label="Progression musicale" aria-valuemin="0" aria-valuemax="100" data-i18n-aria-label="Progression musicale"><i></i></span>
     </div>
     <div id="module-feedback-actions" class="module-feedback-actions" hidden><button type="button" data-feedback-command="open" data-i18n>Voir le résultat</button><button type="button" data-feedback-command="skip" aria-label="Passer à la prochaine phase" title="Passer à la prochaine phase" data-i18n-aria-label="Passer à la prochaine phase" data-i18n-title="Passer à la prochaine phase"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5.5v13l9-6.5ZM17 5.5h2.5v13H17Z"/></svg></button></div>
@@ -84,8 +86,10 @@
       <button type="button" data-view="settings" aria-label="Réglages" title="Réglages" aria-pressed="false" aria-current="false" data-i18n-aria-label="Réglages" data-i18n-title="Réglages"><svg class="nav-solid-icon" viewBox="0 0 25 27" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M12.5 3.173L11.695 3.5L11.5 3.62L10.896 4.5L10.634 5.5L10.5 5.663L9.5 6.03L8.5 5.674L8.185 5.5L7.5 5.18L6.633 5.5L6.5 5.569L5.579 6.5L5.5 6.647L5.175 7.5L5.394 8.5L5.5 8.654L5.979 9.5L5.668 10.5L5.5 10.667L4.5 11.004L3.644 11.5L3.5 11.667L3.08 12.5L3.079 13.5L3.5 14.315L3.689 14.5L4.5 15L5.5 15.303L5.712 15.5L5.906 16.5L5.5 17.292L5.359 17.5L5.122 18.5L5.5 19.194L5.699 19.5L6.5 20.165L7.5 20.713L8.5 20.226L9.5 19.803L10.5 20.242L10.668 20.5L10.918 21.5L11.5 22.218L12.02 22.5L12.5 22.717L13.5 22.65L13.792 22.5L14.5 21.986L14.874 21.5L15.149 20.5L15.5 20.077L16.5 19.87L17.5 20.297L18.5 20.486L19.5 19.929L19.996 19.5L20.432 18.5L20.257 17.5L19.775 16.5L20.038 15.5L20.5 15.207L21.5 14.954L22.039 14.5L22.597 13.5L22.559 12.5L22.047 11.5L21.5 11.014L20.5 10.767L20.138 10.5L19.818 9.5L20.5 7.689L20.592 7.5L20.5 7.367L20.022 6.5L19.5 5.907L18.988 5.5L18.5 5.196L17.5 5.387L17.349 5.5L16.5 6.016L15.5 5.808L15.195 5.5L14.932 4.5L14.5 3.932L14.015 3.5L13.5 3.211L12.5 3.173Z M11.5 10.239L11.155 10.5L10.5 11.089L10.188 11.5L9.891 12.5L9.92 13.5L10.238 14.5L10.5 14.835L11.5 15.608L12.5 15.868L13.5 15.807L14.207 15.5L14.5 15.343L15.442 14.5L15.5 14.387L15.848 13.5L15.892 12.5L15.599 11.5L15.5 11.348L14.681 10.5L14.5 10.379L13.5 10.058L12.5 9.977L11.5 10.239Z"/></svg></button>
 
 
+      <button id="search-toggle" type="button" aria-label="Rechercher" title="Rechercher · Ctrl+Space" aria-controls="search-player" aria-expanded="false" data-i18n-aria-label="Rechercher"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg></button>
     </nav>
     <div id="notch-panel" role="region" aria-label="Accueil de Notchy" aria-hidden="true" inert data-i18n-aria-label="Accueil de Notchy">
+      <section id="search-player" hidden></section>
       <div id="shelf-drag-preview" class="shelf-drag-preview" role="status" aria-live="polite" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 12H3v8h18v-8h-2"/></svg><strong id="shelf-drag-title" data-i18n>Déposer des fichiers</strong><span id="shelf-drag-detail" data-i18n>Relâche pour choisir une action.</span></div>
       <section id="localsend-player" class="localsend-player" aria-label="Partage LocalSend" data-stage="discovery" data-direction="send" data-active="false" hidden data-i18n-aria-label="Partage LocalSend">
         <header class="localsend-heading"><div class="localsend-heading-title"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#localsend-icon-share"/></svg><strong id="localsend-title" data-i18n>Envoyer à…</strong></div><span id="localsend-summary" class="localsend-summary"></span><button id="localsend-close" class="localsend-icon-button" type="button" data-localsend-command="close" aria-label="Fermer le partage" data-i18n-aria-label="Fermer le partage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
@@ -116,12 +120,12 @@
           </div>
           <div class="music-timeline"><span id="music-elapsed">0:00</span><div id="music-progress" class="music-progress"><span aria-hidden="true"></span><input id="music-seek" type="range" min="0" max="100" step="1" value="0" aria-label="Position dans le morceau" disabled data-i18n-aria-label="Position dans le morceau"></div><span id="music-duration">0:00</span></div>
           <div class="music-controls">
-            <button type="button" data-music-command="shuffle" aria-label="Lecture aléatoire" title="Lecture aléatoire" aria-pressed="false" disabled data-i18n-aria-label="Lecture aléatoire" data-i18n-title="Lecture aléatoire"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3c5 0 7 12 12 12h3m-4-4 4 4-4 4M3 18h3c2 0 3-2 4-4m4-4c1-2 2-4 4-4h3m-4-4 4 4-4 4"/></svg></button>
-            <button type="button" data-music-command="previous" aria-label="Morceau précédent" disabled data-i18n-aria-label="Morceau précédent"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5.5v13l-9-6.5ZM4.5 5.5H7v13H4.5Z"/></svg></button>
-            <button id="music-toggle" type="button" data-music-command="toggle" aria-label="Lire" disabled data-i18n-aria-label="Lire"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="music-play-icon" d="M8 5v14l11-7Z"/></svg></button>
-            <button type="button" data-music-command="next" aria-label="Morceau suivant" disabled data-i18n-aria-label="Morceau suivant"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5.5v13l9-6.5ZM17 5.5h2.5v13H17Z"/></svg></button>
-            <button type="button" data-music-command="repeat" aria-label="Activer la répétition de la liste" title="Répétition" aria-pressed="false" disabled data-i18n-aria-label="Activer la répétition de la liste" data-i18n-title="Répétition"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10V8a3 3 0 0 1 3-3h13m-4-4 4 4-4 4M20 14v2a3 3 0 0 1-3 3H4m4-4-4 4 4 4"/></svg><span class="repeat-one" aria-hidden="true">1</span></button>
-            <button id="music-queue-toggle" class="music-queue-toggle" type="button" data-music-queue-command="toggle" aria-label="Afficher À suivre" title="À suivre" aria-expanded="false" aria-controls="music-queue" data-i18n-aria-label="Afficher À suivre" data-i18n-title="À suivre"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
+            <button type="button" data-music-command="shuffle" aria-label="Lecture aléatoire" title="Lecture aléatoire" aria-pressed="false" disabled data-i18n-aria-label="Lecture aléatoire" data-i18n-title="Lecture aléatoire"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" d="M3 6h2.5c4.5 0 8.5 12 13 12H21m-3-3 3 3-3 3M3 18h2.5c1.8 0 3.6-2.1 5.2-4.5M14 9c1.5-1.9 3-3 4.5-3H21m-3-3 3 3-3 3"/></svg></button>
+            <button type="button" data-music-command="previous" aria-label="Morceau précédent" disabled data-i18n-aria-label="Morceau précédent"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5a1 1 0 0 1 1 1v12a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM18.5 5.3a1 1 0 0 1 1.5.86v11.68a1 1 0 0 1-1.5.86L8.8 12.86a1 1 0 0 1 0-1.72Z"/></svg></button>
+            <button id="music-toggle" type="button" data-music-command="toggle" aria-label="Lire" disabled data-i18n-aria-label="Lire"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="music-play-icon" d="M8.5 4.8a1 1 0 0 0-1.5.86v12.68a1 1 0 0 0 1.5.86l10.5-6.34a1 1 0 0 0 0-1.72Z"/></svg></button>
+            <button type="button" data-music-command="next" aria-label="Morceau suivant" disabled data-i18n-aria-label="Morceau suivant"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5a1 1 0 0 1 1 1v12a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM5.5 5.3l9.7 5.84a1 1 0 0 1 0 1.72L5.5 18.7a1 1 0 0 1-1.5-.86V6.16a1 1 0 0 1 1.5-.86Z"/></svg></button>
+            <button type="button" data-music-command="repeat" aria-label="Activer la répétition de la liste" title="Répétition" aria-pressed="false" disabled data-i18n-aria-label="Activer la répétition de la liste" data-i18n-title="Répétition"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" d="M4 10V8a3 3 0 0 1 3-3h13m-3-3 3 3-3 3M20 14v2a3 3 0 0 1-3 3H4m3-3-3 3 3 3"/></svg><span class="repeat-one" aria-hidden="true">1</span></button>
+            <button id="music-queue-toggle" class="music-queue-toggle" type="button" data-music-queue-command="toggle" aria-label="Afficher À suivre" title="À suivre" aria-expanded="false" aria-controls="music-queue" data-i18n-aria-label="Afficher À suivre" data-i18n-title="À suivre"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12a2 2 0 0 1 0 4H6a2 2 0 0 1 0-4ZM5 13h14M5 18h14"/></svg></button>
           </div>
         </div>
         <p id="music-status" class="music-status" role="status" aria-live="polite"></p>

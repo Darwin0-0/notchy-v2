@@ -18,6 +18,7 @@ fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).parent().unwrap().canonicalize().unwrap();
     let dist = root.join("dist");
     let assets = vec!["index.html", "tokens.css", "tokens.js", "ia.css", "ia.js", "empty-states.css", "empty-states.js", "notch.css", "welcome.css", "experience.css", "experience-polish.css", "focus-experience.css", "sharing-experience.css", "experience.js", "sharing-experience.js", "i18n.js", "notch.js", "focus.js", "welcome.js", "assets/manrope-latin.woff2", "assets/manrope-OFL.txt"];
+    let assets = assets.into_iter().chain(["search.css", "search.js"]).collect::<Vec<_>>();
     for name in assets.iter().copied().chain(["assets/spotify.ico"]) {
         let input = root.join(name).canonicalize().unwrap();
         assert!(input.starts_with(&root), "Public UI input must stay inside the project");

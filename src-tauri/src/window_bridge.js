@@ -81,6 +81,13 @@
     copyText: value => request('copy-text', value),
     openShelfItem: value => request('shelf-open', value), revealShelfItem: value => request('shelf-reveal', value),
     exportShelfItems: value => request('shelf-export', value),
+    search: async (operation, args = {}) => {
+      const commands = {search_query:'search-query',search_status:'search-status',search_open:'search-open',search_reveal:'search-reveal',search_reindex:'search-reindex',search_stage:'search-stage'};
+      if (!Object.prototype.hasOwnProperty.call(commands, operation)) throw new TypeError('Unknown search operation');
+      const value = await request(commands[operation], args);
+      if (value?.ok === false) throw new Error(value.error || 'Search unavailable');
+      return value;
+    },
     onResume: callback => listen('notchy:resume', callback),
     onDeactivate: callback => listen('notchy:deactivate', callback),
     onPointer: callback => listen('notchy:pointer', callback),

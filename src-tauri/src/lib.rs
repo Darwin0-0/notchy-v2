@@ -14,3 +14,5 @@ pub mod server;
 pub mod health;
 pub mod settings;
 pub mod discovery;
+pub mod search;
+pub mod search_hotkey;

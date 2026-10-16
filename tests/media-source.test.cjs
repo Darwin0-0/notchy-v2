@@ -41,6 +41,18 @@ test('a non-Spotify session has its own label and Windows controls without a Spo
   assert.equal(f.node('music-source').textContent,'Lecteur multimédia'); assert(f.badges.every(badge=>badge.hidden));
 });
 
+test('the player and hover transport share play/pause state while retaining capability guards', () => {
+  const f=fixture({available:true,source:'Spotify',canToggle:true,playing:false});
+  f.scope.api.renderMusic();
+  const play=f.node('music-play-icon').d, mini=f.node('music-hover-controls-child-child');
+  assert.equal(mini.d,play); assert.equal(f.node('music-toggle')['aria-label'],'Lire');
+  f.scope.music=normalizeMusic({available:true,source:'Spotify',canToggle:true,playing:true}); f.scope.api.renderMusic();
+  assert.notEqual(f.node('music-play-icon').d,play); assert.equal(mini.d,f.node('music-play-icon').d);
+  assert.equal(f.node('music-toggle')['aria-label'],'Mettre en pause');
+  f.scope.music=normalizeMusic({available:true,source:'Spotify',canToggle:false,playing:true}); f.scope.api.renderMusic();
+  assert.equal(f.commands.find(button=>button.dataset.musicCommand==='toggle').disabled,true);
+});
+
 test('a system player cannot query or display an unrelated Spotify queue or request account setup', () => {
   const f=fixture({available:true,source:'VLC'}); f.scope.api.renderMusicQueue();
   assert.equal(f.scope.api.queueVisible(),false);

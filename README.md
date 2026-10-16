@@ -6,7 +6,7 @@
 
 **Your day, a little closer.**
 
-Music, tasks, weather and files—right where you need them.
+Music, focus and local files—right where you need them.
 
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D4) ![Status: actively evolving](https://img.shields.io/badge/status-actively%20evolving-62d7be) [![Contributions welcome](https://img.shields.io/badge/contributions-welcome-8b6ce7)](CONTRIBUTING.md)
 
@@ -38,6 +38,9 @@ The project is actively evolving. Choose Français or English on the welcome scr
 - **Weather you can read at a glance.** A short forecast for your current location or a city you choose.
 - **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
 - **LocalSend in Tray.** Accept incoming files, send to nearby devices, and follow the transfer without leaving the notch.
+- **Find it, keep your flow.** Open local search from the magnifying glass or **Ctrl+Space**. Find a file or folder by name, reveal it in Explorer, or choose a nearby device to send it with LocalSend. Your search stays on your PC.
+
+![Local search inside Notchy, with sample files and keyboard controls](assets/previews/search.png)
 
 ![Tasks and Pomodoro together in the Focus module, using sample data](assets/previews/focus.png)
 
@@ -49,6 +52,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 2. Hover over the notch for a quick preview, then click to open the controls. Move away to return to the discreet view. Keyboard editing, file dialogs and active drags stay protected while you use them.
 3. Open **Settings → Modules** to arrange Music, Focus, Tasks, Weather and Shelf. Open **Tray** for files and LocalSend; save a copy to Downloads whenever you need one.
 4. Choose your city, add a task and start a session. Settings stay open while you move between controls; the close button or Escape dismisses them.
+5. Use **Ctrl+Space** for local search. Navigate with the arrow keys, press **Enter** to open a result or **Ctrl+Enter** to reveal it, and **Escape** to return. If the global shortcut is busy, Notchy tries **Ctrl+Shift+Space**; **Ctrl+K** also works inside Notchy.
 
 Your personal profiles and files stay in local data folders and are excluded from the source repository. Weather uses a public forecast service; Spotify is optional, and LocalSend connects devices on your local network. Setup and privacy details are in the [development guide](docs/DEVELOPMENT.md).
 
@@ -65,6 +69,8 @@ Have an idea for a module? Start with the [module design contract and JSON manif
 Notchy has three main places: **Nook** for your activities, **Tray** for files and nearby sharing, and **Settings** for General, Modules, Scenarios and Health. Select an activity card to open its detailed controls; return to Nook without losing the current song, task or timer.
 
 The Rust core owns native settings, network diagnostics, device discovery and file operations. The interface reuses those results and keeps its presentation separate from them. Shared [design tokens](docs/tokens.md) keep activity colors, status colors, type and motion consistent. LocalSend works on the same local network without internet; when automatic discovery is unavailable, add a private IP or use the explicit local-network search in Health.
+
+[Local search](docs/LOCAL_SEARCH.md) is a utility available from every main view. It indexes file and folder names in your personal Windows libraries, with live updates and keyboard navigation. Document contents and application launching are outside this first version; hidden, private and offline locations are excluded.
 
 Small contributions fit here: improve a real interaction, test an empty or error state, or help refine one module. The [development guide](docs/DEVELOPMENT.md) explains how to run and verify a change.
 

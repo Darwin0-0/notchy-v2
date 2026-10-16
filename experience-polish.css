@@ -67,7 +67,10 @@ body[data-motion="false"] #notch-menu::before { transition: opacity var(--dur-ex
 #music-player[data-presentation="scene"] .music-controls > button { flex-basis: var(--measure-26-px)!important; width: var(--measure-26-px)!important; height: var(--measure-26-px)!important; min-width: var(--measure-22-px)!important; }
 #music-player[data-presentation="scene"] .music-controls > [data-music-command="shuffle"] { display: grid!important; }
 .music-favorite { display: grid; place-items: center; padding: var(--space-1); color: var(--color-fff); background: transparent; }
-.music-favorite svg { width: var(--measure-18-px); height: var(--measure-18-px); fill: none!important; stroke: currentColor; stroke-width: 1.7; }
+.music-favorite svg { width: var(--measure-18-px); height: var(--measure-18-px); fill: none!important; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+#music-player .music-controls #music-toggle { border-radius: 50%; background: var(--color-fff); color: var(--color-000); }
+#music-player .music-controls #music-toggle:hover:not(:disabled) { background: var(--color-fff); }
+#music-player .music-controls #music-toggle svg { width: 60%; height: 60%; }
 .music-empty-reference { display: flex; position: absolute; z-index: 3; inset: 0; flex-direction: column; align-items: center; justify-content: center; gap: var(--measure-10-px); padding: var(--space-4); text-align: center; background: var(--color-161618); }
 .music-empty-reference > svg { width: var(--measure-48-px); height: var(--measure-48-px); fill: var(--activity-music); }
 .music-empty-reference strong { font-size: var(--measure-15-px); font-weight: 800; }

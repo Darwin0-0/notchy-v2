@@ -621,6 +621,49 @@
   let localSendContext = null, nearbyMutation = 0, nearbyLoaded = false;
   const byId = id => document.getElementById(id);
   const desktop = window.notchyDesktop?.isDesktop ? window.notchyDesktop : null;
+  let search = null, searchReturnView = 'nook', searchReturnState = 'rest', searchShortcut = 'Ctrl+K';
+  function renderSearchRoute() {
+    const active = view === 'search' && state === 'open';
+    byId('search-player').hidden = !active;
+    byId('search-toggle').setAttribute('aria-expanded', String(active));
+    byId('search-toggle').title = t('Rechercher') + ' · ' + searchShortcut;
+  }
+  async function invokeSearch(operation, args = {}) {
+    if (!desktop?.search) throw new Error('Desktop search unavailable');
+    const value = await desktop.search(operation, args);
+    if (value?.shortcut) {
+      searchShortcut = value.shortcut.available && typeof value.shortcut.shortcut === 'string' ? value.shortcut.shortcut : 'Ctrl+K';
+      byId('search-toggle').setAttribute('aria-keyshortcuts', searchShortcut.replace('Ctrl', 'Control'));
+      renderSearchRoute();
+    }
+    return value;
+  }
+  function showSearch() {
+    if (disposed || !search || welcome?.isActive() || fileDialogOpen || fileDragging || getModuleEditorActive()
+      || view === 'localsend' && nearby.incoming) return false;
+    if (search.isOpen()) return search.close();
+    return search.open();
+  }
+  function searchOpening() {
+    searchReturnView = view === 'search' ? 'nook' : view;
+    searchReturnState = state === 'open' ? 'open' : 'rest';
+    keyboardNavigation = true; window.clearTimeout(collapseTimer); collapseDeferred = false;
+    clearModuleFeedback(false);
+    selectViewButton({dataset: {view: 'search'}}); setState('open'); desktop?.focus();
+  }
+  function searchClosed() {
+    if (disposed || view !== 'search') return;
+    selectViewButton({dataset: {view: searchReturnView}}); setState(searchReturnState);
+  }
+  async function searchSend(id) {
+    const result = await invokeSearch('search_stage', {id});
+    if (!search?.isOpen() || view !== 'search' || disposed) return;
+    if (!result?.item || typeof result.item.id !== 'string') throw new Error('File unavailable');
+    search.close({restoreFocus: false, notify: false});
+    shelfLoaded = false;
+    selectViewButton({dataset: {view: searchReturnView}});
+    openLocalSend('send', [result.item]);
+  }
   let desktopMaxHeight = 700, desktopRemoveResume = null, desktopMouse = null, desktopInteractive = false;
   if (desktop) { document.documentElement.dataset.desktop = 'true'; document.body.classList.add('desktop'); }
   let appearance = normalizeAppearance();
@@ -662,13 +705,12 @@
   player.querySelector('.music-controls').prepend(player.querySelector('[data-music-command="shuffle"]'));
   const musicFavorite = document.createElement('button'); musicFavorite.type='button'; musicFavorite.className='music-favorite'; musicFavorite.disabled=true;
   musicFavorite.setAttribute('aria-label',t('Les favoris ne sont pas partagés par le lecteur Windows')); musicFavorite.title=musicFavorite.getAttribute('aria-label');
-  musicFavorite.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg>';
+  musicFavorite.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>';
   player.querySelector('.music-controls').append(musicFavorite);
   const musicEmpty = document.createElement('div'); musicEmpty.className='music-empty-reference';
   musicEmpty.innerHTML='<svg viewBox="0 0 56 56" aria-hidden="true"><rect x="10" y="24" width="6" height="16" rx="3"/><rect x="20" y="14" width="6" height="26" rx="3"/><rect x="30" y="9" width="6" height="31" rx="3"/><rect x="40" y="20" width="6" height="20" rx="3"/></svg><strong></strong><p></p><button type="button" data-music-command="open"></button>';
   player.append(musicEmpty);
   player.querySelector('.music-main').append(byId('music-queue-toggle'));
-  for (const [command, path] of [['previous', 'M11 6v12L2 12zM22 6v12l-9-6z'], ['next', 'M13 6v12l9-6zM2 6v12l9-6z']]) player.querySelector(`[data-music-command="${command}"] path`).setAttribute('d', path);
   for (const bars of notch.querySelectorAll('.music-spectrum')) {while (bars.children.length < ISLAND_CONFIG.compact.equalizerBars) bars.append(document.createElement('i')); while (bars.children.length > ISLAND_CONFIG.compact.equalizerBars) bars.lastElementChild.remove();}
   for (const bars of notch.querySelectorAll('.music-spectrum')) [...bars.children].forEach((bar, index) => bar.style.animationDelay = (ISLAND_CONFIG.compact.equalizerDelays[index] || 0) + 'ms');
   const liveBars = [...byId('music-live-spectrum').children], playerBars = [...byId('music-player-spectrum').children], feedbackBars = [...byId('module-feedback-spectrum').children];
@@ -758,7 +800,7 @@
     window.clearTimeout(moduleFeedbackTimer); moduleFeedbackTimer = 0;
     for (const animation of moduleFeedbackAnimations) animation.cancel(); moduleFeedbackAnimations.clear();
     moduleFeedback = null;
-    if (render && !disposed) { renderModuleFeedback(); renderLiveActivities(); update(); }
+    if (render && !disposed) { renderModuleFeedback(); renderLiveActivities(); update(); recheckCollapse(); }
   }
   function localizedFeedback(value) {
     const detail = ['focus', 'tasks'].includes(value.id) && value.kind !== 'task-complete' ? value.detail.startsWith('Session ') ? t('Session {session} sur {total}', {session: focus.pomodoro?.session || 1, total: focus.pomodoro?.total || 4}) : t(value.detail) : value.detail;
@@ -1123,6 +1165,7 @@
     else if (button.dataset.settingsCommand === 'scenarios') selectViewButton({dataset: {view: 'scenarios'}});
   }
   function renderExperience() {
+    renderSearchRoute();
     if (!experience || disposed) return;
     byId('health-player').hidden = view !== 'health' || moduleEditing;
     const tray = view === 'tray' && !moduleEditing;
@@ -1524,9 +1567,9 @@
     if (id === 'music') {
       card.querySelector('.activity-card-art svg').innerHTML = '<path d="M9 18V5l11-2v13M9 9l11-2"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>';
       const spectrum = document.createElement('span'); spectrum.className = 'activity-spectrum'; spectrum.setAttribute('aria-hidden', 'true'); spectrum.innerHTML = '<i></i><i></i><i></i>'; card.querySelector('.activity-card-eyebrow').prepend(spectrum);
-      for (const [command, label, path] of [['previous', 'Morceau précédent', 'M18 5v14l-9-7ZM5 5h3v14H5Z'], ['next', 'Morceau suivant', 'M6 5v14l9-7ZM16 5h3v14h-3Z']]) {
+      for (const [command, label] of [['previous', 'Morceau précédent'], ['next', 'Morceau suivant']]) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'activity-card-skip'; button.dataset.sceneCommand = 'music-' + command; button.setAttribute('aria-label', t(label));
-        button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + path + '"/></svg>';
+        button.append(player.querySelector(`[data-music-command="${command}"] svg`).cloneNode(true));
         const actions = card.querySelector('.activity-card-actions'); if (command === 'previous') actions.prepend(button); else actions.append(button);
       }
     }
@@ -1576,7 +1619,7 @@
       if (isMusic) for (const [command, capability, label] of [['previous', 'canPrevious', 'Morceau précédent'], ['next', 'canNext', 'Morceau suivant']]) {
         const button = card.querySelector('[data-scene-command="music-' + command + '"]'); button.disabled = !!item.complete || commandBusy || connectionLost || !music[capability]; button.setAttribute('aria-label', t(label));
       }
-      path.setAttribute('d', isMusic || isFocus ? playing ? 'M6 5h4v14H6ZM14 5h4v14h-4Z' : 'M8 5v14l11-7Z' : isTransfer ? 'M6 6l12 12M18 6L6 18' : 'M8 5l8 7-8 7');
+      path.setAttribute('d', isMusic ? byId('music-play-icon').getAttribute('d') : isFocus ? playing ? 'M6 5h4v14H6ZM14 5h4v14h-4Z' : 'M8 5v14l11-7Z' : isTransfer ? 'M6 6l12 12M18 6L6 18' : 'M8 5l8 7-8 7');
       const completion = card.querySelector('.activity-card-completion'); completion.hidden = !item.complete;
       text(completion.querySelector('span'), t(isTransfer ? nearby.transfer?.direction === 'receive' ? 'Reçu' : 'Envoyé' : 'Terminé'));
     }
@@ -1814,7 +1857,8 @@
     const value = localSendPresentation();
     if (!nearbyLoaded || fileDragging) return null;
     if (!value) return null;
-    if (['complete','error','cancelled','rejected'].includes(value.stage) && !moduleFeedback) return null;
+    const ownFeedback = moduleFeedback?.id === 'shelf' && ['sent','received'].includes(moduleFeedback.kind) && !!value.transfer?.id && moduleFeedback.transferId === value.transfer.id;
+    if (['complete','error','cancelled','rejected'].includes(value.stage) && !ownFeedback) return null;
     return value;
   }
   function renderLocalSendBand() {
@@ -1904,7 +1948,7 @@
   function openLocalSend(direction, files, source = 'shelf') {
     const incoming = direction === 'receive' ? files : null;
     const rows = incoming ? incoming.files : files;
-    localSendContext = {direction, source, files: rows.map(file => ({id:file.id,name:file.name,size:file.size})), totalBytes: incoming?.totalBytes || rows.reduce((sum,file)=>sum+(file.size||0),0), incomingId:incoming?.id, alias:incoming?.alias || '', returnView:view === 'localsend' ? 'tray' : view, previousId:nearby.transfer?.id || '', peerId:'', requested:false, error:''};
+    localSendContext = {direction, source, files: rows.map(file => ({id:file.id,name:file.name,size:file.size})), totalBytes: incoming?.totalBytes || rows.reduce((sum,file)=>sum+(file.size||0),0), incomingId:incoming?.id, alias:incoming?.alias || '', returnView:view === 'search' ? searchReturnView : view === 'localsend' ? 'tray' : view, previousId:nearby.transfer?.id || '', peerId:'', requested:false, error:''};
     selectViewButton({dataset:{view:'localsend'}}); setState('open');
     if (incoming) byId('shelf-incoming-accept').focus({preventScroll:true});
     else if (!nearby.available) void nearbyRequest({command:'discover'});
@@ -1982,7 +2026,7 @@
         }
         if (value.transfer?.direction === 'receive' && value.transfer.status === 'complete' && value.transfer.id !== nearbyReceiveCompleted) {
           nearbyReceiveCompleted = value.transfer.id; shelfLoaded = false; if (builtinVisible('shelf') || view === 'nook' && getHomeSlots().includes('shelf')) void loadShelf();
-          notifyModuleChange({id: 'shelf', kind: 'received', title: value.transfer.fileCount > 1 ? t('Fichiers reçus') : t('Fichier reçu'), detail: value.transfer.alias || t('Dans l’Étagère')});
+          notifyModuleChange({id: 'shelf', kind: 'received', transferId: value.transfer.id, title: value.transfer.fileCount > 1 ? t('Fichiers reçus') : t('Fichier reçu'), detail: value.transfer.alias || t('Dans l’Étagère')});
         }
         renderLiveActivities(); update();
       }
@@ -2011,7 +2055,7 @@
       if (disposed || mutation !== nearbyMutation) return;
       nearby = data;
       if (!response.ok || data.error) throw new Error(data.error || data.transfer?.error || t('Cette action est indisponible.'));
-      if (value.command === 'share' && data.transfer?.status === 'complete') notifyModuleChange({id: value.source === 'files' ? 'files' : 'shelf', kind: 'sent', title: value.ids.length > 1 ? t('Fichiers envoyés') : t('Fichier envoyé'), detail: data.transfer.alias || t('Transfert terminé')});
+      if (value.command === 'share' && data.transfer?.status === 'complete') notifyModuleChange({id: value.source === 'files' ? 'files' : 'shelf', kind: 'sent', transferId: data.transfer.id, title: value.ids.length > 1 ? t('Fichiers envoyés') : t('Fichier envoyé'), detail: data.transfer.alias || t('Transfert terminé')});
     } catch (error) { if (!disposed && mutation === nearbyMutation) {nearbyActionError = true; nearbyError = error.message || t('Partage indisponible.'); if(localSendContext) localSendContext.error=nearbyError;} }
     finally { if (!disposed && mutation === nearbyMutation) { nearbyBusy = false; renderNearby(); renderLiveActivities(); update(); nearbyLifecycle(); } }
   }
@@ -2176,7 +2220,7 @@
         fileSendPreviousTransferId = nearby.transfer?.id || ''; fileSending = true; renderFiles(); void filePeersPoll();
         const value = {command: 'share', peerId: button.dataset.filePeer, ids: [item.id]}; if (item.source === 'files') value.source = 'files';
         nearby = await filePost('/api/nearby', value); if (nearby.transfer?.error) throw new Error(nearby.transfer.error); fileError = nearby.transfer?.status === 'cancelled' ? t('Envoi annulé.') : nearby.transfer?.status === 'complete' ? t('Fichier envoyé.') : t('Envoi en cours…'); renderNearby();
-        if (nearby.transfer?.status === 'complete') notifyModuleChange({id: 'files', kind: 'sent', title: t('Fichier envoyé'), detail: item.name});
+        if (nearby.transfer?.status === 'complete') notifyModuleChange({id: 'files', kind: 'sent', transferId: nearby.transfer.id, title: t('Fichier envoyé'), detail: item.name});
       } else if (command === 'ocr' || button.dataset.fileFormat) {
         fileJob = await filePost('/api/files/tool', {id: item.id, command: command === 'ocr' ? 'ocr' : 'convert', ...(button.dataset.fileFormat ? {format: button.dataset.fileFormat} : {})});
         moduleActivityStates.set('files', moduleActivitySnapshot('files', {...fileJob, status: 'running'}));
@@ -2648,6 +2692,7 @@
   function renderLanguage() {
     if (disposed) return;
     renderStaticTranslations();
+    search?.render(); renderSearchRoute();
     musicFavorite.setAttribute('aria-label', t('Les favoris ne sont pas partagés par le lecteur Windows')); musicFavorite.title = musicFavorite.getAttribute('aria-label');
     for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();
     for (const item of Object.values(moduleDefinitions)) moduleLabels[item.id] = t(item.label);
@@ -2738,7 +2783,7 @@
     byId('music-promote').hidden = !player.parentElement?.classList?.contains('activity-rail-cards');
     const paused = !music.playing || connectionLost;
     byId('music-toggle').setAttribute('aria-label', paused ? t('Lire') : t('Mettre en pause'));
-    byId('music-play-icon').setAttribute('d', paused ? 'M8 5v14l11-7Z' : 'M6 5h4v14H6ZM14 5h4v14h-4Z');
+    byId('music-play-icon').setAttribute('d', paused ? 'M8.5 4.8a1 1 0 0 0-1.5.86v12.68a1 1 0 0 0 1.5.86l10.5-6.34a1 1 0 0 0 0-1.72Z' : 'M7 5h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM15 5h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z');
     const miniToggle = byId('music-hover-controls').querySelector('[data-music-command="toggle"]');
     miniToggle.setAttribute('aria-label', t(paused ? 'Lire' : 'Mettre en pause')); miniToggle.querySelector('path').setAttribute('d', byId('music-play-icon').getAttribute('d'));
     byId('music-queue-toggle').hidden = !music.available;
@@ -2766,8 +2811,7 @@
     musicAt = window.performance.now();
     musicError = ''; connectionLost = false;
     scenarioController?.observe();
-    observeModuleActivity('music', music);
-    renderMusic(); update(); syncStream(); if (oldCopy && motionEnabled()) animateMusicTrack(oldCopy, oldArt);
+    renderMusic(); observeModuleActivity('music', music); update(); syncStream(); if (oldCopy && motionEnabled()) animateMusicTrack(oldCopy, oldArt);
     if (oldPlaybackIcon) animateMusicPlayback(oldPlaybackIcon);
     if (getModuleEditorActive()) renderModules(); return true;
   }
@@ -3073,6 +3117,10 @@
     if (next !== 'open' || state !== 'open') {layoutResizeClick = null; layoutResizeGraceUntil = 0;}
     if (next !== 'open' && (menu.contains(document.activeElement) || expandedLayer.contains(document.activeElement) || byId('music-hover-controls').contains(document.activeElement))) toggle.focus({preventScroll: true});
     state = next;
+    if (next !== 'open' && view === 'search') {
+      search?.close({restoreFocus: false, notify: false});
+      selectViewButton({dataset: {view: searchReturnView}});
+    }
     renderScenarios();
     notch.dataset.state = next;
     document.body.dataset.notchState = next;
@@ -3192,7 +3240,12 @@
   function showFileChooser(input) { fileDialogOpen = true; desktop?.setDialogOpen?.(true); input.click(); }
   function closeFileChooser() { fileDialogOpen = false; desktop?.setDialogOpen?.(false); recheckCollapse(); }
   function outside(event) { if (state === 'open' && !notch.contains(event.target)) { if (welcome?.isActive()) { finishWelcome('rest'); return; } if (getModuleEditorActive()) closeModuleEditor(false); setState('rest'); } }
-  function key(event) { if (event.key === 'Escape' && !getModuleEditorActive()) { event.preventDefault(); if (queueOpen) { event.stopImmediatePropagation(); closeMusicQueue(); } else if (welcome?.isActive()) finishWelcome('rest'); else setState('rest'); } }
+  function key(event) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && (String(event.key).toLowerCase() === 'k' || !desktop && event.code === 'Space')) {
+      event.preventDefault(); showSearch(); return;
+    }
+    if (event.key === 'Escape' && !getModuleEditorActive()) { event.preventDefault(); if (queueOpen) { event.stopImmediatePropagation(); closeMusicQueue(); } else if (welcome?.isActive()) finishWelcome('rest'); else setState('rest'); }
+  }
   function selectView(event) {
     const button = event.target.closest('[data-view]');
     if (disposed || menu.hidden || !button || !menu.contains(button)) return;
@@ -3208,6 +3261,7 @@
   }
   function selectViewButton(button) {
     if (!button) return;
+    if (view === 'search' && button.dataset.view !== 'search') search?.close({restoreFocus: false, notify: false});
     if (view === 'welcome' && button.dataset.view !== 'welcome' && welcome?.isActive()) {
       welcome.hide();
     }
@@ -3217,7 +3271,7 @@
     toggle.tabIndex = state === 'open' && view === 'localsend' ? -1 : 0;
     byId('welcome-player').hidden = view !== 'welcome';
     menu.hidden = state !== 'open' || view === 'welcome' || view === 'localsend'; menu.inert = menu.hidden;
-    panel.setAttribute('aria-label', t(Object.values(moduleDefinitions).find(item => item.view === view)?.label) || (view === 'nook' ? t('Accueil Notchy') : view === 'welcome' ? t('Bienvenue dans Notchy') : view === 'localsend' ? t('Partage LocalSend') : view === 'files' ? t('Actions de fichier') : view === 'scenarios' ? t('Scénarios') : t('Réglages')));
+    panel.setAttribute('aria-label', view === 'search' ? t('Rechercher') : t(Object.values(moduleDefinitions).find(item => item.view === view)?.label) || (view === 'nook' ? t('Accueil Notchy') : view === 'welcome' ? t('Bienvenue dans Notchy') : view === 'localsend' ? t('Partage LocalSend') : view === 'files' ? t('Actions de fichier') : view === 'scenarios' ? t('Scénarios') : t('Réglages')));
     renderMenuSelection();
     renderHomeLayout();
     musicLifecycle();
@@ -3249,6 +3303,7 @@
   notch.addEventListener('pointerleave', leave);
   toggle.addEventListener('focus', toggleFocus);
   toggle.addEventListener('click', open);
+  byId('search-toggle').addEventListener('click', showSearch);
   surface.addEventListener('click', surfaceClick);
   islandFooter.addEventListener('click', islandNavigation);
   menu.addEventListener('click', selectView);
@@ -3317,13 +3372,14 @@
     desktop.setInteractive(false);
     document.addEventListener('mousemove', desktopPointer);
     document.addEventListener('pointerdown', desktopFocus);
-    const removeResume = desktop.onResume(value => { if (value?.maxHeight) desktopMaxHeight = value.maxHeight; if (value?.reason === 'open') setState('open'); else update(); });
+    const removeResume = desktop.onResume(value => { if (value?.maxHeight) desktopMaxHeight = value.maxHeight; if (value?.reason === 'search') showSearch(); else if (value?.reason === 'open') setState('open'); else update(); });
     const removeDeactivate = desktop.onDeactivate?.(() => scheduleCollapse(true));
     const removePointer = desktop.onPointer?.(nativePointer);
     desktopRemoveResume = () => { removeResume(); removeDeactivate?.(); removePointer?.(); };
   }
 
   function dispose() {
+    search?.dispose(); byId('search-toggle').removeEventListener('click', showSearch);
     ia?.dispose();
     if (disposed) return;
     disposed = true;
@@ -3451,11 +3507,14 @@
     getModuleEditorOrder,
     getWeatherState,
     showHealth: () => {selectViewButton({dataset:{view:'health'}}); setState('open');},
+    showSearch,
     dispose,
     inspect: () => ({state, view, geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, scenarios: scenarioController?.inspect(), morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
     }),
   });
   window.addEventListener('pagehide', dispose, {once: true});
+  search = window.NotchySearch.create({host: byId('search-player'), invoke: invokeSearch, t,
+    onOpen: searchOpening, onClose: searchClosed, onSend: searchSend});
   experience = window.NotchyExperience.create({healthHost: byId('health-player'), modulesHost: byId('modules-experience'), t, onAction: experienceAction, onModulesChange(value) {if (!moduleEditing) return; moduleDraftOrder = value.order; moduleDraft = normalizeModules({enabled: value.order.filter(id => value.enabled.includes(id)), slots: value.order.filter(id => value.enabled.includes(id)).slice(0,3)}); moduleMessage = ''; renderModules();}});
   byId('modules-experience').querySelector('.experience-heading-actions').append(modulesPlayer.querySelector('.module-editor-actions'));
   sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction});

@@ -5,6 +5,8 @@
   --activity-long: #bf8bff;
   --activity-transfer: #8ac8ff;
   --activity-music: var(--spectrum-color, #f28b96);
+  --music-art-saturation: 1.12;
+  --music-art-contrast: 1.02;
   --activity-tasks: #a6e3b4;
   --activity-weather: #7aa7ff;
   --activity-shelf: #ffd60a;
