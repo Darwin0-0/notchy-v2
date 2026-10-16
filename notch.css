@@ -2223,7 +2223,7 @@ body[data-motion="false"] .focus-summary-progress > span { transition: none; }
 #music-player .music-status { position: absolute; z-index: 4; bottom: 0; left: 0; right: 0; max-height: var(--measure-36-px); margin: 0; padding: 0 var(--space-2); overflow: auto; border-radius: var(--radius-control); background: var(--color-111); color: var(--color-fff); font-size: var(--text-xs); line-height: var(--measure-16-px); }
 #music-player .music-status:empty { display: none; }
 #music-player:is([data-presentation="scene"],[data-music-size="half"]) .music-content { grid-template-rows: minmax(0,1fr) var(--measure-25-px) var(--measure-26-px); gap: var(--measure-7-px); padding: var(--space-3) var(--space-4) var(--measure-10-px); }
-#music-player:is([data-presentation="scene"],[data-music-size="half"]) .music-art { width: 100%; height: 70%; -webkit-mask-image: linear-gradient(var(--color-000) 50%,transparent); mask-image: linear-gradient(var(--color-000) 50%,transparent); }
+#music-player:is([data-presentation="scene"],[data-music-size="half"]) .music-art { width: 100%; max-width: none; height: 70%; -webkit-mask-image: linear-gradient(var(--color-000) 50%,transparent); mask-image: linear-gradient(var(--color-000) 50%,transparent); }
 #music-player:is([data-presentation="scene"],[data-music-size="half"]) .music-art::after { background: linear-gradient(transparent 30%,var(--color-0008) 80%,var(--color-000b)); }
 #music-player:is([data-presentation="scene"],[data-music-size="half"]) .music-copy { align-self: end; padding: 0 var(--measure-18-px) 0 0; gap: var(--measure-2-px); }
 #music-player:is([data-presentation="scene"],[data-music-size="half"]) #music-title { font-size: var(--measure-17-px); line-height: var(--measure-21-px); }

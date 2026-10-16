@@ -415,6 +415,23 @@
       horizon: stale ? 'prévision précédente · 2 h' : 'prochaines 2 h', loading, status, state: loading ? 'loading' : stale ? 'stale' : available ? 'ready' : 'unavailable'};
   }
 
+  function weatherConditionPath(icon) {
+    const cloud = 'M6 18h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10Z';
+    const paths = {
+      sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5',
+      moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z',
+      cloud,
+      'cloud-sun': 'M12 3v2M5 5l1.5 1.5M3 12h2m13-7-1.5 1.5M8 9a5 5 0 0 1 9 2M7 20h11a4 4 0 0 0 0-8 5 5 0 0 0-9-1 4.5 4.5 0 0 0-2 9Z',
+      'cloud-moon': 'M17 3a6 6 0 0 0 4 9 6 6 0 0 1-7-1M6 20h12a4 4 0 0 0 0-8 5 5 0 0 0-9-1 4.5 4.5 0 0 0-3 9Z',
+      rain: 'M6 15h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM8 18l-1 3m6-3-1 3m6-3-1 3',
+      drizzle: 'M6 15h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM8 19v1m4-2v1m4 0v1',
+      snow: 'M6 15h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM8 18v4m-2-2h4m6-2v4m-2-2h4',
+      fog: 'M6 13h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM4 17h16M6 21h12',
+      thunder: 'M6 15h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10ZM12 14l-3 5h4l-2 4',
+    };
+    return Object.hasOwn(paths, icon) ? paths[icon] : cloud;
+  }
+
   function weatherDesignValues(snapshot = {}, presentation = 'full') {
     const size = ['full', 'scene', 'rail'].includes(presentation) ? presentation : 'full';
     const available = Number.isFinite(snapshot.temperature), validTemperature = value => Number.isFinite(value) && Math.abs(value) <= 150;
@@ -529,7 +546,7 @@
     return {width: size.width, band: size.height, radius: size.radius, shoulder: 0, progress: 0};
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = {ISLAND_CONFIG, FocusModel, focusConfiguration, focusCardValues, weatherNarrative, weatherDesignValues, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, modulePlacementPlan, moduleEditorPresentation, homeModuleLayout, nookGridPlan, getModuleDefinitions, openPanelLimits, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, artworkPalette, closedBandSize, activitySnapshot, createActivityScene};
+  if (typeof module === 'object' && module.exports) module.exports = {ISLAND_CONFIG, FocusModel, focusConfiguration, focusCardValues, weatherNarrative, weatherConditionPath, weatherDesignValues, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, modulePlacementPlan, moduleEditorPresentation, homeModuleLayout, nookGridPlan, getModuleDefinitions, openPanelLimits, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, artworkPalette, closedBandSize, activitySnapshot, createActivityScene};
   if (!window?.document) return;
 
   const document = window.document;
@@ -2295,12 +2312,15 @@
     const city = make('weather-design-city', next.city + (values.size === 'rail' ? '' : ' · ' + t(weather.isDay === false ? 'CE SOIR' : 'AUJOURD’HUI')), interactive ? 'button' : 'span');
     if (interactive) {city.type = 'button'; city.id = 'weather-city-button'; city.dataset.weatherCommand = 'picker'; city.setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city})); city.setAttribute('aria-expanded', String(weatherPickerOpen)); city.setAttribute('aria-controls', 'weather-picker');}
     if (values.size === 'rail') heading.append(make('weather-design-eyebrow',t('MÉTÉO')));
-    heading.append(icon, city);
+    if (values.size !== 'rail') heading.append(icon);
+    heading.append(city);
     const reading = make('weather-design-reading'), temperature = make('weather-design-temperature', next.temperature), detail = make('weather-design-detail');
     const feels = make('weather-design-feels', t('Ressenti {temperature}', {temperature: next.feelsLike}));
     const range = [values.max !== null ? t('max {temperature}°', {temperature: values.max}) : '', values.size === 'full' && values.min !== null ? t('min {temperature}°', {temperature: values.min}) : ''].filter(Boolean).join(' · ');
     const meta = make('weather-design-meta'); meta.append(feels); if (range) meta.append(make('weather-design-range', range));
-    detail.append(make('weather-design-condition', condition), meta); reading.append(temperature, detail);
+    const description = make('weather-design-condition', condition);
+    if (values.size === 'rail') description.prepend(icon);
+    detail.append(description, meta); reading.append(temperature, detail);
     const current = make('weather-design-current'); current.append(heading, reading);
     const narrative = make('weather-design-narrative');
     const words = (value, emphasis = false) => narrative.append(make(emphasis ? 'weather-design-emphasis' : '', value, emphasis ? 'strong' : 'span'));
@@ -2378,8 +2398,7 @@
     textUI(byId('weather-empty-detail'), weatherBusy ? t('Connexion au service météo.') : weather.error || weatherError || t('Vérifie ta connexion ou choisis une ville.'));
     const picker = byId('weather-picker'), returnFocus = !picker.hidden && !weatherPickerOpen && picker.contains(document.activeElement);
     byId('weather-main').hidden = weatherPickerOpen; picker.hidden = !weatherPickerOpen;
-    const conditionPaths = {moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z', sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5', cloud: 'M6 18h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2 5 5 0 0 0-1 10Z'};
-    byId('weather-condition-icon').querySelector('path').setAttribute('d', conditionPaths[weather.icon] || conditionPaths.cloud);
+    byId('weather-condition-icon').querySelector('path').setAttribute('d', weatherConditionPath(weather.icon));
     renderWeatherDesign(byId('weather-design'), weatherPlayer.dataset.presentation || 'full', {interactive: true});
     byId('weather-design').hidden = unavailable;
     if (returnFocus && !weatherPlayer.hidden && state === 'open') byId('weather-city-button').focus({preventScroll: true});

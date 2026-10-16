@@ -1,8 +1,16 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {weatherNarrative}=require('../notch.js');
+const {weatherNarrative,weatherConditionPath}=require('../notch.js');
 
 const ready={status:'ready',mode:'city',city:'New York',temperature:24,feelsLike:18,nextRain:{available:true,periodMinutes:120,rainMm:.6,precipitationMm:.6}};
+
+test('weather icons distinguish the real API conditions instead of showing clouds for every wet or partly cloudy condition',()=>{
+ const conditions=['sun','moon','cloud','cloud-sun','cloud-moon','rain','drizzle','snow','fog','thunder'];
+ const paths=conditions.map(weatherConditionPath);
+ assert.equal(new Set(paths).size,conditions.length);
+ for(const path of paths) assert.match(path,/^M[\d .a-zA-Z-]+$/);
+ for(const unknown of ['unknown','clear','__proto__','constructor',null,undefined]) assert.equal(weatherConditionPath(unknown),weatherConditionPath('cloud'));
+});
 
 test('weather uses the original temperature, city, apparent temperature and two-hour narrative',()=>{
  const card=weatherNarrative(ready);
