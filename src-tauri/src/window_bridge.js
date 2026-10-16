@@ -39,16 +39,17 @@
   };
   const preferenceKeys = new Set(config.keys);
   for (const [key, value] of Object.entries(config.preferences || {})) {
-    if (preferenceKeys.has(key) && typeof value === 'string' && localStorage.getItem(key) === null) localStorage.setItem(key, value);
+    if (preferenceKeys.has(key) && typeof value === 'string' && (key === 'notchy-community-modules-v1' || localStorage.getItem(key) === null)) localStorage.setItem(key, value);
   }
+  if (preferenceKeys.has('notchy-community-modules-v1') && !Object.hasOwn(config.preferences || {}, 'notchy-community-modules-v1')) localStorage.removeItem('notchy-community-modules-v1');
   const nativeSet = Storage.prototype.setItem, nativeRemove = Storage.prototype.removeItem;
   Storage.prototype.setItem = function(key, value) {
     nativeSet.call(this, key, value);
-    if (this === localStorage && preferenceKeys.has(key)) void request('preference', {key, value: String(value)});
+    if (this === localStorage && preferenceKeys.has(key) && key !== 'notchy-community-modules-v1') void request('preference', {key, value: String(value)});
   };
   Storage.prototype.removeItem = function(key) {
     nativeRemove.call(this, key);
-    if (this === localStorage && preferenceKeys.has(key)) void request('preference', {key, value: null});
+    if (this === localStorage && preferenceKeys.has(key) && key !== 'notchy-community-modules-v1') void request('preference', {key, value: null});
   };
   const listen = (name, callback) => {
     if (typeof callback !== 'function') throw new TypeError('Callback requis.');
@@ -81,6 +82,12 @@
     copyText: value => request('copy-text', value),
     openShelfItem: value => request('shelf-open', value), revealShelfItem: value => request('shelf-reveal', value),
     exportShelfItems: value => request('shelf-export', value),
+    saveModuleRegistry: async value => {
+      if (typeof value !== 'string' || value.length > 196608) throw new TypeError('Invalid module library');
+      const reply = await request('preference', {key:'notchy-community-modules-v1',value});
+      if (reply?.ok !== true) throw new Error(reply?.error || 'Module library could not be saved');
+      return reply;
+    },
     search: async (operation, args = {}) => {
       const commands = {search_query:'search-query',search_status:'search-status',search_open:'search-open',search_reveal:'search-reveal',search_reindex:'search-reindex',search_stage:'search-stage'};
       if (!Object.prototype.hasOwnProperty.call(commands, operation)) throw new TypeError('Unknown search operation');

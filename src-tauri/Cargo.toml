@@ -1,6 +1,6 @@
 [package]
 name = "notchy-v2"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 description = "Notchy V2 — Tauri et services Rust pour Windows"
 

@@ -80,7 +80,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
   const {document, downloads, descendants} = dom();
   const nodes = new Map();
   function make(id, tag = 'section') {const node = document.createElement(tag); node.id = id; nodes.set(id, node); document.body.append(node); return node;}
-  for (const id of ['health-player', 'sharing-experience', 'modules-experience', 'settings-player', 'welcome-player', 'music-queue', 'startup-windows', 'notch-panel', 'notch-menu', 'notch-toggle', 'weather-city-input', 'search-player', 'search-toggle']) make(id);
+  for (const id of ['health-player', 'sharing-experience', 'modules-experience', 'settings-player', 'welcome-player', 'music-queue', 'startup-windows', 'notch-panel', 'notch-menu', 'notch-toggle', 'weather-city-input', 'search-player', 'search-toggle', 'module-library-player']) make(id);
   for (const id of ['shelf-player', 'shelf-nearby-peers', 'shelf-incoming', 'shelf-nearby', 'shelf-incoming-sender', 'shelf-incoming-files', 'shelf-incoming-accept', 'shelf-incoming-reject', 'shelf-nearby-status', 'shelf-nearby-toggle', 'shelf-transfer-cancel', 'shelf-share']) make(id);
   const nearbyHint = document.createElement('p'); nearbyHint.className = 'shelf-nearby-hint'; nodes.get('shelf-nearby').append(nearbyHint);
   const remove = make('shelf-remove', 'button'); remove.dataset.shelfCommand = 'remove';
@@ -96,7 +96,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
     nearby: {available: true, status: 'discovering', peers: plain(peers), transfer: null, incoming: null}, nearbyBusy: false, nearbyError: '', nearbyActionError: false, nearbyMutation: 0,
     nearbyPeer: '', nearbyReading: false, nearbyLoaded: true, nearbyIncomingShown: '', nearbyReceiveCompleted: '', nearbyTimer: 0,
     localSendContext: null, moduleEditing: false, state: 'open', view, islandPage: 'essential', weather: {}, weatherBusy: false, queueBusy: false, queueState: {status: 'disconnected'}, music: {available: false},
-    startupBusy: false, startupEnabled: false, desktop: {startup: {supported: false}}, weatherPickerOpen: false, queueOpen: false, welcome: null, scenarioController: null, search: null, searchShortcut: 'Ctrl+Space',
+    startupBusy: false, startupEnabled: false, desktop: {startup: {supported: false}}, weatherPickerOpen: false, queueOpen: false, welcome: null, scenarioController: null, search: null, searchShortcut: 'Ctrl+Space', moduleLibrary:null,
     moduleDefinitions: {}, toggle: nodes.get('notch-toggle'), menu: nodes.get('notch-menu'), panel: nodes.get('notch-panel'), notch: {dataset: {}}, settingsPlayer: nodes.get('settings-player'),
     shelfInput: {value: ''}, shelfPlayer: nodes.get('shelf-player'), weatherCityInput: nodes.get('weather-city-input'), t: translate,
     text(node, value) {node.textContent = value;}, textUI(node, value) {node.textContent = value;},

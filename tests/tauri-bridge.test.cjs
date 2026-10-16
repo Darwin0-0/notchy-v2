@@ -3,14 +3,14 @@ const {test} = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src-tauri/src/window_bridge.js'), 'utf8');
 const key = 'notchy-minimal-modules-v1';
-function fixture({saved={},preferences={},invoker,localSendActive=false,startup}={}) {
+function fixture({saved={},preferences={},invoker,localSendActive=false,startup,keys=[key]}={}) {
   const calls=[],fetches=[],listeners=[],events=[];
   class Storage {constructor(){this.values=new Map(Object.entries(saved));}getItem(key){return this.values.get(key)??null;}setItem(key,value){this.values.set(key,String(value));}removeItem(key){this.values.delete(key);}}
   class EventSource {constructor(url,options){events.push({url,options});}}
   const localStorage=new Storage();
   const window={fetch:async(input,options)=>{fetches.push({input,options});return {ok:true};},EventSource,__TAURI__:{core:{invoke:async(command,args)=>{calls.push({command,args});return invoker?invoker(command,args):{ok:true};}},event:{listen:async(name,callback)=>{const entry={name,callback,removed:false};listeners.push(entry);return ()=>{entry.removed=true;};}}}};
   const location=new URL('http://127.0.0.1:58252/?desktop=1');
-  vm.runInNewContext(source.replace('__NOTCHY_CONFIG__',JSON.stringify({token:'private-session',keys:[key],preferences,checking:false,localSendActive,startup})),{window,Storage,localStorage,location,URL,Request,Headers,ArrayBuffer,Uint8Array,DataView,TextDecoder});
+  vm.runInNewContext(source.replace('__NOTCHY_CONFIG__',JSON.stringify({token:'private-session',keys,preferences,checking:false,localSendActive,startup})),{window,Storage,localStorage,location,URL,Request,Headers,ArrayBuffer,Uint8Array,DataView,TextDecoder});
   return {window,calls,fetches,listeners,events,localStorage};
 }
 test('Tauri credentials apply only to this server and replace legacy public header',async()=>{
@@ -73,6 +73,25 @@ test('The opaque interface no longer exposes desktop capture',()=>{
   const context=fixture();
   assert.equal(typeof context.window.notchyDesktop.captureBackdrop,'undefined');
   assert.equal(context.calls.length,0);
+});
+
+test('module registry writes await native acknowledgement and never queue a duplicate cache write',async()=>{
+  const registryKey='notchy-community-modules-v1',encoded='{"registryVersion":1,"modules":[]}';
+  let accept;const context=fixture({keys:[key,registryKey],invoker:()=>new Promise(resolve=>{accept=resolve;})});
+  let settled=false;const saving=context.window.notchyDesktop.saveModuleRegistry(encoded).then(()=>{settled=true;});
+  await Promise.resolve();assert.equal(settled,false);assert.equal(context.calls[0].args.value.value.key,registryKey);
+  accept({ok:true});await saving;assert.equal(settled,true);
+  context.localStorage.setItem(registryKey,encoded);assert.equal(context.calls.length,1,'acknowledged cache commit does not send a stale second write');
+  await assert.rejects(context.window.notchyDesktop.saveModuleRegistry({}),/Invalid module/);
+});
+
+test('module registry errors stay errors and confirmed native restoration overrides stale browser cache',async()=>{
+  const registryKey='notchy-community-modules-v1',confirmed='{"registryVersion":1,"modules":[]}';
+  const context=fixture({keys:[registryKey],saved:{[registryKey]:'stale'},preferences:{[registryKey]:confirmed},invoker:()=>({ok:false,error:'Disk unavailable'})});
+  assert.equal(context.localStorage.getItem(registryKey),confirmed);
+  await assert.rejects(context.window.notchyDesktop.saveModuleRegistry(confirmed),/Disk unavailable/);
+  assert.equal(context.localStorage.getItem(registryKey),confirmed);
+  assert.equal(fixture({keys:[registryKey],saved:{[registryKey]:'unconfirmed'}}).localStorage.getItem(registryKey),null);
 });
 test('Windows startup shows confirmed state and updates it only from native replies',async()=>{
   const context=fixture({startup:{supported:true,enabled:true},invoker:(_,args)=>({ok:true,supported:true,enabled:args.value.value})});

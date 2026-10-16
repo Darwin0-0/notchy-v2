@@ -177,18 +177,20 @@ function interactionFixture() {
     // The browser may retain :hover after Windows cuts the native window region.
     notch: {matches: () => true, contains: element => element?.inside === true, getBoundingClientRect: () => ({top: 0})},
     getModuleEditorActive: () => false, changes,
-    localSendBand: () => transfer,
+    localSendBand: () => transfer, desktop: null, clearModuleFeedback() {},
   };
   require('node:vm').runInNewContext(`
     let disposed=false,state='compact',view='nook',collapseTimer=0,hoverTimer=0,collapseDeferred=false,pointerInside=true,welcomeReady=false,
       keyboardNavigation=false,closingTo=null,
       fileDialogOpen=false,fileDragging=false,seekDragging=false,queueOpen=false,queueBusy=false,queueOperation='',
-      welcome=null,moduleFeedback=null,localSendContext=null,nearby={},queueState={};
-    function setState(next) {state=next;closingTo=null;changes.push(next);}
+      welcome=null,moduleFeedback=null,localSendContext=null,nearby={},queueState={},searchReturnView='nook',searchReturnState='rest',desktopMaxHeight=700;
+    function setState(next) {state=next;closingTo=null;if(next==='rest')awaitingPointerEntry=false;changes.push(next);}
     function selectViewButton(button) {view=button.dataset.view;}
     function update() {}
     ${source.slice(start, end)}${source.slice(closeStart, closeEnd)}
-    this.api={enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,scheduleCollapse,open,outside,key,
+    ${source.slice(source.indexOf('  function searchOpening() {'), source.indexOf('  function searchClosed() {'))}
+    const resume = ${source.match(/const removeResume = desktop\.onResume\((value => \{[^\n]+\})\);/)[1]};
+    this.api={resume,openFromOutside,searchOpening,enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,scheduleCollapse,open,outside,key,
       get state(){return state;},get view(){return view;},get pending(){return collapseTimer;},set state(value){state=value;},set view(value){view=value;},set closing(value){closingTo=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;}};
   `, scope);
   function runDue() {
@@ -240,6 +242,43 @@ test('blurring a keyboard-opened input outside the notch starts collapse without
   f.advance(100);f.api.focusDeparture();assert.equal(f.api.pending,timer,'repeated focus events cannot restart the collapse delay');
   f.advance(179);assert.equal(f.api.state,'open');
   f.advance(1);assert.equal(f.api.state,'rest','ending the last protected interaction must not require another mouse exit');
+});
+
+test('opening search outside the island survives native geometry acknowledgement before focus arrives', () => {
+  const f = interactionFixture(); f.api.state = 'rest'; f.documentFocus(false);
+  f.api.nativePointer({inside: false, moved: false});
+  f.api.searchOpening();
+  f.api.nativePointer({inside: false, moved: false}); f.advance(1000);
+  assert.equal(f.api.state, 'open', 'opening search is not a pointer departure and must survive the native focus handoff');
+  f.documentFocus(true);
+  f.api.nativePointer({inside: false, moved: true}); f.advance(1000);
+  assert.equal(f.api.state, 'open', 'moving toward the island must not close it before its first real entry');
+  f.api.nativePointer({inside: true, moved: true});
+  f.api.nativePointer({inside: false, moved: true}); f.advance(279); assert.equal(f.api.state, 'open');
+  f.advance(1); assert.equal(f.api.state, 'rest', 'after the first entry normal pointer departure still returns to discreet');
+});
+
+test('opening from the real desktop resume route waits for entry while DOM movement stays outside', () => {
+  const f = interactionFixture(); f.api.state = 'rest'; f.api.nativePointer({inside: false, moved: false});
+  f.api.resume({reason: 'open'});
+  f.api.nativePointer({inside: false, moved: false});
+  f.api.pointerPosition({pointerType: 'mouse', movementX: 8, movementY: -8, target: {inside: false}});
+  f.advance(1000); assert.equal(f.api.state, 'open', 'the tray request stays available while the user reaches the island');
+  f.api.nativePointer({inside: true, moved: true}); f.api.nativePointer({inside: false, moved: true});
+  f.advance(280); assert.equal(f.api.state, 'rest');
+  f.api.nativePointer({inside: true, moved: true}); f.advance(120);
+  f.advance(1000); assert.equal(f.api.state, 'compact', 'later entry still previews without reopening the central panel');
+});
+
+test('an external opening releases its first-entry protection on deactivation and outside click', () => {
+  for (const action of ['deactivate', 'outside']) {
+    const f = interactionFixture(); f.api.state = 'rest'; f.api.nativePointer({inside: false, moved: false});
+    f.api.searchOpening(); f.api.nativePointer({inside: false, moved: false}); f.advance(1000);
+    assert.equal(f.api.state, 'open');
+    if (action === 'deactivate') f.api.scheduleCollapse(true);
+    else f.api.outside({target: {inside: false}});
+    f.advance(280); assert.equal(f.api.state, 'rest', action + ' still dismisses an unopened pointer session');
+  }
 });
 
 test('a stationary native geometry acknowledgement cannot wake the closed notch', () => {
@@ -360,7 +399,7 @@ test('the real exit controller fades for 150 ms and cancels closing when the poi
   const scope={ISLAND_CONFIG,movements,applied,document:{hidden:false},expandedLayer:{id:'expanded'},islandFooter:{inert:false},
     window:{clearTimeout:id=>timers.delete(id),setTimeout:(callback,delay)=>{timers.set(++nextTimer,{callback,at:now+delay});return nextTimer;}},
     animateIslandLayer:(node,entering)=>movements.push({id:node.id,entering}),renderIslandNavigation(){},update(){}};
-  require('node:vm').runInNewContext(`let disposed=false,state='open',closingTo=null,contentExitTimer=0,hoverTimer=0,collapseTimer=0,collapseDeferred=false,pointerInside=false,keyboardNavigation=false;
+  require('node:vm').runInNewContext(`let disposed=false,state='open',closingTo=null,contentExitTimer=0,hoverTimer=0,collapseTimer=0,collapseDeferred=false,pointerInside=false,keyboardNavigation=false,awaitingPointerEntry=false;
     const sizes={rest:{},compact:{},open:{}};
     function applyState(next){state=next;applied.push(next);return true;}
     ${source.slice(setStart,setEnd)}${source.slice(enterStart,enterEnd)}
@@ -403,17 +442,17 @@ test('applying discreet state cancels pending hover and cannot revive keyboard p
     compactContent:{},restContent:{},t:value=>value,isModuleEnabled:()=>false,getModuleEditorActive:()=>false,scenarioController:null});
   require('node:vm').runInNewContext(`
     let disposed=false,state='rest',welcomeReady=false,collapseTimer=0,collapseDeferred=true,
-      keyboardNavigation=true,view='nook',layoutResizeClick=null,layoutResizeGraceUntil=0,
+      keyboardNavigation=true,view='nook',layoutResizeClick=null,layoutResizeGraceUntil=0,awaitingPointerEntry=true,
       shelfLoaded=false,shelfBusy=false,fileDragging=false;
     const sizes={rest:{},compact:{},open:{}};
     function setState(next){changes.push(next);state=next;}
     let hoverTimer=window.setTimeout(()=>{if(state==='rest')setState('compact');},120);
     ${source.slice(applyStart,applyEnd)}${source.slice(focusStart,focusEnd)}
-    this.api={applyState,toggleFocus,get state(){return state;},get keyboard(){return keyboardNavigation;}};
+    this.api={applyState,toggleFocus,get state(){return state;},get keyboard(){return keyboardNavigation;},get awaiting(){return awaitingPointerEntry;}};
   `,scope);
   scope.api.applyState('rest');
   for(const callback of timers.values()) callback();
-  assert.equal(scope.api.state,'rest');assert.equal(scope.api.keyboard,false);assert.deepEqual(changes,[]);
+  assert.equal(scope.api.state,'rest');assert.equal(scope.api.keyboard,false);assert.equal(scope.api.awaiting,false);assert.deepEqual(changes,[]);
   assert.equal(timers.size,0,'the pending preview is cancelled before closed-state focus restoration');
 });
 

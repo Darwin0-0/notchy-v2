@@ -1,117 +1,204 @@
-# Module manifests: a v1 integration contract
+# Build a module for Notchy
 
-Use this contract to propose a module that feels at home in Notchy. Start with a useful job, show what survives in each presentation, and request only the access that job needs.
+Make something useful that stays close at hand. Notchy now installs **local, declarative JSON modules**: a reading tracker, a small counter or a personal note can work without adding application code, a network account or a build toolchain.
 
-**Status: design and integration proposal, not an installed plugin API.** Notchy does not discover, import or execute these manifests. Saving the [example](examples/module.manifest.json) in the repository or a profile will not install a module. The [JSON Schema](module-manifest.schema.json) validates a proposal's structure; it does not grant access or make its implementation safe.
+Start with the [Reading manifest](examples/module.manifest.json), the [JSON Schema](module-manifest.schema.json) and the [blank development island](../sdk/README.md). The built-in **Discover** catalog includes Reading and Water break. Import a JSON file in the module library to add your own module, then place it on Nook. Its state stays in the current Notchy profile. Removing a module also removes its local state.
 
-The application currently registers built-in modules in [`moduleDefinitions` in notch.js](../notch.js). `normalizeModules` accepts only those known IDs. A working addition still needs reviewed source changes, a native service when necessary, and the checks described in [CONTRIBUTING.md](../CONTRIBUTING.md). There is no external-module loader, sandbox, permission broker or stable third-party renderer interface yet.
+Open **Settings → Module library**, or use **Library** in the home editor. The library separates Discover, My modules and Studio. Preview a manifest before confirming installation; **Place in Nook** uses a free visible slot, or the main slot when they are occupied. Studio also provides a JSON editor and a blank Nook for testing placement. Application developers can open the same screen with `window.notchy.showModuleLibrary()` and inspect installed definitions/state with `window.notchy.getCommunityModules()`.
 
-## What exists today
+This v2 runtime is deliberately limited to host-rendered fields and actions. It does not load JavaScript, HTML, CSS, arbitrary images, executable files or remote services. The earlier v1 manifest was a design proposal and cannot be imported; use v2 below. Built-in Music, Focus, Weather and LocalSend retain their reviewed application and native implementations.
 
-| Responsibility | Current implementation |
-| --- | --- |
-| Catalogue identity, host element, route and band policy | `moduleDefinitions` and `getModuleDefinitions()` in [notch.js](../notch.js). |
-| Enabled modules and saved positions | `normalizeModules`, `assignModuleSlot` and `modulePlacementPlan`. Unknown IDs are discarded; the first three slots are visible and the fourth is a compatible reserve. |
-| Primary scene, secondary rail and temporary promotion | `createActivityScene` and `renderActivityScene`. The same model and live controller survive movement. |
-| Tasks and Pomodoro | One [Focus model](../focus.js), shared by `NotchyFocus.create()` and `NotchyFocus.createTasks()`. A second presentation must not create a second clock or store. |
-| Language | [i18n.js](../i18n.js), selected in Welcome or Settings. User content is kept verbatim. |
-| Platform access | Reviewed Rust services in [src-tauri/src/](../src-tauri/src/), with Windows helpers in [native/](../native/). |
-| Contour, visibility and motion | `ISLAND_CONFIG`, the surface controller and scoped styles. Modules do not own the native window. |
+## Try the blank island
 
-`window.notchy` exposes built-in controls such as `getModules()`, `setModules()`, `getModuleDefinitions()` and `inspect()`. These are application controls, not a registration hook or permission boundary. Likewise, the local `/api/music`, `/api/weather`, `/api/shelf` and `/api/nearby` routes serve specific built-in features; a manifest must not treat them as an unrestricted extension API. Clipboard history and system-notification collectors are not part of the current public base.
+From the repository root, run:
 
-## Describe one module
-
-The v1 fields are intentionally declarative:
-
-| Field | Meaning |
-| --- | --- |
-| `manifestVersion` | Contract version, currently `1`. A module's release number belongs in `version`. |
-| `id` | A stable, namespaced identifier such as `community.reading-log`. Do not rename it to translate the interface or reuse a built-in ID. |
-| `name`, `description` | Required English and French interface strings. |
-| `regions` | Requested placement roles: `scene` for the primary area and `rail` for the secondary area. These are placement roles, not a percentage or an instruction to resize Notchy. |
-| `presentations` | Three separately designed views: `full`, `scene` and `rail`. Each declares its purpose, essential snapshot fields and visible action IDs. |
-| `permissions` | Requested access categories for review. An empty list is the preferred starting point. Declarations are not grants. |
-| `capabilities` | Progress semantics, labelled action metadata, settings availability and live-band policy. |
-| `appearance` | A suggested accent, an opaque host surface and an optional validated-cover treatment. No CSS or asset URL is embedded. |
-| `motion` | Host-controlled motion, a reduced-motion alternative, visibility cleanup and whether measured data drives ambient movement. |
-
-There are deliberately no `script`, `entrypoint`, `html`, `css`, `command`, executable path, endpoint or credential fields. Extra fields are rejected. Text is data and must be rendered as text, never evaluated or inserted as HTML. Future support for executable extensions would need its own security design and a new reviewed contract.
-
-## Design all three presentations
-
-| Presentation | Current host mapping | Keep visible |
-| --- | --- | --- |
-| `full` | One placed module fills the scene. | The complete useful workflow and a route to secondary controls. |
-| `scene` | A half-width card: either side with two modules, or the primary half with three. | The main state and the actions needed for its ordinary use. |
-| `rail` | One of the two secondary quarter cards with three modules. | A clear value or status and its essential action; open or promote for details. |
-
-The host chooses placement and shares: one module uses the available area, two use equal halves, and three use one half plus two quarters. A `rail` placement can therefore receive the `scene` presentation when only two modules are present. Do not infer a design from its saved slot number. No manifest field can override these shares, force a larger panel or hide another module.
-
-All three presentation declarations are required, even if a proposal requests a restricted region. That restriction still needs product review; the current editor does not enforce manifest-defined regions. At smaller work areas, the host may stack cards and provide internal scrolling. Follow the current dimensions and corner tokens in [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md), rather than copying a demonstration canvas or scaling text with a transform.
-
-`content` contains names of fields supplied by a future reviewed adapter, not field values or executable bindings. It does not define a generic renderer. Keep names stable across sizes and write down their types, empty/loading/error states and source in the implementation proposal. Each presentation's `actions` must reference a unique ID in `capabilities.actions`. Essential actions must remain reachable with a keyboard; omitted secondary controls need a discoverable route.
-
-## Language and accessibility
-
-Every manifest label and explanation contains both `en` and `fr`. The adapter should integrate those strings with the existing language mechanism and update text without replacing the module's state or taking focus. Task titles, track and artist names, city names and file names are content, not translation keys.
-
-Use real buttons, readable labels and local focus-visible cues. Keep meaningful progress and disabled states accessible. Pair status colour with text or an icon, maintain text contrast, and do not make the smaller design a clipped version of the larger one. User-triggered actions may move focus to a visible result; background updates must not take it. A component must clean up listeners, reads and animations when hidden or disposed.
-
-## Access is explicit and reviewed
-
-The schema recognises these proposed permission names:
-
-| Category | Intended scope |
-| --- | --- |
-| `network` | A reviewed remote data source. Implement an explicit destination allowlist and error handling in its adapter. |
-| `location` | User-authorised location, with a manual alternative where possible. |
-| `media.read`, `media.control` | Metadata from a detected player and only the commands that player exposes. |
-| `audio.output` | Measured output-audio data. It must stop when the feature is hidden, inactive or motion is disabled. |
-| `files.user-selected` | Files the user deliberately chooses or drops; no general filesystem browsing. |
-| `shelf.read`, `shelf.write` | Reviewed access to Notchy's existing Shelf service. |
-| `local-network` | Explicit nearby-device discovery and transfer flows, retaining receive consent. |
-| `clipboard.write` | Copy a result after an explicit user action; not clipboard history. |
-
-These names are **not** existing Tauri capability names or a new enforcement layer. Explain the need, data retention, cancellation and failure behaviour in the proposed implementation. Never place keys, tokens, saved coordinates, private file paths or device identities in a manifest. A JSON declaration cannot bypass Windows permission prompts, existing request authentication or receive consent. Permission denial must leave a truthful, usable state.
-
-## Capabilities and real state
-
-`capabilities.progress` describes what an adapter can report:
-
-- `none`: there is no measurable progression.
-- `determinate`: report a finite ratio from `0` to `1`, its labelled meaning and whether it increases or decreases. Unknown progress is not zero. Reject non-finite and out-of-range values at the adapter boundary.
-- `indeterminate`: work is active but its percentage is unknown. Do not invent a ratio.
-
-The manifest contains no live progress values, timers or sample production state. A future adapter owns validated state; the host formats its presentation. A layout or language change must not restart work, reset a deadline or duplicate a subscription. Focus and Tasks must keep their existing shared model. Windows media command availability and queues remain source-dependent; listing an action does not make the player support it.
-
-`capabilities.actions` supplies IDs, translated labels and roles for design review. It does not execute anything. An implementation must map each ID to a reviewed handler, check current availability, prevent duplicate submissions and preserve a useful keyboard destination. A destructive role is a visual/interaction distinction, not automatic confirmation logic.
-
-`capabilities.band` declares discreet and hover treatments plus meaningful event names. Progress alone is not an ongoing activity: saved files, a weather forecast or a reading count should not keep the band active. Only validated work that is actually active may claim it. A ring or progress treatment needs real progress semantics; a spectrum additionally requests `audio.output` and must use measured samples. The schema checks those declarations, not the existence of a data source.
-
-Band events require a reviewed whitelist in the module definition. Emit real transitions once, rather than every render. Existing manual play, pause, resume, start and stop actions do not create notifications. A background event may use the existing temporary feedback, but must not open the central panel or cover a consent request. Preserve the current activity priority and dismissal rules.
-
-## Appearance and movement belong to the host
-
-`surface: "host-opaque"` preserves the single black notch and its bounded inner cards. An accent is a suggestion; the host must maintain contrast and a non-colour status cue. `artwork: "validated-cover"` requests the existing cover-derived treatment, with validated image data, a contrast-bounded palette and a safe fallback. It is not permission to fetch an arbitrary image URL or add glass effects.
-
-`motion.preset: "host"` keeps geometry, interruptible transitions and content choreography under the existing controller. Do not animate text size, start a competing window-resize loop or keep an invisible layer interactive. Use `static` or a short `fade` for reduced motion. Hidden or disposed views cancel their transient reads and visual effects; a running timer or accepted transfer retains its owning service and state. `pauseWhenHidden` does not pause a deadline or cancel a transfer. Restoring visibility does not replay a completed introduction or automatically reopen the panel. `ambient: "measured-data"` means movement follows actual samples or progress, not a decorative fake spectrum.
-
-## Validate a proposal
-
-The [example reading manifest](examples/module.manifest.json) is a safe design proposal: no platform permissions, no live-band claim and no executable content. It cannot be installed in today's app.
-
-Use a JSON Schema validator that supports Draft 2020-12. For example, if Ajv 8 is already available in your development environment:
-
-```javascript
-const fs = require('node:fs');
-const Ajv2020 = require('ajv/dist/2020');
-const schema = JSON.parse(fs.readFileSync('docs/module-manifest.schema.json', 'utf8'));
-const manifest = JSON.parse(fs.readFileSync('docs/examples/module.manifest.json', 'utf8'));
-const validate = new Ajv2020({strict: true, allErrors: true}).compile(schema);
-if (!validate(manifest)) throw new Error(JSON.stringify(validate.errors));
+```sh
+node sdk/serve.cjs
 ```
 
-No validator dependency is added to the application by these documents. Schema validation does not check that snapshot fields exist, action IDs are unique and referenced correctly, permissions are granted, contrast is sufficient, or a component cleans up. Review those semantics and test them in the implementation. Test all three designs with empty, loading, unavailable and long-content states; keyboard navigation; interrupted transitions; hidden views; and both languages. Native, audio and transfer changes also need the real checks in [DEVELOPMENT.md](DEVELOPMENT.md).
+Open the loopback address printed by the script. The island starts empty. Choose **Reading**, **Water break** or **Import JSON**, try its real controls, then switch among **Full**, **Scene** and **Rail**, and between English and French. **Export manifest** saves the current validated definition. **Clear island** removes the example and its development state.
 
-When a manifest is accepted, update the reviewed built-in registry, component, translations, relevant native adapter and tests together. A dynamic loader, permission broker, runtime renderer protocol, migration policy and extension compatibility negotiation remain future work. The v1 document is a shared starting point for that work, not a promise that those facilities already exist.
+The host uses the same `module-runtime.js` as the app. It is not a screenshot or a mock API. It saves its own development library in browser storage, separate from the installed application. No Tauri, Rust, npm installation or network connection is needed. To validate a file without opening a browser:
+
+```sh
+node sdk/validate.cjs sdk/starter.manifest.json
+node --test tests/module-runtime.test.cjs
+```
+
+## Manifest contract
+
+The complete [Reading example](examples/module.manifest.json) can be installed directly. The top-level structure is:
+
+```json
+{
+  "manifestVersion": 2,
+  "id": "community.my-module",
+  "version": "1.0.0",
+  "name": {"en": "My module", "fr": "Mon module"},
+  "description": {"en": "One useful job, close at hand.", "fr": "Une fonction utile, à portée de main."},
+  "permissions": [],
+  "fields": [
+    {"id": "count", "type": "number", "label": {"en": "Count", "fr": "Compteur"}, "default": 0, "min": 0, "max": 100}
+  ],
+  "actions": [
+    {"id": "add", "type": "increment", "field": "count", "amount": 1, "label": {"en": "Add one", "fr": "Ajouter"}}
+  ],
+  "presentations": {
+    "full": {"fields": ["count"], "actions": ["add"]},
+    "scene": {"fields": ["count"], "actions": ["add"]},
+    "rail": {"fields": ["count"], "actions": ["add"]}
+  },
+  "appearance": {"accent": "#A6E3B4"}
+}
+```
+
+| Field | Rules |
+| --- | --- |
+| `manifestVersion` | Exactly `2`. A contract version is different from a module release version. |
+| `id` | Stable namespaced ID, such as `community.reading`; 2–4 lowercase segments, with optional digits and hyphens; at most 96 characters. Built-in IDs are not valid external IDs. |
+| `version` | Three numeric components, each from 0 to 9999, without leading zeroes: `1.2.0`. Prerelease suffixes are not supported. |
+| `name` | Nonempty `en` and `fr` labels, each at most 80 characters. |
+| `description` | Nonempty `en` and `fr` strings, each at most 280 characters. |
+| `permissions` | Exactly `[]`. Requests for network, filesystem, media or other privileged access are rejected. |
+| `fields` | 1–8 typed local state fields, described below. |
+| `actions` | 0–8 host-owned operations. Every target must refer to a declared field of the correct type. |
+| `presentations` | All three keys, `full`, `scene` and `rail`, are required. Each lists 1–8 field IDs and 0–8 action IDs to show. References and duplicates are checked. |
+| `progress` | Optional real progress derived from two numeric fields; no fabricated activity or timer. |
+| `appearance` | Only `accent`, a six-digit hex color. Geometry, typography, contrast, backgrounds and motion belong to the host. |
+| `$schema` | Optional editor hint, at most 512 characters. Never fetched or executed by Notchy. |
+
+Unknown properties are rejected at every level. All names, descriptions and field/action labels require both languages. Text is rendered with `textContent`; user text is never interpreted as HTML or translated as a key. Control characters are rejected in manifest labels. Field and action IDs use `[a-z][a-z0-9-]{0,47}`; `constructor` and `prototype` are reserved.
+
+### State fields
+
+| Type | Required properties | Behaviour |
+| --- | --- | --- |
+| `number` | `id`, `type`, `label`, `default`, `min`, `max` | All values must be finite. Bounds lie between −1,000,000 and 1,000,000, with `min < max`; the default must be within them. Updates clamp to these bounds. |
+| `text` | `id`, `type`, `label`, `default`; optional `maxLength` | At most 512 characters by default. A custom limit must be an integer from 1 to 512; the default must fit. Saved edits are truncated to the limit and unsafe control characters removed. |
+| `boolean` | `id`, `type`, `label`, `default` | Default and updates must be true or false. The host shows a translated Yes/No value. |
+
+The manifest contains defaults, not a user's saved state. Defaults may be empty text or zero. Do not include personal information, credentials, paths or real device identities in a shared manifest.
+
+### Host-owned actions
+
+Every action has `id`, translated `label`, `type` and target `field`.
+
+| Type | Target | Effect |
+| --- | --- | --- |
+| `increment` | `number` | Adds the finite, nonzero `amount`, then clamps to the field bounds. Negative amounts decrease it. A control is disabled at its applicable bound. |
+| `reset` | Any field | Restores that field's manifest default. It does not uninstall a module or reset unrelated state. |
+| `toggle` | `boolean` | Switches true ↔ false. |
+| `set-text` | `text` | Renders a labelled text input and save button. Saving updates only that field. |
+
+Actions cannot invoke a shell, access the clipboard, open a path, send a request, emit app notifications, start a native clock, or claim the discreet band. That access would need a separate reviewed API and a new contract.
+
+### Real progress
+
+```json
+"progress": {
+  "valueField": "completed",
+  "targetField": "target",
+  "label": {"en": "Reading progress", "fr": "Progression de lecture"}
+}
+```
+
+Both references must identify different numeric fields. `valueField.min` must be nonnegative; `targetField.min` must be positive. The host renders a labelled native progress element, clamped to the target, and the actual `completed / target` values. An over-target count remains visible as data; the progress fill stays at 100%. No background events or invented percentages are created.
+
+### Three presentations
+
+| Presentation | Role | Recommended content |
+| --- | --- | --- |
+| `full` | The module is alone in the available scene. | Its useful fields, description, primary action and secondary editing/reset controls. |
+| `scene` | The main card or one of two cards. | Essential fields and normal-use controls. |
+| `rail` | A smaller secondary card. | One clear value and its essential action. |
+
+These are separately selected field/action lists, not scaled screenshots. Keep the smaller view concise. The host chooses actual layout and size according to the current module arrangement and work area; a manifest cannot resize the native window, move the navbar or change another module. Switching layouts or language preserves one shared state. Follow [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) for application dimensions and spacing.
+
+## Imports, versions and storage
+
+- Each imported JSON file is at most **65,536 UTF-8 bytes**. Archives and executable packages are unsupported.
+- A library contains at most **12** installed modules. The serialized library is bounded to **196,608 UTF-8 bytes**, including manifests and state.
+- Importing the same ID and version updates its definition while retaining compatible field values, which is useful during development. Importing a newer version does the same. A lower version is rejected.
+- Values survive only when their field ID and type still match. Removed fields are dropped, new or changed-type fields use defaults, and tighter numeric/text bounds clamp preserved values. There are no migration scripts.
+- A write is committed and subscribers notified only after the configured persistence hook and storage adapter accept it. A rejected persistence hook leaves the previous live snapshot and local cache untouched. A corrupt restored entry is ignored without discarding other valid entries; startup never automatically rewrites malformed stored bytes.
+- Removing a module removes its state. Exporting a manifest exports its definition and defaults, not the user's saved values.
+
+The runtime returns normalized, deeply frozen objects so callers cannot mutate a shared snapshot behind the store. Invalid direct state patches and undeclared fields are rejected. The runtime revalidates persisted manifests, drops unknown state keys and repairs malformed values to their defaults.
+
+## Host API
+
+`module-runtime.js` exposes `window.NotchyModules` in a browser and `module.exports` in Node. It has no dependencies.
+
+```javascript
+const store = NotchyModules.createStore({
+  storage: window.localStorage,
+  key: 'my-development-library'
+});
+
+// Or pass the JSON file text directly; the byte cap is checked before JSON.parse.
+const entry = store.install(NotchyModules.catalog[0]);
+const host = document.querySelector('#module');
+function draw() {
+  const current = store.get(entry.manifest.id);
+  return NotchyModules.render(host, current.manifest, current.state, {
+    presentation: 'full',
+    language: 'en',
+    onAction: (actionId, value) => store.performAction(current.manifest.id, actionId, value)
+  });
+}
+const unsubscribe = store.subscribe(draw);
+let dispose = draw();
+// When the host is removed: unsubscribe(); dispose();
+```
+
+The storage adapter implements synchronous `getItem(key)` and `setItem(key, json)`. A throwing `setItem` rejects the operation. The application uses `notchy-community-modules-v1` under its trusted browser/native preference bridge; the registry's `registryVersion` and manifest's `manifestVersion` remain separate from that storage-key name. The standalone host uses a separate browser-storage key.
+
+For native or other asynchronous persistence, pass `persist(encodedJSON)`. Every mutator then returns a Promise and must be awaited. The runtime serializes complete operations, calculates each from the last committed state, waits for the persistence hook, writes the local cache, then publishes the new frozen snapshot. Rejection leaves local state/cache unchanged and does not block later operations. The hook must reject on a failed save; resolving an error-shaped object is not acknowledgement. The cache adapter must not separately forward a second fire-and-forget native write. Keep local cache writes small and reliable: an independent cache failure after a successful external commit needs host-level reconciliation; it cannot undo an external write automatically.
+
+```javascript
+const store = NotchyModules.createStore({
+  storage: localCache,
+  key: 'my-library',
+  persist: encodedJSON => nativeBridge.saveModuleRegistry(encodedJSON)
+});
+const entry = await store.install(manifest);
+await store.performAction(entry.manifest.id, 'advance');
+```
+
+Without `persist`, methods remain synchronous for ordinary local storage or an in-memory host. Do not pass a fire-and-forget writer and assume native-disk durability.
+
+| API | Result |
+| --- | --- |
+| `validateManifest(object)` | A normalized frozen manifest, or a validation error. |
+| `parseManifest(jsonText)` | Byte-limited JSON parsing followed by the same validation. |
+| `normalizeState(validatedManifest, value)` | Declared fields only, repaired/clamped and frozen. |
+| `validateRegistry(value)` | Safe frozen `{registryVersion: 1, modules: [{manifest, state}]}`; malformed entries are omitted. |
+| `createStore({storage?, key?, onChange?, persist?})` | A local persistent or in-memory library. Constructor does not save. An optional persistence hook enables queued asynchronous mutations. |
+| `store.list()`, `store.get(id)`, `store.snapshot()` | Frozen live entries, one entry or null, or the entire registry. |
+| `store.install(manifestOrJson)` | A validated installed/updated `{manifest, state}` entry, or a Promise of it when `persist` is configured. |
+| `store.updateState(id, patch)` | A typed bounded update; unknown fields reject the whole patch. Async with `persist`. |
+| `store.performAction(id, actionId, value?)` | Executes only one declared host-owned operation. Async with `persist`. |
+| `store.remove(id)` | True when removed, false when absent. Async with `persist`. |
+| `store.subscribe(listener)` | Returns an unsubscribe function. Listener receives the registry after a successful change. |
+| `render(host, manifest, state, options)` | Renders accessible plain DOM and returns a disposer. Re-rendering the same host disposes its previous listeners and preserves focus in a matching control. |
+| `catalog`, `limits` | Frozen bundled sample manifests and runtime limits. |
+
+The renderer uses `.module-runtime-*` host classes and a validated `--module-accent` CSS variable. A presentation without `onAction` is a disabled preview. Host code owns error reporting: handle a thrown import or storage failure visibly, and keep the previous installed module usable. The runtime creates no timers, global listeners or network traffic.
+
+## Verify before sharing
+
+Validate with the runtime as well as the Draft 2020-12 schema. JSON Schema describes structure; runtime checks additionally verify unique IDs, references, type-compatible actions, default/bound relationships and progress semantics.
+
+Test all three presentations, both languages, long/empty text, keyboard focus, numeric bounds, save/reload, upgrades, removal and failed imports. Keep reset actions out of a tiny rail when they would be too easy to press. The bundled Water break target is a personal counter, not a health recommendation or an automatic daily schedule.
+
+Run the full repository suite before a contribution:
+
+```sh
+node --test tests/*.test.cjs
+```
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for source review and [DEVELOPMENT.md](DEVELOPMENT.md) for application/native checks.
+
+## Discover today, community store later
+
+The current catalog is bundled with Notchy, and local JSON import works offline. It is **not a remote marketplace**: there are no third-party accounts, ratings, downloads, update server or automatic updates. Share a manifest as a reviewed JSON file or propose a bundled catalog entry in a pull request. A future hosted store needs publishing/review rules, provenance, revocation and update policy before it can make trust claims. Native or executable extensions need a separate security design rather than extra fields in this manifest.

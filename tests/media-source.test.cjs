@@ -20,7 +20,7 @@ function fixture(music) {
     builtinVisible:()=>true,renderLiveActivities(){},byId:node,fileDragging:false,state:'open',t:value=>value,text:(target,value)=>target.textContent=value,
     textUI:(target,value)=>target.textContent=value,toggle:node('toggle'),coverImages:[],spectrumArtwork:'',musicError:'',connectionLost:false,commandBusy:false,commands,
     clearSpectrum(){},renderTime(){},syncClock(){},renderHomeSummaries(){},musicQueueLifecycle(){},motionEnabled:()=>true,
-    queueOpen:true,view:'music',moduleEditing:false,document:{hidden:false},queueBusy:false,queueOperation:'',queueNotice:'',queueState:{status:'disconnected',canPlay:false,items:[]},queueRetryUntil:0,
+    queueOpen:true,queueClosing:false,presentMusicQueue(){},view:'music',moduleEditing:false,document:{hidden:false},queueBusy:false,queueOperation:'',queueNotice:'',queueState:{status:'disconnected',canPlay:false,items:[]},queueRetryUntil:0,
     queueListSignature:'',i18n:{locale:()=> 'en'},Date,desktop:{musicQueue:async()=>{throw Error('A system player must not request Spotify');}}};
   const renderStart=source.indexOf('  function renderMusic()'),renderEnd=source.indexOf('  function setMusic(',renderStart);
   const queueStart=source.indexOf('  function queueVisible()'),queueEnd=source.indexOf('  function scheduleMusicQueue(',queueStart);
@@ -62,6 +62,8 @@ test('a system player cannot query or display an unrelated Spotify queue or requ
   f.scope.music=normalizeMusic({available:true,source:'Spotify'}); assert.equal(f.scope.api.queueVisible(),true);
   f.scope.api.renderMusicQueue(); assert.equal(f.node('music-queue-connect').hidden,false);
   assert.equal(f.node('music-queue-refresh').hidden,false);
+  f.scope.queueOpen=false;f.scope.api.renderMusicQueue();assert.equal(f.node('player').dataset.queueInline,'false','a closed queue never applies its narrow inline layout or hides its trigger');
+  assert.equal(f.node('music-queue').hidden,true);
 });
 
 test('switching from Spotify to a system player removes old queue commands and reveals the correct explanation', () => {

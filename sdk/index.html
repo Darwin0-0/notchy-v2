@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notchy Module Lab</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="../module-runtime.js" defer></script>
+  <script src="host.js" defer></script>
+</head>
+<body>
+  <div class="workspace">
+    <aside class="tools" aria-label="Module development tools">
+      <p class="eyebrow">NOTCHY MODULE LAB</p>
+      <h1>A little space.<br>Make it yours.</h1>
+      <p class="intro">Build one useful module in a blank island. Try every size with the same renderer used by Notchy.</p>
+      <fieldset>
+        <legend>Start with a module</legend>
+        <div class="tool-row"><button type="button" id="reading">Reading</button><button type="button" id="water">Water break</button></div>
+        <button type="button" id="import">Import JSON</button>
+        <input type="file" id="file" accept=".json,application/json" hidden>
+      </fieldset>
+      <fieldset>
+        <legend>Presentation</legend>
+        <div class="tool-row" id="presentations" role="group" aria-label="Presentation size">
+          <button type="button" data-presentation="full" aria-pressed="true">Full</button>
+          <button type="button" data-presentation="scene" aria-pressed="false">Scene</button>
+          <button type="button" data-presentation="rail" aria-pressed="false">Rail</button>
+        </div>
+      </fieldset>
+      <label class="language">Module language<select id="language"><option value="en">English</option><option value="fr">Français</option></select></label>
+      <div class="tool-row"><button type="button" id="export" disabled>Export manifest</button><button type="button" id="clear" disabled>Clear island</button></div>
+      <p id="status" class="status" role="status" aria-live="polite">Choose an example or import your JSON. No module is installed yet.</p>
+      <a href="../docs/MODULES.md">Read the manifest contract ↗</a>
+      <p class="privacy">Local development only. No app account, native access or remote store. Saved test state is separate from your Notchy profile.</p>
+    </aside>
+    <main class="canvas" aria-label="Blank island preview">
+      <section class="island" aria-label="Notchy development island">
+        <header class="island-header"><strong>Notchy</strong><span id="identity">Blank island</span></header>
+        <div class="island-content" id="layout" data-presentation="full">
+          <div id="module" class="module-host"></div>
+          <div id="empty" class="empty"><span aria-hidden="true">+</span><h2>Your module belongs here.</h2><p>Start small. Give it something useful to do.</p></div>
+          <div class="unused" aria-hidden="true"></div>
+        </div>
+      </section>
+      <p class="canvas-caption">A real module, real local state, three presentations.</p>
+    </main>
+  </div>
+</body>
+</html>

@@ -3,7 +3,7 @@ use crate::ApiError;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-pub const KEYS: [&str; 8] = [
+pub const KEYS: [&str; 9] = [
     "notchy-minimal-appearance-v1",
     "notchy-minimal-modules-v1",
     "notchy-minimal-focus-v1",
@@ -12,6 +12,7 @@ pub const KEYS: [&str; 8] = [
     "notchy-scenarios-v1",
     "notchy-module-order-v1",
     "notchy-peer-favorites-v1",
+    "notchy-community-modules-v1",
 ];
 pub fn valid_module_order(text: &str) -> bool {
     if text.len() > 512 {
@@ -59,6 +60,7 @@ pub fn restore_preferences(preferences: BTreeMap<String, String>) -> BTreeMap<St
             "notchy-scenarios-v1" => valid_scenarios(value),
             "notchy-module-order-v1" => valid_module_order(value),
             "notchy-peer-favorites-v1" => valid_peer_favorites(value),
+            "notchy-community-modules-v1" => valid_community_modules(value),
             _ => true,
         }
     }).collect()
@@ -79,9 +81,31 @@ pub fn preference_input(value: &Value) -> Result<(&str, Option<&str>), ApiError>
         "notchy-scenarios-v1" => valid_scenarios(text),
         "notchy-module-order-v1" => valid_module_order(text),
         "notchy-peer-favorites-v1" => valid_peer_favorites(text),
+        "notchy-community-modules-v1" => valid_community_modules(text),
         _ => serde_json::from_str::<Value>(text).is_ok(),
     }).ok_or_else(|| ApiError::new(400, "Préférence invalide."))?;
     Ok((key, Some(text)))
+}
+
+// This stores JSON data only; the renderer separately validates the full declarative contract.
+pub fn valid_community_modules(text: &str) -> bool {
+    if text.len() > 196_608 { return false; }
+    let Ok(value) = serde_json::from_str::<Value>(text) else {return false};
+    let Some(object) = value.as_object() else {return false};
+    if object.len()!=2 || object.get("registryVersion")!=Some(&json!(1)) {return false;}
+    let Some(entries)=object.get("modules").and_then(Value::as_array) else {return false};
+    if entries.len()>12 {return false;}
+    let mut ids=std::collections::HashSet::new();
+    entries.iter().all(|entry| {
+        let Some(row)=entry.as_object() else {return false};
+        let Some(manifest)=row.get("manifest").and_then(Value::as_object) else {return false};
+        let Some(id)=manifest.get("id").and_then(Value::as_str) else {return false};
+        row.len()==2 && row.get("state").is_some_and(Value::is_object)
+            && id.len()<=96 && id.contains('.') && id.bytes().all(|byte|byte.is_ascii_lowercase()||byte.is_ascii_digit()||matches!(byte,b'-'|b'.'))
+            && ids.insert(id) && manifest.get("manifestVersion")==Some(&json!(2))
+            && manifest.get("permissions").is_some_and(|value|value.as_array().is_some_and(Vec::is_empty))
+            && !["script","html","css","entrypoint","command","url"].iter().any(|key|manifest.contains_key(*key))
+    })
 }
 
 pub async fn persist_preferences(data: &std::path::Path, preferences: &BTreeMap<String, String>) -> Result<(), ApiError> {
@@ -162,6 +186,27 @@ pub fn favorites_add(preferences: &BTreeMap<String, String>, favorite: &Value) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn community_registry_is_bounded_and_persists_only_inert_local_data() {
+        let module=json!({"manifest":{"id":"community.reading","manifestVersion":2,"permissions":[]},"state":{"completed":2}});
+        let value=json!({"registryVersion":1,"modules":[module.clone()]});
+        assert!(valid_community_modules(&value.to_string()));
+        let saved=merge(&BTreeMap::new(),&json!({"notchy-community-modules-v1":value})).unwrap();
+        assert!(restore_preferences(saved.clone()).contains_key("notchy-community-modules-v1"));
+        assert_eq!(snapshot(&saved)["notchy-community-modules-v1"]["modules"][0]["state"]["completed"],2);
+        for invalid in [json!({"registryVersion":2,"modules":[]}),json!({"registryVersion":1,"modules":[module.clone(),module.clone()]}),json!({"registryVersion":1,"modules":vec![module.clone();13]}),json!({"registryVersion":1,"modules":[],"extra":true})] {
+            assert!(!valid_community_modules(&invalid.to_string()));
+        }
+        for (key,item) in [("permissions",json!(["network"])),("script",json!("alert(1)")),("id",json!("music"))] {
+            let mut invalid=module.clone();invalid["manifest"][key]=item;
+            assert!(!valid_community_modules(&json!({"registryVersion":1,"modules":[invalid]}).to_string()));
+        }
+        assert!(!valid_community_modules(&" ".repeat(196_609)));
+        for length in [65,96,97] {
+            let mut boundary=module.clone(); boundary["manifest"]["id"]=json!(format!("community.{}","a".repeat(length-10)));
+            assert_eq!(valid_community_modules(&json!({"registryVersion":1,"modules":[boundary]}).to_string()),length<=96);
+        }
+    }
     #[test]
     fn shallow_patch_preserves_other_settings_and_rejects_unknown_keys_atomically() {
         let original = BTreeMap::from([("notchy-language-v1".into(), "fr".into()),

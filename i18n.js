@@ -2,6 +2,8 @@
   'use strict';
   const storageKey = 'notchy-language-v1';
   const english = {
+    'Bibliothèque de modules':'Module library', 'Bibliothèque':'Library',
+    'Enregistrement impossible. Réessaie.':'Could not save. Try again.',
     'Entre une adresse IP locale valide (ex. 192.168.1.20).':'Enter a valid local IP address (e.g. 192.168.1.20).',
     'La protection Windows de ce fichier reçu est indisponible. L’ouverture automatique est bloquée ; le fichier reste dans l’étagère.':'Windows origin protection is unavailable for this received file. Automatic opening is blocked; the file remains in the Shelf.',
     'Santé de Notchy':'Notchy health', 'Tout est prêt':'Everything is ready', '{ready}/{total} prêts':'{ready}/{total} ready',

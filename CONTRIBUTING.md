@@ -37,7 +37,7 @@ For an interface change, attach **two screenshots: before and after**, with samp
 
 Read [DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) when changing module dimensions, dismissal, activity feedback or motion. Preserve those contracts along with the appearance.
 
-For a future module, include a [manifest proposal](docs/MODULES.md) with its three presentations, permissions and empty or unavailable states. The manifest is a design contract, not an external plugin installer. Discuss the proposal before adding services or dependencies.
+To build a local module, start with the [module SDK](sdk/README.md) and [manifest reference](docs/MODULES.md). The blank island runs the same declarative renderer as Notchy. Import a validated JSON manifest from **Settings → Module library**, review it, then place it in Nook. Design all three presentations. Executable extensions, network access and native services require a separate reviewed proposal; an imported manifest cannot request them.
 
 LocalSend changes need a real transfer between devices as well as automated checks. Use disposable test files and report which direction and file counts you tried. Audio changes need real playback; demo bars are not evidence that the spectrum works.
 

@@ -1,0 +1,99 @@
+{
+  "manifestVersion": 2,
+  "id": "community.water",
+  "version": "1.0.0",
+  "name": {
+    "en": "Water break",
+    "fr": "Pause eau"
+  },
+  "description": {
+    "en": "A small reminder to take care of yourself. Count the glasses you choose to record.",
+    "fr": "Un petit rappel pour prendre soin de vous. Notez les verres de votre choix."
+  },
+  "permissions": [],
+  "fields": [
+    {
+      "id": "glasses",
+      "type": "number",
+      "label": {
+        "en": "Glasses recorded",
+        "fr": "Verres enregistrés"
+      },
+      "min": 0,
+      "max": 50,
+      "default": 0
+    },
+    {
+      "id": "goal",
+      "type": "number",
+      "label": {
+        "en": "Personal goal",
+        "fr": "Objectif personnel"
+      },
+      "min": 1,
+      "max": 50,
+      "default": 8
+    }
+  ],
+  "actions": [
+    {
+      "id": "drink",
+      "label": {
+        "en": "Record a glass",
+        "fr": "Noter un verre"
+      },
+      "type": "increment",
+      "field": "glasses",
+      "amount": 1
+    },
+    {
+      "id": "reset",
+      "label": {
+        "en": "Reset count",
+        "fr": "Remettre à zéro"
+      },
+      "type": "reset",
+      "field": "glasses"
+    }
+  ],
+  "presentations": {
+    "full": {
+      "fields": [
+        "glasses",
+        "goal"
+      ],
+      "actions": [
+        "drink",
+        "reset"
+      ]
+    },
+    "scene": {
+      "fields": [
+        "glasses"
+      ],
+      "actions": [
+        "drink",
+        "reset"
+      ]
+    },
+    "rail": {
+      "fields": [
+        "glasses"
+      ],
+      "actions": [
+        "drink"
+      ]
+    }
+  },
+  "appearance": {
+    "accent": "#5AC8FA"
+  },
+  "progress": {
+    "valueField": "glasses",
+    "targetField": "goal",
+    "label": {
+      "en": "Personal water goal",
+      "fr": "Objectif personnel pour l’eau"
+    }
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "manifestVersion": 2,
+  "id": "community.reading",
+  "version": "1.0.0",
+  "name": {
+    "en": "Reading",
+    "fr": "Lecture"
+  },
+  "description": {
+    "en": "Make room for one more chapter. Your reading progress stays on this device.",
+    "fr": "Une place pour un chapitre de plus. Votre progression reste sur cet appareil."
+  },
+  "permissions": [],
+  "fields": [
+    {
+      "id": "title",
+      "type": "text",
+      "label": {
+        "en": "Book",
+        "fr": "Livre"
+      },
+      "maxLength": 120,
+      "default": ""
+    },
+    {
+      "id": "completed",
+      "type": "number",
+      "label": {
+        "en": "Chapters read",
+        "fr": "Chapitres lus"
+      },
+      "min": 0,
+      "max": 1000,
+      "default": 0
+    },
+    {
+      "id": "target",
+      "type": "number",
+      "label": {
+        "en": "Chapter goal",
+        "fr": "Objectif de chapitres"
+      },
+      "min": 1,
+      "max": 1000,
+      "default": 12
+    }
+  ],
+  "actions": [
+    {
+      "id": "advance",
+      "label": {
+        "en": "One more chapter",
+        "fr": "Un chapitre de plus"
+      },
+      "type": "increment",
+      "field": "completed",
+      "amount": 1
+    },
+    {
+      "id": "reset",
+      "label": {
+        "en": "Start again",
+        "fr": "Recommencer"
+      },
+      "type": "reset",
+      "field": "completed"
+    },
+    {
+      "id": "rename",
+      "label": {
+        "en": "Save book",
+        "fr": "Enregistrer le livre"
+      },
+      "type": "set-text",
+      "field": "title"
+    }
+  ],
+  "presentations": {
+    "full": {
+      "fields": [
+        "title",
+        "completed",
+        "target"
+      ],
+      "actions": [
+        "advance",
+        "rename",
+        "reset"
+      ]
+    },
+    "scene": {
+      "fields": [
+        "title",
+        "completed"
+      ],
+      "actions": [
+        "advance",
+        "rename"
+      ]
+    },
+    "rail": {
+      "fields": [
+        "completed"
+      ],
+      "actions": [
+        "advance"
+      ]
+    }
+  },
+  "appearance": {
+    "accent": "#A6E3B4"
+  },
+  "progress": {
+    "valueField": "completed",
+    "targetField": "target",
+    "label": {
+      "en": "Reading progress",
+      "fr": "Progression de lecture"
+    }
+  }
+}

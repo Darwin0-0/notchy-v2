@@ -63,6 +63,12 @@ Local search in an explicit development or check profile uses only a pre-created
 
 ## Run the checks
 
+### Develop a module on a blank island
+
+Run `node sdk/serve.cjs` and open the loopback address printed by the server. The [module SDK](../sdk/README.md) includes an empty island, editable examples, three presentation sizes and a manifest validator. This runs the same safe renderer as the application. Local JSON imports are available in **Settings → Module library → Import**; the bundled Discover selection works offline. See the [complete manifest contract](MODULES.md) for supported fields, actions, storage and limits.
+
+### Application checks
+
 From the repository root:
 
 ```powershell

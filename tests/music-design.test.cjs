@@ -12,7 +12,8 @@ test('the queue opens explicitly without changing the player and never queries a
     view: 'nook', state: 'open', document: {hidden: false}};
   vm.runInNewContext(section('  function queueVisible()', '  function queueText(') + 'this.api={queueVisible};', context);
   assert.equal(context.api.queueVisible(), false, 'a normal card does not automatically connect or fetch a queue');
-  context.queueOpen=true; context.view='music'; assert.equal(context.api.queueVisible(), true);
+  context.queueOpen=true; assert.equal(context.api.queueVisible(), true, 'the queue stays beside the player on Nook');
+  context.view='music'; assert.equal(context.api.queueVisible(), true);
   for (const size of ['full','scene','rail']) {context.player.dataset.presentation=size; assert.equal(context.api.queueVisible(), true);}
   context.music.source='Microsoft Edge'; assert.equal(context.api.queueVisible(), false, 'a Windows source never requests an unrelated Spotify account');
   context.music.source='Spotify'; context.player.hidden=true; assert.equal(context.api.queueVisible(), false);
@@ -111,14 +112,48 @@ test('music commands restore their initiating keyboard control after busy state 
   scope.document.activeElement=button; operation=scope.run(event); button.closest=()=>({inert:true}); pending(); await operation; assert.deepEqual(focused,['button','toggle'],'a hidden or inert mini does not receive focus');
 });
 
-test('closing the secondary queue returns to the exact prior Nook page and a visible trigger', () => {
-  const selected=[], focused=[], scope={queueOpen:true,queueActive:true,queueBusy:false,queueNotice:'',queueOperation:'',queueEpoch:2,queueTimer:4,
-    queueReturnView:'nook',queueReturnPage:'focus',view:'music',islandPage:'music',window:{clearTimeout(){}},renderMusicQueue(){},update(){},
-    selectViewButton(button){selected.push([button.dataset.view,scope.islandPage]);scope.view=button.dataset.view;},
-    byId:()=>({closest:()=>null,focus:()=>focused.push('queue-trigger')})};
+test('opening the queue keeps the current route, Nook page and module context', async () => {
+  const selected=[], focused=[], context={disposed:false,queueOpen:false,queueClosing:false,view:'nook',islandPage:'focus',queueReturnView:'music',queueReturnPage:'music',
+    selectViewButton(button){selected.push(button.dataset.view);context.view=button.dataset.view;},setState(){},renderMusicQueue(){},update(){},musicQueueLifecycle(){},presentMusicQueue(){},animateMusicQueue(){},
+    byId:()=>({focus:()=>focused.push('close')})};
+  vm.runInNewContext(section('  async function musicQueueCommand(', '  function paint(')+'this.run=musicQueueCommand;',context);
+  await context.run({target:{closest:()=>({disabled:false,dataset:{musicQueueCommand:'toggle'}})}});
+  assert.equal(context.queueOpen,true); assert.equal(context.view,'nook'); assert.equal(context.islandPage,'focus'); assert.deepEqual(selected,[]);
+  assert.deepEqual(focused,['close']);
+});
+
+test('closing the inline queue preserves the route and restores its visible trigger', () => {
+  const selected=[], focused=[], scope={queueOpen:true,queueClosing:false,queueActive:true,queueBusy:false,queueNotice:'',queueOperation:'',queueEpoch:2,queueTimer:4,
+    view:'nook',islandPage:'focus',queueReturnView:'nook',queueReturnPage:'focus',state:'open',player:{hidden:false},window:{clearTimeout(){}},document:{hidden:false},motionEnabled:()=>false,renderMusicQueue(){},update(){},presentMusicQueue(){},animateMusicQueue(entering,finish){finish?.();},
+    selectViewButton(button){selected.push(button.dataset.view);scope.view=button.dataset.view;},
+    byId:()=>({hidden:false,closest:()=>null,focus:()=>focused.push('queue-trigger')})};
   vm.runInNewContext(section('  function closeMusicQueue(', '  function musicQueueLifecycle(')+'this.run=closeMusicQueue;',scope);
-  scope.run(); assert.deepEqual(selected,[['nook','focus']]); assert.deepEqual(focused,['queue-trigger']);
+  scope.run(); assert.deepEqual(selected,[]); assert.equal(scope.view,'nook'); assert.equal(scope.islandPage,'focus'); assert.deepEqual(focused,['queue-trigger']);
   assert.equal(scope.queueOpen,false); assert.equal(scope.queueBusy,false); assert.equal(scope.queueEpoch,3);
+});
+
+test('the shared queue drawer protects covered module controls and restores their original inert state', () => {
+  const node = (children = [], inert = false, hidden = false) => ({children, inert, hidden, contains(target) {return this === target || this.children.some(child => child.contains(target));}});
+  const player=node(), timer=node(), priorInert=node([],true), hidden=node([],false,true), musicBranch=node([player]), side=node([timer]), home=node([musicBranch,side]);
+  const panel={children:[home,priorInert,hidden],dataset:{}}, scope={panel,player,queueBackdrop:new Map()};
+  vm.runInNewContext(section('  function presentMusicQueue(', '  function animateMusicQueue(')+'this.run=presentMusicQueue;',scope);
+  scope.run(true); assert.equal(panel.dataset.musicQueue,'true'); assert.equal(player.inert,false); assert.equal(musicBranch.inert,false); assert.equal(home.inert,false); assert.equal(side.inert,true); assert.equal(hidden.inert,false);
+  scope.run(true); scope.run(false); assert.equal(side.inert,false); assert.equal(timer.inert,false); assert.equal(priorInert.inert,true); assert.equal(scope.queueBackdrop.size,0);
+});
+
+test('queue slides reverse from their current presentation and reduced motion keeps only a short fade', async () => {
+  const effects=[], completed=[], host={style:{},animate(frames,options){let finish;const effect={frames,options,cancelled:false,cancel(){this.cancelled=true;},finished:new Promise(resolve=>{finish=resolve;}),finish(){finish();}};effects.push(effect);return effect;}};
+  let presentation={opacity:'1',transform:'none'}, enabled=true;
+  const scope={byId:()=>host,contentAnimations:new Map(),getComputedStyle:()=>presentation,motionEnabled:()=>enabled,document:{hidden:false},ISLAND_CONFIG};
+  vm.runInNewContext(section('  function animateMusicQueue(', '  function queueVisible()')+'this.run=animateMusicQueue;',scope);
+  scope.run(true); assert.equal(effects[0].frames[0].opacity,'0'); assert.equal(effects[0].frames[0].transform,'translateX(24px)'); assert.equal(effects[0].options.duration,300);
+  presentation={opacity:'.6',transform:'matrix(1, 0, 0, 1, 10, 0)'};scope.run(false,()=>completed.push('closed'));
+  assert.equal(effects[0].cancelled,true);assert.equal(effects[1].frames[0].opacity,'.6');assert.equal(effects[1].frames[0].transform,presentation.transform);assert.equal(host.inert,true);
+  presentation={opacity:'.35',transform:'matrix(1, 0, 0, 1, 18, 0)'};scope.run(true,()=>completed.push('open'));
+  assert.equal(effects[1].cancelled,true); assert.equal(effects[2].frames[0].transform,presentation.transform); assert.equal(host.inert,false);
+  effects[1].finish();await Promise.resolve();assert.deepEqual(completed,[],'the reversed exit cannot hide the current drawer');
+  effects[2].finish();await Promise.resolve();assert.deepEqual(completed,['open']);assert.equal(host.style.opacity,'1');
+  enabled=false;scope.run(false);assert.equal(effects[3].options.duration,150);assert(effects[3].frames.every(frame=>frame.transform==='none'));
 });
 
 test('the hover transport shares the compact content choreography and becomes inert on exit', () => {

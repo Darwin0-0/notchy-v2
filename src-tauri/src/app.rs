@@ -139,7 +139,7 @@ mod experience_preference_tests {
 
     #[test]
     fn preference_commands_whitelist_and_validate_both_new_values_and_deletion() {
-        assert_eq!(KEYS.len(), 8);
+        assert_eq!(KEYS.len(), 9);
         for (key, value) in [(ORDER, order().to_string()), (FAVORITES, json!([favorite(0)]).to_string())] {
             let command = json!({"key":key,"value":value});
             assert_eq!(preference_input(&command).unwrap(), (key, Some(value.as_str())));

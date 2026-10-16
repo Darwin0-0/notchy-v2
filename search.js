@@ -5,7 +5,9 @@
   if (root?.document) root.NotchySearch = api;
 })(typeof window === 'object' ? window : null, function () {
   'use strict';
-  const CONFIG = Object.freeze({minimumQuery: 2, maximumQuery: 256, limit: 8, debounce: 80, statusInterval: 1000});
+  const CONFIG = Object.freeze({minimumQuery: 2, maximumQuery: 256, limit: 8, debounce: 80, statusInterval: 1000, menuInset: 8});
+  // Keep the affordance aligned with Rust; native validation remains authoritative.
+  const OPENABLE_FORMATS = 'pdf epub txt md csv json yaml yml log rtf docx xlsx pptx odt ods odp png jpg jpeg webp gif bmp tif tiff ico avif heic mp3 m4a wav flac ogg aac mp4 webm mkv avi mov zip';
   const MESSAGES = Object.freeze({
     'Recherche locale': 'Local search', 'Rechercher un fichier ou un dossier': 'Search files and folders',
     'Effacer la recherche': 'Clear search', 'Fermer la recherche': 'Close search',
@@ -17,6 +19,7 @@
     '{count} résultats': '{count} results', 'La recherche est indisponible.': 'Search is unavailable.',
     'Réessaie dans un instant.': 'Try again in a moment.', 'Réessayer': 'Try again',
     'Ouvrir': 'Open', 'Afficher dans l’Explorateur': 'Show in File Explorer', 'Envoyer via LocalSend': 'Send via LocalSend',
+    'Autres actions': 'More actions', 'Actions pour {name}': 'Actions for {name}',
     'Ouverture…': 'Opening…', 'Impossible d’ouvrir cet élément.': 'This item could not be opened.',
     'Impossible d’afficher cet élément.': 'This item could not be revealed.',
     'Impossible de préparer cet envoi.': 'This item could not be prepared for sharing.',
@@ -25,6 +28,10 @@
     'Dossier': 'Folder', 'Fichier': 'File', 'Entrée': 'Enter', 'Échap': 'Esc',
   });
   let instance = 0;
+
+  function canOpen(hit) {
+    return hit?.kind === 'folder' || typeof hit?.name === 'string' && OPENABLE_FORMATS.split(' ').includes(hit.name.split('.').pop().toLowerCase()) && hit.name.includes('.');
+  }
 
   function normalizeHits(value) {
     const hits = [], ids = new Set();
@@ -63,7 +70,7 @@
     const emptyApi = view?.NotchEmpty;
     let opened = false, disposed = false, hits = [], selected = -1, generation = 0, statusGeneration = 0;
     let debounce = null, poll = null, loading = false, acting = false, composing = false, error = '', statusError = false;
-    let status = {files: 0, indexing: false, shortcutUnavailable: false}, statusReady = false, reindexing = false, opener = null, emptyController = null;
+    let status = {files: 0, indexing: false, shortcutUnavailable: false}, statusReady = false, reindexing = false, opener = null, emptyController = null, menuOpener = null;
     const element = (tag, className) => {const node = document.createElement(tag); if (className) node.className = className; return node;};
     const label = (key, values = {}) => {
       const translated = typeof t === 'function' ? t(key) : key;
@@ -79,6 +86,7 @@
         close: 'm6 6 12 12M18 6 6 18', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z',
         file: 'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6',
         reveal: 'M10 4H4v16h16v-6M14 4h6v6M20 4 10 14', send: 'M12 16V3m-5 5 5-5 5 5M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7',
+        more: 'M4 12h.01M12 12h.01M20 12h.01', open: 'M14 4h6v6M20 4 10 14M10 4H4v16h16v-6',
         refresh: 'M20 7v5h-5M4 17v-5h5M6.2 6.2A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.8 5.8'}[kind]);
       svg.append(path); return svg;
     };
@@ -95,11 +103,18 @@
     body.append(list, empty);
     const footer = element('footer', 'search-footer'), information = element('span', 'search-information'), actions = element('div', 'search-actions');
     const reveal = button('search-icon-button search-reveal', 'reveal'), send = button('search-icon-button search-send', 'send'), openButton = button('search-open');
+    const more = button('search-icon-button search-more', 'more'), contextMenu = element('div', 'search-context-menu');
+    contextMenu.id = prefix + '-actions'; contextMenu.hidden = true; contextMenu.setAttribute('role', 'menu');
+    more.setAttribute('aria-haspopup', 'menu'); more.setAttribute('aria-controls', contextMenu.id); more.setAttribute('aria-expanded', 'false');
+    const menuItems = ['open', 'reveal', 'send'].map(action => {
+      const item = button('search-context-action', action), copy = element('span'); item.append(copy); item.dataset.searchAction = action;
+      item.setAttribute('role', 'menuitem'); item.tabIndex = -1; contextMenu.append(item); return {action, item, copy};
+    });
     const reindex = button('search-icon-button search-reindex', 'refresh'), reindexLabel = element('span'); reindex.append(reindexLabel);
     const announcer = element('span', 'search-sr'); announcer.id = prefix + '-status'; announcer.setAttribute('role', 'status'); announcer.setAttribute('aria-live', 'polite'); announcer.setAttribute('aria-atomic', 'true');
     input.setAttribute('aria-describedby', announcer.id);
-    actions.append(reveal, send, openButton); footer.append(information, reindex, actions);
-    host.classList.add('notchy-search'); host.hidden = true; host.replaceChildren(heading, body, footer, announcer);
+    actions.append(reveal, send, more, openButton); footer.append(information, reindex, actions);
+    host.classList.add('notchy-search'); host.hidden = true; host.replaceChildren(heading, body, footer, announcer, contextMenu);
     host.setAttribute('aria-label', label('Recherche locale'));
 
     function emptyState(title, hint, retry = false) {
@@ -131,9 +146,10 @@
       reindex.disabled = status.indexing || reindexing; reindex.setAttribute('aria-busy', String(reindexing));
       reveal.setAttribute('aria-label', label('Afficher dans l’Explorateur')); reveal.title = label('Afficher dans l’Explorateur') + ' · Ctrl+' + label('Entrée');
       send.setAttribute('aria-label', label('Envoyer via LocalSend')); send.title = label('Envoyer via LocalSend');
+      more.setAttribute('aria-label', label('Autres actions')); more.title = label('Autres actions') + ' · Shift+F10';
       openButton.textContent = label(acting ? 'Ouverture…' : 'Ouvrir'); openButton.title = label('Entrée');
       send.hidden = typeof onSend !== 'function' || hits[selected]?.kind !== 'file';
-      for (const control of [openButton, reveal, send]) control.disabled = acting || loading || !hits[selected];
+      for (const control of [openButton, reveal, send, more]) control.disabled = acting || loading || !hits[selected];
       actions.hidden = !hasHits;
       if (!hasHits) {
         if (error || statusError) emptyState(label(error || 'La recherche est indisponible.'), label('Réessaie dans un instant.'), true);
@@ -156,8 +172,17 @@
         if (scroll) row.scrollIntoView?.({block: 'nearest'});
       } else input.removeAttribute('aria-activedescendant');
       send.hidden = typeof onSend !== 'function' || hits[selected]?.kind !== 'file';
+      openButton.hidden = !canOpen(hits[selected]);
+      reveal.title = label('Afficher dans l’Explorateur') + ' · ' + (canOpen(hits[selected]) ? 'Ctrl+' : '') + label('Entrée');
+      contextMenu.setAttribute('aria-label', label('Actions pour {name}', {name: hits[selected]?.name || ''}));
+      for (const {action, item, copy} of menuItems) {
+        copy.textContent = label(action === 'open' ? 'Ouvrir' : action === 'reveal' ? 'Afficher dans l’Explorateur' : 'Envoyer via LocalSend');
+        item.hidden = action === 'open' ? !canOpen(hits[selected]) : action === 'send' && (hits[selected]?.kind !== 'file' || typeof onSend !== 'function');
+      }
     }
     function results(value) {
+      const menuHadFocus = contextMenu.contains(document.activeElement); closeMenu();
+      if (menuHadFocus && opened) input.focus({preventScroll: true});
       hits = normalizeHits(value); selected = hits.length ? 0 : -1; list.replaceChildren();
       for (const hit of hits) {
         const row = button('search-result'), glyph = element('span', 'search-result-icon'), copy = element('span', 'search-result-copy');
@@ -165,8 +190,27 @@
         row.setAttribute('aria-label', hit.name + ', ' + label(hit.kind === 'folder' ? 'Dossier' : 'Fichier') + ', ' + hit.path);
         const name = element('span', 'search-result-name'), path = element('span', 'search-result-path');
         for (const part of highlightParts(hit.name, input.value)) {const span = element(part.matched ? 'mark' : 'span'); span.textContent = part.text; name.append(span);}
+        row.setAttribute('aria-haspopup', 'menu'); row.setAttribute('aria-controls', contextMenu.id);
         path.textContent = hit.path; path.title = hit.path; glyph.append(icon(hit.kind)); copy.append(name, path); row.append(glyph, copy); list.append(row);
       }
+    }
+    function closeMenu(restoreFocus = false) {
+      if (contextMenu.hidden) return;
+      contextMenu.hidden = true; more.setAttribute('aria-expanded', 'false');
+      for (const row of list.children) row.setAttribute('aria-expanded', 'false');
+      if (restoreFocus && opened) (menuOpener?.isConnected !== false && host.contains(menuOpener) ? menuOpener : input).focus({preventScroll: true});
+      menuOpener = null;
+    }
+    function showMenu(index = selected, point = null, anchor = null) {
+      if (!opened || disposed || acting || loading || !hits[index]) return;
+      closeMenu(); select(index, false);
+      menuOpener = anchor || (host.contains(document.activeElement) ? document.activeElement : input);
+      contextMenu.hidden = false; more.setAttribute('aria-expanded', 'true'); list.children[selected]?.setAttribute('aria-expanded', 'true');
+      const bounds = host.getBoundingClientRect(), menuBounds = contextMenu.getBoundingClientRect(), row = (anchor || list.children[selected]).getBoundingClientRect();
+      const x = point?.x ?? row.left, y = point?.y ?? row.bottom, inset = CONFIG.menuInset;
+      contextMenu.style.left = Math.max(inset, Math.min(x - bounds.left, bounds.width - menuBounds.width - inset)) + 'px';
+      contextMenu.style.top = Math.max(inset, Math.min(y - bounds.top, bounds.height - menuBounds.height - inset)) + 'px';
+      menuItems.find(({item}) => !item.hidden)?.item.focus({preventScroll: true});
     }
     function readStatus(value) {
       if (!value || typeof value !== 'object') return;
@@ -228,7 +272,8 @@
     async function activate(action = 'open') {
       const hit = hits[selected];
       if (!opened || disposed || acting || loading || !hit || action === 'send' && (hit.kind !== 'file' || typeof onSend !== 'function')) return;
-      const current = generation; input.focus({preventScroll: true}); acting = true; error = ''; render();
+      if (action === 'open' && !canOpen(hit)) action = 'reveal';
+      closeMenu(); const current = generation; input.focus({preventScroll: true}); acting = true; error = ''; render();
       try {
         if (action === 'send') await onSend(hit.id);
         else await invoke(action === 'reveal' ? 'search_reveal' : 'search_open', {id: hit.id});
@@ -239,6 +284,21 @@
     }
     function key(event) {
       if (!opened || composing || event.isComposing) return;
+      if (!contextMenu.hidden) {
+        const visible = menuItems.filter(({item}) => !item.hidden).map(({item}) => item), current = visible.indexOf(document.activeElement);
+        if (['Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault(); event.stopImmediatePropagation();
+          if (event.key === 'Escape' || event.key === 'Tab') closeMenu(true);
+          else visible[event.key === 'Home' ? 0 : event.key === 'End' ? visible.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : visible.length - 1)) % visible.length]?.focus({preventScroll: true});
+        }
+        return;
+      }
+      if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) {
+        const row = event.target.closest?.('[data-result-id]');
+        const index = row && list.contains(row) ? hits.findIndex(hit => hit.id === row.dataset.resultId) : selected;
+        if (hits[index]) {event.preventDefault(); event.stopImmediatePropagation(); showMenu(index);}
+        return;
+      }
       if (event.key === 'Escape') {event.preventDefault(); event.stopImmediatePropagation(); close(); return;}
       if (event.target !== input) return;
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -253,6 +313,7 @@
     }
     function close({restoreFocus = true, notify = true} = {}) {
       if (!opened || disposed) return false;
+      closeMenu();
       opened = false; generation++; statusGeneration++; clearTimeout(debounce); clearTimeout(poll); debounce = poll = null;
       loading = false; host.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant');
       if (notify) onClose?.();
@@ -262,16 +323,27 @@
     listen(input, 'input', changed); listen(input, 'compositionstart', () => {composing = true; generation++; clearTimeout(debounce); debounce = null; loading = false; results([]); render();});
     listen(input, 'compositionend', () => {composing = false; changed();}); listen(host, 'keydown', key);
     listen(clear, 'click', () => {input.value = ''; changed(); input.focus({preventScroll: true});}); listen(closeButton, 'click', () => close());
-    listen(list, 'click', event => {const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return; select(hits.findIndex(hit => hit.id === row.dataset.resultId), false); void activate();});
-    listen(list, 'pointermove', event => {const row = event.target.closest('[data-result-id]'); if (row && list.contains(row)) select(hits.findIndex(hit => hit.id === row.dataset.resultId), false);});
+    listen(list, 'click', event => {const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return; closeMenu(); select(hits.findIndex(hit => hit.id === row.dataset.resultId), false); void activate();});
+    listen(list, 'pointermove', event => {if (!contextMenu.hidden) return; const row = event.target.closest('[data-result-id]'); if (row && list.contains(row)) select(hits.findIndex(hit => hit.id === row.dataset.resultId), false);});
+    listen(list, 'contextmenu', event => {
+      const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      showMenu(hits.findIndex(hit => hit.id === row.dataset.resultId), {x: event.clientX, y: event.clientY});
+    });
+    listen(contextMenu, 'contextmenu', event => {event.preventDefault(); event.stopImmediatePropagation();});
+    for (const {action, item} of menuItems) listen(item, 'click', event => {event.stopImmediatePropagation(); if (!item.hidden) void activate(action);});
+    listen(more, 'click', () => contextMenu.hidden ? showMenu(selected, null, more) : closeMenu(true));
+    listen(document, 'pointerdown', event => {if (!contextMenu.hidden && !contextMenu.contains(event.target) && event.target !== more && !more.contains(event.target)) closeMenu();});
+    listen(view || host, 'resize', () => closeMenu(true));
+    listen(list, 'scroll', () => closeMenu(true));
     listen(openButton, 'click', () => void activate()); listen(reveal, 'click', () => void activate('reveal')); listen(send, 'click', () => void activate('send'));
     listen(reindex, 'click', () => void rebuild());
     render();
-    return Object.freeze({open, close, isOpen: () => opened, render, refresh, elements: {input, clear, close: closeButton, list, empty, information, open: openButton, reveal, send, reindex, announcer}, dispose() {
+    return Object.freeze({open, close, isOpen: () => opened, render, refresh, elements: {input, clear, close: closeButton, list, empty, information, open: openButton, reveal, send, more, contextMenu, reindex, announcer}, dispose() {
       if (disposed) return false; close({restoreFocus: false, notify: false}); disposed = true; for (const remove of listeners) remove(); emptyController?.dispose();
       host.replaceChildren(...previous); host.hidden = previousHidden; if (previousLabel === null) host.removeAttribute('aria-label'); else host.setAttribute('aria-label', previousLabel);
       delete host.dataset.status; if (!hadClass) host.classList.remove('notchy-search'); return true;
     }});
   }
-  return Object.freeze({CONFIG, MESSAGES, normalizeHits, highlightParts, create});
+  return Object.freeze({CONFIG, MESSAGES, normalizeHits, highlightParts, canOpen, create});
 });

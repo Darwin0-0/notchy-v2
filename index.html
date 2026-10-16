@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="ia.css">
   <link rel="stylesheet" href="empty-states.css">
   <link rel="stylesheet" href="search.css">
+  <link rel="stylesheet" href="module-library.css">
   <script src="tokens.js" defer></script>
   <script src="i18n.js" defer></script>
   <script src="welcome.js" defer></script>
@@ -24,6 +25,8 @@
   <script src="sharing-experience.js" defer></script>
   <script src="ia.js" defer></script>
   <script src="search.js" defer></script>
+  <script src="module-runtime.js" defer></script>
+  <script src="module-library.js" defer></script>
   <script src="notch.js" defer></script>
 </head>
 <body>
@@ -90,6 +93,7 @@
     </nav>
     <div id="notch-panel" role="region" aria-label="Accueil de Notchy" aria-hidden="true" inert data-i18n-aria-label="Accueil de Notchy">
       <section id="search-player" hidden></section>
+      <section id="module-library-player" hidden aria-label="Modules"></section>
       <div id="shelf-drag-preview" class="shelf-drag-preview" role="status" aria-live="polite" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 12H3v8h18v-8h-2"/></svg><strong id="shelf-drag-title" data-i18n>Déposer des fichiers</strong><span id="shelf-drag-detail" data-i18n>Relâche pour choisir une action.</span></div>
       <section id="localsend-player" class="localsend-player" aria-label="Partage LocalSend" data-stage="discovery" data-direction="send" data-active="false" hidden data-i18n-aria-label="Partage LocalSend">
         <header class="localsend-heading"><div class="localsend-heading-title"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#localsend-icon-share"/></svg><strong id="localsend-title" data-i18n>Envoyer à…</strong></div><span id="localsend-summary" class="localsend-summary"></span><button id="localsend-close" class="localsend-icon-button" type="button" data-localsend-command="close" aria-label="Fermer le partage" data-i18n-aria-label="Fermer le partage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
@@ -247,7 +251,7 @@
             <button type="button" data-settings-command="localsend"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><span class="settings-row-copy"><strong>LocalSend</strong><small id="settings-localsend-detail" data-i18n>Partager à proximité</small></span><svg class="settings-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
           </section>
         </div>
-        <div class="settings-experience-links"><button type="button" data-settings-command="health" data-i18n>Santé de Notchy</button><button type="button" data-settings-command="modules" data-i18n>Modules</button></div>
+        <div class="settings-experience-links"><button type="button" data-settings-command="health" data-i18n>Santé de Notchy</button><button type="button" data-settings-command="modules" data-i18n>Modules</button><button type="button" data-settings-command="library" data-i18n>Bibliothèque de modules</button></div>
         <div class="settings-preferences">
           <label class="language-control settings-language"><span data-i18n>Langue</span><select id="settings-language" data-language-choice aria-label="Langue" data-i18n-aria-label="Langue"><option value="fr" lang="fr" data-i18n>Français</option><option value="en" lang="en" data-i18n>English</option></select></label>
           <label id="startup-control" class="settings-motion settings-startup" for="startup-windows" hidden><span data-i18n>Démarrer avec Windows</span><input id="startup-windows" type="checkbox" role="switch" aria-describedby="startup-status"></label>

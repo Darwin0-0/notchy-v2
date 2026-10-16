@@ -130,7 +130,7 @@
   const openPanelLimits = Object.freeze({width: ISLAND_CONFIG.states.expanded.width, height: ISLAND_CONFIG.states.expanded.height});
   // Each module declares its content size and band behavior; the notch owns geometry.
   const moduleLayouts = NOTCH_TOKENS.modules.layouts;
-  const moduleDefinitions = Object.freeze(Object.fromEntries([
+  const moduleDefinitions = Object.fromEntries([
     ['music', 'Musique', 'music-player', 'music', ...NOTCH_TOKENS.modules.minimum.music, 'progress', 'spectrum', ['track'], 0],
     ['focus', 'Focus & tâches', 'focus-player', 'focus', ...NOTCH_TOKENS.modules.minimum.focus, 'progress', 'ring', ['phase', 'complete', 'task-complete'], 1],
     ['tasks', 'Tâches', 'tasks-player', 'tasks', ...NOTCH_TOKENS.modules.minimum.tasks, 'none', 'none', ['phase', 'complete', 'task-complete'], null],
@@ -142,7 +142,7 @@
     layout: Object.freeze({...moduleLayouts[id], minHeight: moduleLayouts[id].height}),
     editor: Object.freeze({basis: moduleLayouts[id].basis + NOTCH_TOKENS.modules.metrics.editorInset, maxWidth: moduleLayouts[id].maxWidth + NOTCH_TOKENS.modules.metrics.editorInset, height: id === 'focus' ? NOTCH_TOKENS.modules.metrics.focusEditorHeight : moduleLayouts[id].height + NOTCH_TOKENS.modules.metrics.editorInset, grow: id === 'music' ? NOTCH_TOKENS.modules.metrics.musicGrow : 1}),
     band: Object.freeze({discreet, hover, changes: Object.freeze(changes)}),
-  })])));
+  })]));
   function getModuleDefinitions() { return JSON.parse(JSON.stringify(Object.values(moduleDefinitions))); }
 
   function nookGridPlan(page, enabled = []) {
@@ -493,7 +493,7 @@
     function update(values = [], {completed = [], interacting = null, preserveOrder = false} = {}) {
       const current = now(), active = new Map(), previousPrimary = order[0];
       for (const value of Array.isArray(values) ? values : []) {
-        if (!value || !['focus', 'tasks', 'music', 'weather', 'shelf', 'transfer', 'file'].includes(value.id) || active.has(value.id)) continue;
+        if (!value || !(Object.hasOwn(moduleDefinitions, value.id) || ['transfer', 'file'].includes(value.id)) || active.has(value.id)) continue;
         active.set(value.id, {...value});
         if (active.size === 3) break;
       }
@@ -622,6 +622,51 @@
   const byId = id => document.getElementById(id);
   const desktop = window.notchyDesktop?.isDesktop ? window.notchyDesktop : null;
   let search = null, searchReturnView = 'nook', searchReturnState = 'rest', searchShortcut = 'Ctrl+K';
+  let moduleLibrary = null, libraryReturnView = 'settings', libraryReturnFocus = null;
+  const communityStore = window.NotchyModules.createStore({storage: window.localStorage, key: 'notchy-community-modules-v1', persist: desktop?.saveModuleRegistry ? encoded=>desktop.saveModuleRegistry(encoded) : undefined});
+  const communityCards = new Map(), communityDisposers = new Map(), communitySignatures = new Map();
+  function refreshCommunityDefinitions() {
+    const entries = communityStore.list(), ids = entries.map(item => item.manifest.id);
+    for (const id of Object.keys(moduleDefinitions)) if (moduleDefinitions[id].community && !ids.includes(id)) {
+      communityDisposers.get(id)?.(); communityDisposers.delete(id); communitySignatures.delete(id);
+      communityCards.get(id)?.remove(); communityCards.delete(id); delete moduleDefinitions[id];
+    }
+    for (const {manifest} of entries) {
+      const id = manifest.id, template = moduleDefinitions.weather;
+      moduleDefinitions[id] = Object.freeze({...template, id, community: true, label: manifest.name[i18n.locale()], description: manifest.description[i18n.locale()], element: 'community-module-' + id, view: 'nook', defaultInstalled: false, initialSlot: null, directOpen: false, band: Object.freeze({discreet:'none',hover:'none',changes:[]})});
+      if (!communityCards.has(id)) {const card = document.createElement('article'); card.id = moduleDefinitions[id].element; card.className = 'community-module-host activity-card activity-card-secondary'; card.hidden = true; panel.append(card); communityCards.set(id, card);}
+    }
+  }
+  refreshCommunityDefinitions();
+  function showModuleLibrary() {
+    if (disposed || welcome?.isActive() || view === 'localsend' && nearby.incoming) return false;
+    if (view !== 'module-library') {libraryReturnView = view; libraryReturnFocus = document.activeElement;}
+    if (getModuleEditorActive()) closeModuleEditor(false);
+    selectViewButton({dataset:{view:'module-library'}}); openFromOutside(); moduleLibrary?.show(); return true;
+  }
+  function closeModuleLibrary() {
+    moduleLibrary?.hide(); selectViewButton({dataset:{view:libraryReturnView === 'module-library' ? 'nook' : libraryReturnView}});
+    if (libraryReturnFocus?.isConnected && !libraryReturnFocus.closest('[hidden],[inert]')) libraryReturnFocus.focus({preventScroll:true});
+  }
+  function placeCommunityModule(id) {
+    if (!communityStore.get(id)) return;
+    const next = getModules(); if (!next.enabled.includes(id)) next.enabled.push(id);
+    const slot = next.slots.findIndex((item,index) => index < 3 && (!item || !next.enabled.includes(item)));
+    const destination = next.slots.slice(0,3).includes(id) ? next.slots.indexOf(id) : slot >= 0 ? slot : 0;
+    const result = assignModuleSlot(next, destination, id); moduleLibrary?.hide(); setModules(result); selectViewButton({dataset:{view:'nook'}}); openFromOutside();
+  }
+  function renderCommunityCard(id, presentation) {
+    const entry = communityStore.get(id), host = communityCards.get(id); if (!entry || !host) return;
+    const signature = JSON.stringify([entry, presentation, i18n.locale()]); if (communitySignatures.get(id) === signature) return;
+    const active = host.contains(document.activeElement) ? document.activeElement : null, action = active?.dataset?.moduleAction;
+    communityDisposers.set(id, window.NotchyModules.render(host,entry.manifest,entry.state,{presentation,language:i18n.locale(),async onAction(action,value) {
+      host.setAttribute('aria-busy','true');
+      try {await communityStore.performAction(id,action,value);host.querySelector('.community-module-error')?.remove();}
+      catch (error) {let status=host.querySelector('.community-module-error');if(!status){status=document.createElement('p');status.className='community-module-error';status.setAttribute('role','alert');host.append(status);}status.textContent=t('Enregistrement impossible. Réessaie.');}
+      finally {host.removeAttribute('aria-busy');}
+    }}));
+    communitySignatures.set(id, signature); if (action) host.querySelector(`[data-module-action="${action}"]`)?.focus({preventScroll:true});
+  }
   function renderSearchRoute() {
     const active = view === 'search' && state === 'open';
     byId('search-player').hidden = !active;
@@ -647,9 +692,8 @@
   function searchOpening() {
     searchReturnView = view === 'search' ? 'nook' : view;
     searchReturnState = state === 'open' ? 'open' : 'rest';
-    keyboardNavigation = true; window.clearTimeout(collapseTimer); collapseDeferred = false;
     clearModuleFeedback(false);
-    selectViewButton({dataset: {view: 'search'}}); setState('open'); desktop?.focus();
+    selectViewButton({dataset: {view: 'search'}}); openFromOutside();
   }
   function searchClosed() {
     if (disposed || view !== 'search') return;
@@ -731,9 +775,10 @@
   let scenarioController = null, scenarioPreferences = normalizeScenarios();
   try {const saved = window.localStorage.getItem(scenarioStorageKey); if (saved && saved.length <= 4096) scenarioPreferences = normalizeScenarios(JSON.parse(saved));} catch {}
   const moduleLabels = Object.fromEntries(Object.values(moduleDefinitions).map(item => [item.id, t(item.label)]));
-  let queueOpen = false, queueReturnView = 'music', queueReturnPage = 'music', queueActive = false, queueBusy = false, queueTimer = 0, queueEpoch = 0, queueRetryUntil = 0, queueListSignature = '';
+  let queueOpen = false, queueClosing = false, queueActive = false, queueBusy = false, queueTimer = 0, queueEpoch = 0, queueRetryUntil = 0, queueListSignature = '';
   let queueState = {status: 'disconnected', current: null, items: [], message: ''};
   let queueNotice = '', queueOperation = '';
+  const queueBackdrop = new Map();
   let experience = null, sharingExperience = null, ia = null;
   let moduleOrder = ['music', 'focus', 'weather', 'tasks', 'shelf'], moduleDraftOrder = null, moduleOrderSaved = false;
   try {const raw=window.localStorage.getItem('notchy-module-order-v1'); if (raw && raw.length < 512) {const saved=JSON.parse(raw); if (Array.isArray(saved)) {moduleOrder = window.NotchyExperience.normalizeModuleState({order:saved}).order; moduleOrderSaved=true;}}} catch {}
@@ -945,7 +990,7 @@
   function closeModuleEditor(commit = false) {
     if (!moduleEditing) return false;
     const value = moduleDraft;
-    if (commit && moduleDraftOrder) {moduleOrderSaved=true; moduleOrder = [...moduleDraftOrder]; try {window.localStorage.setItem('notchy-module-order-v1', JSON.stringify(moduleOrder));} catch {}}
+    if (commit && moduleDraftOrder) {moduleOrderSaved=true; moduleOrder = moduleDraftOrder.filter(id => !moduleDefinitions[id]?.community); try {window.localStorage.setItem('notchy-module-order-v1', JSON.stringify(moduleOrder));} catch {}}
     moduleDraftOrder = null; moduleEditing = false; moduleDraft = null; modulePicked = null;
     if (commit) {modulePreviousView = 'nook'; modulePreviousState = 'open'; setModules(value);} else moduleMessage = t('Changements annulés.');
     moduleEditorLayout(false, true);
@@ -956,7 +1001,7 @@
   }
   function moduleContextMenu(event) {
     const target = event.target;
-    if (welcome?.isActive() || !notch.contains(target) || target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || window.getSelection()?.toString().trim()) return false;
+    if (['search','module-library'].includes(view) || welcome?.isActive() || !notch.contains(target) || target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || window.getSelection()?.toString().trim()) return false;
     event.preventDefault(); return openModuleEditor(event);
   }
   function modulePreview(host, id, template = 'main') {
@@ -1010,7 +1055,7 @@
     if (disposed) return;
     modulesPlayer.hidden = !moduleEditing; if (!moduleEditing || !moduleDraft) return;
     if (experience) {
-      experience.renderModules({definitions: getModuleDefinitions().map(item=>item.id === 'focus' ? {...item,label:'Focus'} : item), enabled: moduleDraft.enabled, order: moduleDraftOrder || moduleOrder});
+      experience.renderModules({definitions: getModuleDefinitions().map(item=>item.id === 'focus' ? {...item,label:'Focus'} : item), enabled: moduleDraft.enabled, order: [...(moduleDraftOrder || moduleOrder),...communityStore.list().map(item=>item.manifest.id)]});
       byId('modules-status').textContent = moduleMessage; return;
     }
     const layout = moduleEditorPresentation(moduleDraft, modulePicked), slots = layout.slots, primary = Math.max(0, slots.findIndex(Boolean));
@@ -1157,6 +1202,7 @@
     if (button.dataset.settingsCommand === 'close') { setState('rest'); return; }
     if (button.dataset.settingsCommand === 'health') {selectViewButton({dataset:{view:'health'}}); void readNearby(); return;}
     if (button.dataset.settingsCommand === 'modules') {openModuleEditor(); return;}
+    if (button.dataset.settingsCommand === 'library') {showModuleLibrary(); return;}
     if (button.dataset.settingsCommand === 'focus') {
       selectViewButton({dataset: {view: 'focus'}}); focusComponent.command('configure'); update();
     } else if (button.dataset.settingsCommand === 'weather') {
@@ -1166,6 +1212,7 @@
   }
   function renderExperience() {
     renderSearchRoute();
+    byId('module-library-player').hidden = view !== 'module-library' || state !== 'open'; moduleLibrary?.refresh();
     if (!experience || disposed) return;
     byId('health-player').hidden = view !== 'health' || moduleEditing;
     const tray = view === 'tray' && !moduleEditing;
@@ -1503,6 +1550,7 @@
   function homeModuleContext() { const selected = scenarioController?.getPreferences().selected; return {weatherPicker: weatherPickerOpen, focusConfig: focusComponent?.inspect().configOpen, completeScenario: selected === 'complete', dayScenario: selected === 'day'}; }
   function builtinVisible(id) {
     const definition = moduleDefinitions[id], editing = getModuleEditorActive();
+    if (definition?.community) return view === 'nook' && !editing && activityScene.inspect().items.some(item=>item.id===id);
     if (id === 'files') return view === 'files' && !editing;
     if (editing && view === 'nook') return false;
     const scene = byId('nook-layout').dataset.layout === 'activities';
@@ -1526,6 +1574,8 @@
     });
     const selected = (contextual || confirmingTransfer ? ordered : configured.items).slice(0, contextual || confirmingTransfer ? 2 : 3);
     const values = selected.map(({id}) => {
+      const community = communityStore.get(id);
+      if (community) return {id,key:id,label:community.manifest.name[i18n.locale()],value:'',detail:community.manifest.description[i18n.locale()],progress:null,playing:false};
       const card = id === 'focus' ? focusCardValues(focus, focusSettings) : null;
       if (id === 'music') return {id, key: id, label: music.title || t('Musique'), value: time(position()), detail: music.artist || music.source,
         playing: music.playing && !connectionLost, progress: music.duration ? position() / music.duration : null};
@@ -1547,6 +1597,7 @@
     activityStage.addEventListener('click', activitySceneCommand);
   }
   function activitySummaryCard(id) {
+    if (communityCards.has(id)) return communityCards.get(id);
     if (activityCards.has(id)) return activityCards.get(id);
     if (id === 'music') {activityCards.set(id, player); return player;}
     if (id === 'tasks') {tasksPlayer.classList.add('activity-card', 'activity-card-secondary'); activityCards.set(id, tasksPlayer); return tasksPlayer;}
@@ -1582,6 +1633,7 @@
     const values = new Map(sceneActivities().map(item => [item.id, item]));
     for (const snapshot of activityScene.inspect().items) {
       const item = snapshot.complete ? snapshot : values.get(snapshot.id) || snapshot, card = activityCards.get(item.id);
+      if (communityCards.has(item.id)) {const host=communityCards.get(item.id); if (activityStage.contains(host)) renderCommunityCard(item.id,host.dataset.presentation); continue;}
       if (!card || !activityStage.contains(card)) continue;
       if (item.id === 'music') continue; // The same live player owns every music placement.
       if (item.id === 'tasks') {tasksComponent.render(); continue;}
@@ -1666,9 +1718,9 @@
       for (const definition of Object.values(moduleDefinitions)) {const element = byId(definition.element); if (element.parentElement !== panel) panel.append(element); element.hidden = true;}
       activityStage.remove(); byId('home-main').hidden = true; byId('home-side').hidden = true; byId('home-empty').hidden = false; home.inert = false; renderMusicQueue(); musicQueueLifecycle(); return true;
     }
-    const primary = snapshot.items[0], component = moduleDefinitions[primary.id] && ['music', 'focus', 'tasks'].includes(primary.id) && !primary.complete ? byId(moduleDefinitions[primary.id].element) : null;
+    const primary = snapshot.items[0], component = moduleDefinitions[primary.id] && (['music', 'focus', 'tasks'].includes(primary.id) || communityCards.has(primary.id)) && !primary.complete ? byId(moduleDefinitions[primary.id].element) : null;
     for (const definition of Object.values(moduleDefinitions)) {
-      const element = byId(definition.element), parent = element === component ? activityMain : ['music', 'tasks'].includes(definition.id) && snapshot.rail.includes(definition.id) ? activitySide : panel;
+      const element = byId(definition.element), parent = element === component ? activityMain : (['music', 'tasks'].includes(definition.id) || communityCards.has(definition.id)) && snapshot.rail.includes(definition.id) ? activitySide : panel;
       if (element.parentElement !== parent) parent.append(element);
       element.hidden = !builtinVisible(definition.id); element.dataset.module = definition.id;
     }
@@ -2690,6 +2742,9 @@
     if (event.target.matches('[data-language-choice]')) i18n.setLocale(event.target.value);
   }
   function renderLanguage() {
+    refreshCommunityDefinitions(); moduleLibrary?.refresh();
+    for(const button of document.querySelectorAll('[data-module-library]')) button.textContent=t('Bibliothèque');
+    for(const button of document.querySelectorAll('[data-module-library-empty]')) button.textContent=t('Bibliothèque de modules');
     if (disposed) return;
     renderStaticTranslations();
     search?.render(); renderSearchRoute();
@@ -2915,7 +2970,35 @@
   }
   function coverError(event) { event.target.hidden = true; event.target.nextElementSibling.removeAttribute('hidden'); if (event.target.getAttribute('src') === music.cover) {notch.style.setProperty('--spectrum-color', 'var(--color-fff)'); applyArtworkPalette();} }
 
-  function queueVisible() { return !player.hidden && queueOpen && view === 'music' && state === 'open' && !moduleEditing && !document.hidden && (!music.available || /^spotify$/i.test(music.source)); }
+  function presentMusicQueue(active) {
+    panel.dataset.musicQueue = String(active);
+    for (const [node, inert] of queueBackdrop) node.inert = inert;
+    queueBackdrop.clear();
+    if (!active) return;
+    const protect = node => {
+      if (node === player || node.hidden) return;
+      if (node.contains(player)) {for (const child of node.children) protect(child);}
+      else {queueBackdrop.set(node, node.inert); node.inert = true;}
+    };
+    for (const child of panel.children) protect(child);
+  }
+  function animateMusicQueue(entering, finish) {
+    const host = byId('music-queue'), running = contentAnimations.get(host), current = getComputedStyle(host);
+    const simple = !motionEnabled(), exit = simple ? 'none' : 'translateX(24px)';
+    const from = running || !entering ? {opacity: current.opacity, transform: simple ? 'none' : current.transform} : {opacity: '0', transform: exit};
+    for (const animation of running || []) animation.cancel();
+    contentAnimations.delete(host);
+    const target = {opacity: entering ? '1' : '0', transform: entering || simple ? 'none' : exit};
+    host.inert = !entering; host.style.pointerEvents = entering ? 'auto' : 'none';
+    if (document.hidden || typeof host.animate !== 'function') {Object.assign(host.style, target); finish?.(); return;}
+    const animation = host.animate([from, target], {duration: simple ? ISLAND_CONFIG.durations.reduced : 300, easing: simple ? 'linear' : ISLAND_CONFIG.spring.easing, fill: 'both'});
+    const animations = [animation]; contentAnimations.set(host, animations);
+    animation.finished.then(() => {
+      if (contentAnimations.get(host) !== animations) return;
+      Object.assign(host.style, target); animation.cancel(); contentAnimations.delete(host); finish?.();
+    }, () => {});
+  }
+  function queueVisible() { return !player.hidden && queueOpen && ['nook','music'].includes(view) && state === 'open' && !moduleEditing && !document.hidden && (!music.available || /^spotify$/i.test(music.source)); }
   function queueText(value, max = 240) { return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, max) : ''; }
   function queueSnapshot(value) {
     const statuses = ['disconnected','connecting','connected','ok','accepted','scope-required','busy','limited','unauthorized','forbidden','offline','unavailable','error','cancelled','invalid'];
@@ -2923,7 +3006,9 @@
     return {status: statuses.includes(value?.status) ? value.status : 'error', canPlay: value?.canPlay === true, message: queueText(value?.message, 600), current: value?.status === 'ok' ? track(value?.current) : null, items: value?.status === 'ok' && Array.isArray(value?.items) ? value.items.slice(0, 50).map(track).filter(Boolean) : [], retryAfter: Number.isFinite(value?.retryAfter) ? Math.min(300, Math.max(1, value.retryAfter)) : 0};
   }
   function renderMusicQueue() {
-    const host = byId('music-queue'), inline = false, systemOnly = music.available && !/^spotify$/i.test(music.source); host.hidden = !(queueOpen && view === 'music') || moduleEditing;
+    const host = byId('music-queue'), systemOnly = music.available && !/^spotify$/i.test(music.source);
+    host.hidden = !(queueOpen || queueClosing) || !['nook','music'].includes(view) || state !== 'open' || player.hidden || moduleEditing;
+    const inline = !host.hidden; host.inert = !queueOpen; presentMusicQueue(inline);
     host.dataset.inline = String(inline); host.dataset.hasItems = String(!systemOnly && queueState.status === 'ok' && !!queueState.items.length); player.dataset.queueInline = String(inline); player.dataset.queueOpen = String(!host.hidden);
     const button = byId('music-queue-toggle'); button.setAttribute('aria-expanded', String(queueOpen)); button.setAttribute('aria-label', queueOpen ? t('Fermer À suivre') : t('Afficher À suivre'));
     if (host.hidden) return;
@@ -2948,7 +3033,7 @@
     byId('music-queue-disconnect').disabled = queueBusy;
     const list = byId('music-queue-items'), signature = JSON.stringify([i18n.locale(), queueState.items, queueState.canPlay, inline]);
     if (queueListSignature !== signature) {
-    const nodes = (inline ? queueState.items.slice(0, 3) : queueState.items).map(item => {
+    const nodes = queueState.items.map(item => {
       const row = document.createElement('li'), itemView = document.createElement(item.uri ? 'button' : 'div'); itemView.className = 'music-queue-item';
       if (item.uri) { itemView.type = 'button'; itemView.dataset.musicQueueCommand = 'play-track'; itemView.dataset.uri = item.uri; itemView.setAttribute('aria-label', t('Lire {track} · {artists}', {track: item.name, artists: item.artists.join(' · ')})); itemView.title = t('Lire sur l’appareil Spotify actif · remplace le contexte de lecture'); }
       const art = document.createElement('span'); art.className = 'music-queue-art';
@@ -2984,14 +3069,18 @@
     } catch { if (ticket === queueEpoch) queueState = {status: 'error', current: null, items: [], message: t('La file Spotify est indisponible. Réessaie.')}; }
     finally { if (ticket === queueEpoch) { queueBusy = false; renderMusicQueue(); scheduleMusicQueue(); } }
   }
-  function closeMusicQueue(restore = true, focus = true) {
+  function closeMusicQueue(animate = true, focus = true) {
+    queueClosing = animate && !byId('music-queue').hidden && state === 'open' && !document.hidden;
     queueOpen = queueActive = queueBusy = false; queueNotice = queueOperation = ''; queueEpoch++; window.clearTimeout(queueTimer); queueTimer = 0;
+    const finish = () => {
+      queueClosing = false; renderMusicQueue(); update();
+      if (focus && !byId('music-queue-toggle').closest('[hidden],[inert]')) byId('music-queue-toggle').focus({preventScroll: true});
+    };
     renderMusicQueue();
-    if (restore && queueReturnView === 'nook' && view === 'music') {islandPage = queueReturnPage; selectViewButton({dataset: {view: 'nook'}});}
-    update(); if (focus && !byId('music-queue-toggle').closest('[hidden],[inert]')) byId('music-queue-toggle').focus({preventScroll: true});
+    if (queueClosing) animateMusicQueue(false, finish); else finish();
   }
   function musicQueueLifecycle() {
-    if (queueOpen && (view !== 'music' || state !== 'open' || moduleEditing)) { closeMusicQueue(false, false); return; }
+    if (queueOpen && (!['nook','music'].includes(view) || state !== 'open' || moduleEditing || player.hidden)) { closeMusicQueue(false, false); return; }
     const active = queueVisible(); if (active === queueActive) return;
     queueActive = active;
     if (active) void readMusicQueue(false);
@@ -3002,9 +3091,8 @@
     const command = button.dataset.musicQueueCommand;
     if (command === 'toggle') {
       if (queueOpen) { closeMusicQueue(); return; }
-      queueReturnView = view; queueReturnPage = islandPage; queueOpen = true;
-      if (view !== 'music') selectViewButton({dataset: {view: 'music'}});
-      setState('open'); renderMusicQueue(); update(); musicQueueLifecycle(); byId('music-queue-close').focus({preventScroll: true}); return;
+      queueClosing = false; queueOpen = true;
+      setState('open'); renderMusicQueue(); update(); animateMusicQueue(true); musicQueueLifecycle(); byId('music-queue-close').focus({preventScroll: true}); return;
     }
     if (command === 'close') { closeMusicQueue(); return; }
     if (command === 'refresh') { queueNotice = ''; void readMusicQueue(true); return; }
@@ -3113,6 +3201,7 @@
     const keyboardOpening = next === 'open' && !wasOpen && keyboardNavigation && document.activeElement === toggle;
     window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
     window.clearTimeout(hoverTimer); hoverTimer = 0;
+    if (next !== 'open') awaitingPointerEntry = false;
     if (next === 'rest') keyboardNavigation = false;
     if (next !== 'open' || state !== 'open') {layoutResizeClick = null; layoutResizeGraceUntil = 0;}
     if (next !== 'open' && (menu.contains(document.activeElement) || expandedLayer.contains(document.activeElement) || byId('music-hover-controls').contains(document.activeElement))) toggle.focus({preventScroll: true});
@@ -3152,7 +3241,14 @@
     return true;
   }
 
-  let layoutResizeClick = null, layoutResizeGraceUntil = 0, nativePointerPresence = null;
+  let layoutResizeClick = null, layoutResizeGraceUntil = 0, nativePointerPresence = null, awaitingPointerEntry = false;
+  function openFromOutside() {
+    if (disposed) return false;
+    // A shortcut or tray activation is not a departure from the painted island.
+    awaitingPointerEntry = !pointerInside; keyboardNavigation = true;
+    window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
+    const opened = setState('open'); desktop?.focus(); return opened;
+  }
   function protectLayoutResize(width, height) {
     const now = Date.now(), click = layoutResizeClick;
     if (disposed || state !== 'open' || !click || click.armed || now - click.at > 250 || now < click.at || !Number.isFinite(width) || !Number.isFinite(height)) return;
@@ -3166,11 +3262,11 @@
   function protectedInteraction() {
     const focused = document.hasFocus() ? document.activeElement : null;
     const editing = focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]');
-    return welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
+    return awaitingPointerEntry || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
   }
   function scheduleCollapse(deactivated = false) {
     window.clearTimeout(collapseTimer); collapseTimer = 0;
-    if (deactivated) {pointerInside = false; if (nativePointerPresence !== null) nativePointerPresence = false; keyboardNavigation = false; window.clearTimeout(hoverTimer); hoverTimer = 0;}
+    if (deactivated) {awaitingPointerEntry = false; pointerInside = false; if (nativePointerPresence !== null) nativePointerPresence = false; keyboardNavigation = false; window.clearTimeout(hoverTimer); hoverTimer = 0;}
     if (disposed || state === 'rest') { collapseDeferred = false; layoutResizeClick = null; layoutResizeGraceUntil = 0; return; }
     collapseDeferred = protectedInteraction();
     if (collapseDeferred) return;
@@ -3184,7 +3280,7 @@
   function recheckCollapse() { scenarioController?.flush(); if (collapseDeferred && !disposed && !pointerInside && !protectedInteraction()) scheduleCollapse(); }
   function enter(event) {
     if (event && nativePointerPresence === false) return;
-    pointerInside = true; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
+    pointerInside = true; awaitingPointerEntry = false; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
     if (closingTo) { setState('open'); return; }
     window.clearTimeout(hoverTimer);
     if (state === 'rest') hoverTimer = window.setTimeout(() => {hoverTimer = 0; if (pointerInside && state === 'rest' && !disposed) setState('compact');}, ISLAND_CONFIG.delays.hover);
@@ -3261,6 +3357,7 @@
   }
   function selectViewButton(button) {
     if (!button) return;
+    if (view === 'module-library' && button.dataset.view !== 'module-library') moduleLibrary?.hide();
     if (view === 'search' && button.dataset.view !== 'search') search?.close({restoreFocus: false, notify: false});
     if (view === 'welcome' && button.dataset.view !== 'welcome' && welcome?.isActive()) {
       welcome.hide();
@@ -3271,7 +3368,7 @@
     toggle.tabIndex = state === 'open' && view === 'localsend' ? -1 : 0;
     byId('welcome-player').hidden = view !== 'welcome';
     menu.hidden = state !== 'open' || view === 'welcome' || view === 'localsend'; menu.inert = menu.hidden;
-    panel.setAttribute('aria-label', view === 'search' ? t('Rechercher') : t(Object.values(moduleDefinitions).find(item => item.view === view)?.label) || (view === 'nook' ? t('Accueil Notchy') : view === 'welcome' ? t('Bienvenue dans Notchy') : view === 'localsend' ? t('Partage LocalSend') : view === 'files' ? t('Actions de fichier') : view === 'scenarios' ? t('Scénarios') : t('Réglages')));
+    panel.setAttribute('aria-label', view === 'module-library' ? t('Bibliothèque de modules') : view === 'search' ? t('Rechercher') : view === 'nook' ? t('Accueil Notchy') : t(Object.values(moduleDefinitions).find(item => item.view === view)?.label) || (view === 'welcome' ? t('Bienvenue dans Notchy') : view === 'localsend' ? t('Partage LocalSend') : view === 'files' ? t('Actions de fichier') : view === 'scenarios' ? t('Scénarios') : t('Réglages')));
     renderMenuSelection();
     renderHomeLayout();
     musicLifecycle();
@@ -3286,6 +3383,7 @@
     renderModuleFeedback();
     renderLocalSend();
     update();
+    if (view === 'module-library' && !moduleLibrary?.isOpen()) moduleLibrary?.show();
     if (state === 'open' && view === 'nook' && !getModuleEditorActive()) scenarioController?.morning();
     if ((builtinVisible('shelf') || view === 'nook' && getHomeSlots().includes('shelf')) && !shelfLoaded && !shelfBusy && !fileDragging) void loadShelf();
   }
@@ -3372,13 +3470,14 @@
     desktop.setInteractive(false);
     document.addEventListener('mousemove', desktopPointer);
     document.addEventListener('pointerdown', desktopFocus);
-    const removeResume = desktop.onResume(value => { if (value?.maxHeight) desktopMaxHeight = value.maxHeight; if (value?.reason === 'search') showSearch(); else if (value?.reason === 'open') setState('open'); else update(); });
+    const removeResume = desktop.onResume(value => { if (value?.maxHeight) desktopMaxHeight = value.maxHeight; if (value?.reason === 'search') showSearch(); else if (value?.reason === 'open') openFromOutside(); else update(); });
     const removeDeactivate = desktop.onDeactivate?.(() => scheduleCollapse(true));
     const removePointer = desktop.onPointer?.(nativePointer);
     desktopRemoveResume = () => { removeResume(); removeDeactivate?.(); removePointer?.(); };
   }
 
   function dispose() {
+    moduleLibrary?.dispose(); removeCommunityChange?.(); for (const cleanup of communityDisposers.values()) cleanup();
     search?.dispose(); byId('search-toggle').removeEventListener('click', showSearch);
     ia?.dispose();
     if (disposed) return;
@@ -3508,6 +3607,8 @@
     getWeatherState,
     showHealth: () => {selectViewButton({dataset:{view:'health'}}); setState('open');},
     showSearch,
+    showModuleLibrary,
+    getCommunityModules: () => communityStore.list(),
     dispose,
     inspect: () => ({state, view, geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, scenarios: scenarioController?.inspect(), morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
     }),
@@ -3515,8 +3616,21 @@
   window.addEventListener('pagehide', dispose, {once: true});
   search = window.NotchySearch.create({host: byId('search-player'), invoke: invokeSearch, t,
     onOpen: searchOpening, onClose: searchClosed, onSend: searchSend});
+  moduleLibrary = window.NotchyModuleLibrary.create({host:byId('module-library-player'), store:communityStore, language:i18n.locale, onClose:closeModuleLibrary, onPlace:placeCommunityModule,
+    onBlank() {moduleLibrary.hide(); setModules({enabled:[],slots:[]}); selectViewButton({dataset:{view:'nook'}}); openFromOutside();},
+    onDialog(input) {if(input) showFileChooser(input); else {closeFileChooser(); if(view==='module-library') openFromOutside();}}});
+  const removeCommunityChange = communityStore.subscribe(() => {
+    const previousIds=Object.values(moduleDefinitions).filter(item=>item.community).map(item=>item.id).join(',');
+    refreshCommunityDefinitions(); moduleSettings=normalizeModules(moduleSettings);
+    if(moduleDraft) moduleDraft=normalizeModules(moduleDraft);
+    try {window.localStorage.setItem(moduleStorageKey,JSON.stringify(moduleSettings));} catch {}
+    if(previousIds!==communityStore.list().map(item=>item.manifest.id).join(',')) activityScene.reset(); renderModules(); renderHomeLayout();
+  });
   experience = window.NotchyExperience.create({healthHost: byId('health-player'), modulesHost: byId('modules-experience'), t, onAction: experienceAction, onModulesChange(value) {if (!moduleEditing) return; moduleDraftOrder = value.order; moduleDraft = normalizeModules({enabled: value.order.filter(id => value.enabled.includes(id)), slots: value.order.filter(id => value.enabled.includes(id)).slice(0,3)}); moduleMessage = ''; renderModules();}});
   byId('modules-experience').querySelector('.experience-heading-actions').append(modulesPlayer.querySelector('.module-editor-actions'));
+  const libraryButton = document.createElement('button'); libraryButton.type='button'; libraryButton.className='experience-back'; libraryButton.textContent=t('Bibliothèque'); libraryButton.dataset.moduleLibrary=''; libraryButton.addEventListener('click',showModuleLibrary);
+  byId('modules-experience').querySelector('.experience-heading-actions').prepend(libraryButton);
+  const emptyLibraryButton=document.createElement('button'); emptyLibraryButton.type='button'; emptyLibraryButton.dataset.moduleLibraryEmpty=''; emptyLibraryButton.textContent=t('Bibliothèque de modules'); emptyLibraryButton.addEventListener('click',showModuleLibrary); byId('home-empty').append(emptyLibraryButton);
   sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction});
   ia = window.NotchyIA.create({document,t,
     onTab(tab) {if (getModuleEditorActive() && tab !== 'modules') closeModuleEditor(false); const route=tab==='general'?'settings':tab; menu.querySelector('[data-view="'+route+'"]').click();},
@@ -3528,7 +3642,7 @@
   document.addEventListener('change', languageChoice);
   removeLanguage = i18n.onChange(renderLanguage);
   for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();
-  for (const id of Object.keys(moduleDefinitions).filter(id => !byId('module-catalog').querySelector(`[data-module-id="${id}"]`))) {
+  for (const id of Object.keys(moduleDefinitions).filter(id => !moduleDefinitions[id].community && !byId('module-catalog').querySelector(`[data-module-id="${id}"]`))) {
     const button = document.createElement('button'); button.type = 'button'; button.dataset.moduleCommand = 'pick'; button.dataset.moduleId = id; button.draggable = true;
     const tile = document.createElement('span'); tile.className = 'module-tile'; tile.append(byId(moduleDefinitions[id].element).querySelector('svg').cloneNode(true));
     tile.append(byId('module-catalog').querySelector('.module-installed').cloneNode(true)); const label = document.createElement('span'); label.className = 'module-label'; label.textContent = moduleLabels[id]; button.append(tile, label); byId('module-catalog').append(button);

@@ -2399,3 +2399,41 @@ body[data-motion="false"] #music-player .music-main,body[data-motion="false"] .m
 [data-activity="focus"] { --activity-color:var(--activity-focus); }
 [data-activity="tasks"] { --activity-color:var(--activity-tasks); }
 [data-activity="transfer"] { --activity-color:var(--activity-transfer); }
+/* Up next shares the current scene; the saved module layout stays underneath. */
+#notch-panel[data-music-queue="true"] :is(#nook-layout,.activity-stage,.activity-main,.activity-rail-cards,.home-main,.home-side,.home-module):has(#music-player) { position: static; container-type: normal; contain: none; overflow: visible; }
+#notch-panel[data-music-queue="true"] #music-player { position: absolute; z-index: 5; inset: 0; display: grid; grid-template-columns: minmax(0,1.45fr) minmax(var(--measure-180-px),1fr); grid-template-rows: minmax(0,1fr); gap: var(--space-3); width: 100%; height: 100%; min-height: 0; padding: 0; border-radius: var(--ui-radius-card); background: var(--color-000); }
+#notch-panel[data-music-queue="true"] #music-player .music-main { display: block; width: 100%; height: 100%; min-width: 0; border-radius: var(--ui-radius-card); }
+#notch-panel[data-music-queue="true"] #music-player .music-content { display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr) var(--measure-26-px) var(--measure-40-px); gap: var(--space-2); width: 100%; height: 100%; padding: var(--space-4); }
+#notch-panel[data-music-queue="true"] #music-player .music-art { inset: 0 auto auto 0; width: 100%; height: 76%; -webkit-mask-image: linear-gradient(var(--color-000) 48%,transparent); mask-image: linear-gradient(var(--color-000) 48%,transparent); }
+#notch-panel[data-music-queue="true"] #music-player .music-art::after { background: linear-gradient(transparent 35%,var(--color-0008) 85%,var(--color-000b)); }
+#notch-panel[data-music-queue="true"] #music-player .music-copy { align-self: end; grid-column: 1; grid-row: 1; padding: 0 var(--measure-24-px) 0 0; }
+#notch-panel[data-music-queue="true"] #music-player #music-title { font-size: var(--measure-18-px); line-height: var(--measure-24-px); }
+#notch-panel[data-music-queue="true"] #music-player #music-artist { display: block; font-size: var(--text-s); line-height: var(--measure-16-px); }
+#notch-panel[data-music-queue="true"] #music-player .music-copy > .music-spectrum { top: var(--measure-5-px); right: 0; }
+#notch-panel[data-music-queue="true"] #music-player .music-timeline { position: relative; inset: auto; display: grid; grid-column: 1; grid-row: 2; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: var(--measure-4-px) var(--measure-12-px); width: 100%; height: var(--measure-26-px); }
+#notch-panel[data-music-queue="true"] #music-player .music-timeline > span { display: block; }
+#notch-panel[data-music-queue="true"] #music-player .music-controls { display: flex; grid-column: 1; grid-row: 3; justify-content: space-evenly; gap: var(--space-2); width: 100%; height: var(--measure-40-px); padding: 0; }
+#notch-panel[data-music-queue="true"] #music-player .music-controls button { display: grid; flex-basis: var(--measure-32-px); width: var(--measure-32-px); height: var(--measure-32-px); }
+#notch-panel[data-music-queue="true"] #music-player .music-controls svg { width: var(--measure-24-px); height: var(--measure-24-px); }
+#notch-panel[data-music-queue="true"] #music-player #music-queue-toggle { display: grid; inset: var(--space-2) var(--space-2) auto auto; }
+#notch-panel[data-music-queue="true"] #music-player #music-promote { display: none; }
+#notch-panel[data-music-queue="true"] #music-player .music-queue { position: relative; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: var(--measure-28-px) var(--measure-32-px) minmax(0,1fr) auto; gap: var(--space-2); width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0 0 0 var(--space-3); border: 0; border-left: var(--measure-1-px) solid var(--color-ffffff18); background: var(--color-000); }
+#notch-panel[data-music-queue="true"] #music-player .music-queue-heading { min-width: 0; }
+#notch-panel[data-music-queue="true"] #music-player .music-queue-heading h2 { font-size: var(--text-s); line-height: var(--measure-18-px); letter-spacing: 0; text-transform: none; }
+#notch-panel[data-music-queue="true"] #music-player .music-queue-heading button { display: grid; width: var(--measure-28-px); height: var(--measure-28-px); }
+#notch-panel[data-music-queue="true"] #music-player .music-queue-body { min-height: 0; overflow-x: hidden; overflow-y: auto; }
+#notch-panel[data-music-queue="true"] #music-player .music-queue-item { gap: var(--space-2); min-height: var(--measure-44-px); padding: var(--measure-3-px) 0; }
+#notch-panel[data-music-queue="true"] #music-player .music-queue-copy strong { font-size: var(--text-xs); line-height: var(--measure-16-px); }
+#notch-panel[data-music-queue="true"] #music-player .music-queue-copy small { font-size: var(--text-xs); line-height: var(--measure-14-px); }
+#notch-panel[data-music-queue="true"] #music-player .music-queue-duration { display: none; }
+#notch-panel[data-music-queue="true"] #music-player .music-queue > footer { justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); line-height: var(--measure-14-px); }
+#notch-panel[data-music-queue="true"] #music-player .music-queue > footer > span { display: block; min-width: 0; }
+#notch-panel[data-music-queue="true"] #music-player .music-empty { position: absolute; inset: 0 44% 0 0; width: auto; height: 100%; }
+@container notch-window (max-width: 400px) {
+ #notch-panel[data-music-queue="true"] #music-player { grid-template-columns: minmax(0,1fr); grid-template-rows: var(--measure-164-px) minmax(var(--measure-180-px),1fr); gap: var(--space-3); overflow-y: auto; overscroll-behavior: contain; }
+ #notch-panel[data-music-queue="true"] #music-player .music-main { min-height: var(--measure-164-px); }
+ #notch-panel[data-music-queue="true"] #music-player .music-content { grid-template-rows: minmax(0,1fr) var(--measure-26-px) var(--measure-32-px); gap: var(--space-1); padding: var(--space-2) var(--space-3); }
+ #notch-panel[data-music-queue="true"] #music-player .music-controls { height: var(--measure-32-px); }
+ #notch-panel[data-music-queue="true"] #music-player .music-queue { min-height: var(--measure-180-px); padding: var(--space-2) 0 0; border-left: 0; border-top: var(--measure-1-px) solid var(--color-ffffff18); }
+ #notch-panel[data-music-queue="true"] #music-player .music-empty { inset: 0 0 auto; height: var(--measure-164-px); }
+}

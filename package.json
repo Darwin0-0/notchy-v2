@@ -1,6 +1,6 @@
 {
   "name": "notchy-v2",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "Music, tasks, focus time and files in a quieter Windows notch",
   "scripts": {

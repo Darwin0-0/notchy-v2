@@ -9,29 +9,29 @@
   const META = Object.freeze({music: ['Musique', 'var(--activity-music)'], focus: ['Focus', 'var(--activity-focus)'], weather: ['Météo', 'var(--activity-weather)'], tasks: ['Tâches', 'var(--activity-tasks)'], shelf: ['Étagère', 'var(--activity-shelf)']});
   const ICON_PATHS = Object.freeze({health: 'M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5z M9 12l2 2 4-4', back: 'm14 6-6 6 6 6', up: 'm6 15 6-6 6 6', down: 'm6 9 6 6 6-6', ready: 'm5 12 4 4L19 6', attention: 'M12 5v9 M12 19h.01', unknown: 'M6 12h12', busy: 'M12 3a9 9 0 0 1 9 9'});
   const list = value => Array.isArray(value) ? value : [];
-  const known = id => typeof id === 'string' && MODULE_IDS.includes(id);
+  const known = (id, ids = MODULE_IDS) => typeof id === 'string' && ids.includes(id);
   const copy = state => ({enabled: [...state.enabled], order: [...state.order]});
 
-  function normalizeModuleState(value = {}) {
-    const order = [...new Set([...list(value?.order).filter(known), ...MODULE_IDS])];
-    const selected = new Set(list(value?.enabled).filter(known));
+  function normalizeModuleState(value = {}, ids = MODULE_IDS) {
+    const order = [...new Set([...list(value?.order).filter(id => known(id, ids)), ...ids])];
+    const selected = new Set(list(value?.enabled).filter(id => known(id, ids)));
     return {enabled: order.filter(id => selected.has(id)), order};
   }
-  function modulePreviewPlan(value) {
-    const state = normalizeModuleState(value), visible = state.enabled.slice(0, 3), reserve = state.enabled.slice(3);
+  function modulePreviewPlan(value, ids = MODULE_IDS) {
+    const state = normalizeModuleState(value, ids), visible = state.enabled.slice(0, 3), reserve = state.enabled.slice(3);
     const items = visible.map((id, index) => ({id, column: index === 0 ? 1 : 2, row: index === 2 ? 2 : 1,
       columnSpan: visible.length === 1 ? 2 : 1, rowSpan: visible.length < 3 || index === 0 ? 2 : 1}));
     return {...state, visible, reserve, items};
   }
-  function updateModuleState(value, id, command) {
-    const state = normalizeModuleState(value);
-    if (!known(id)) return state;
+  function updateModuleState(value, id, command, ids = MODULE_IDS) {
+    const state = normalizeModuleState(value, ids);
+    if (!known(id, ids)) return state;
     if (command === 'toggle') state.enabled = state.enabled.includes(id) ? state.enabled.filter(item => item !== id) : [...state.enabled, id];
     else if (command === 'up' || command === 'down') {
       const index = state.order.indexOf(id), next = index + (command === 'up' ? -1 : 1);
       if (next >= 0 && next < state.order.length) [state.order[index], state.order[next]] = [state.order[next], state.order[index]];
     }
-    return normalizeModuleState(state);
+    return normalizeModuleState(state, ids);
   }
   function healthReadiness(items) {
     const rows = list(items), ready = rows.filter(item => item?.status === 'ready').length;
@@ -41,7 +41,7 @@
   function create({healthHost, modulesHost, t = value => value, onAction = () => {}, onModulesChange = () => {}, icons = {}} = {}) {
     const document = healthHost?.ownerDocument || modulesHost?.ownerDocument;
     if (!document) throw new TypeError('A Health or Modules host is required.');
-    let disposed = false, moduleState = normalizeModuleState(), healthItems = new Map();
+    let disposed = false, moduleState = normalizeModuleState(), moduleIds = [...MODULE_IDS], healthItems = new Map();
     const moduleRows = new Map(), healthRows = new Map(), tiles = new Map();
     const say = (source, values = {}) => String(t(source, values) ?? source).replace(/\{(\w+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
     const element = (tag, className, text) => {const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node;};
@@ -109,23 +109,25 @@
     }
     function renderModules(value = {}) {
       if (disposed || !modulesHost) return;
-      moduleState = normalizeModuleState(value);
-      const plan = modulePreviewPlan(moduleState), focused = document.activeElement;
+      moduleIds = [...new Set([...MODULE_IDS,...list(value.definitions).map(item=>item?.id).filter(id=>typeof id==='string' && /^[a-z][a-z0-9-]*\.[a-z][a-z0-9.-]*$/.test(id)).slice(0,12)])];
+      moduleState = normalizeModuleState(value, moduleIds);
+      const plan = modulePreviewPlan(moduleState,moduleIds), focused = document.activeElement;
       const keepFocus = moduleList.contains(focused) ? focused : null;
-      const definitions = new Map(list(value.definitions).filter(item => item && known(item.id)).map(item => [item.id, item]));
+      const definitions = new Map(list(value.definitions).filter(item => item && known(item.id,moduleIds)).map(item => [item.id, item]));
+      for (const [id,row] of moduleRows) if (!moduleIds.includes(id)) {row.item.remove();moduleRows.delete(id);tiles.get(id)?.remove();tiles.delete(id);}
       for (const [index, id] of moduleState.order.entries()) {
         let row = moduleRows.get(id);
         if (!row) {
           const item = element('div', 'experience-module-row'), dot = element('span', 'experience-module-dot'), text = element('span', 'experience-module-copy'), label = element('strong'), tag = element('span', 'experience-module-tag');
-          item.setAttribute('role', 'listitem'); item.dataset.experienceModule = id; dot.style.backgroundColor = META[id][1]; dot.setAttribute('aria-hidden', 'true'); text.append(label, tag);
+          item.setAttribute('role', 'listitem'); item.dataset.experienceModule = id; dot.style.backgroundColor = META[id]?.[1] || 'var(--ui-focus)'; dot.setAttribute('aria-hidden', 'true'); text.append(label, tag);
           const controls = element('span', 'experience-module-controls'), up = button('experience-arrow'), down = button('experience-arrow'), toggle = button('experience-switch');
           up.append(icon('up')); down.append(icon('down')); toggle.setAttribute('role', 'switch'); toggle.append(element('span'));
           for (const [command, control] of [['up', up], ['down', down], ['toggle', toggle]]) {control.dataset.experienceCommand = command; control.dataset.experienceModule = id; controls.append(control);}
           item.append(dot, text, controls); row = {item, label, tag, up, down, toggle}; moduleRows.set(id, row);
           item.classList.add('experience-new-row'); item.style.setProperty('--entry-index', String(index));
-          const tile = element('div', 'experience-preview-tile'); tile.style.setProperty('--experience-module-color', META[id][1]); tiles.set(id, tile); previewStage.append(tile);
+          const tile = element('div', 'experience-preview-tile'); tile.style.setProperty('--experience-module-color', META[id]?.[1] || 'var(--ui-focus)'); tiles.set(id, tile); previewStage.append(tile);
         }
-        const definition = definitions.get(id), label = say(typeof definition?.label === 'string' ? definition.label : META[id][0]), enabled = moduleState.enabled.includes(id), visible = plan.visible.includes(id);
+        const definition = definitions.get(id), label = say(typeof definition?.label === 'string' ? definition.label : META[id]?.[0] || id), enabled = moduleState.enabled.includes(id), visible = plan.visible.includes(id);
         row.label.textContent = label; row.item.title = typeof definition?.description === 'string' ? definition.description : '';
         row.item.dataset.enabled = String(enabled); row.tag.textContent = enabled ? say(visible ? 'VISIBLE' : 'EN RÉSERVE') : ''; row.tag.dataset.visible = String(visible);
         row.up.setAttribute('aria-label', say('Monter {module}', {module: label})); row.down.setAttribute('aria-label', say('Descendre {module}', {module: label})); row.up.disabled = index === 0; row.down.disabled = index === moduleState.order.length - 1;
@@ -149,8 +151,8 @@
       if (action === 'back') {onAction('back'); return;}
       if (action === 'health') {const item = healthItems.get(target.dataset.experienceItem); if (item && item.status !== 'busy' && item.status !== 'ready' && item.action !== undefined) onAction(item.action, {...item}); return;}
       const id = target.dataset.experienceModule;
-      if (!known(id) || !['toggle', 'up', 'down'].includes(action)) return;
-      const next = updateModuleState(moduleState, id, action), definitions = moduleState.order.map(key => ({id: key, label: moduleRows.get(key)?.label.textContent || META[key][0], description: moduleRows.get(key)?.item.title || ''}));
+      if (!known(id,moduleIds) || !['toggle', 'up', 'down'].includes(action)) return;
+      const next = updateModuleState(moduleState, id, action,moduleIds), definitions = moduleState.order.map(key => ({id: key, label: moduleRows.get(key)?.label.textContent || META[key]?.[0] || key, description: moduleRows.get(key)?.item.title || ''}));
       renderModules({...next, definitions}); onModulesChange(copy(next));
     }
     healthHost?.addEventListener('click', command); modulesHost?.addEventListener('click', command);

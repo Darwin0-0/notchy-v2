@@ -12,7 +12,7 @@ const deferred = () => {let resolve, reject; const promise = new Promise((ok, fa
 function fixture(invoke, language = 'fr', options = {}) {
   const document = {activeElement: null, documentElement: {lang: language}};
   class Element {
-    constructor(name) {this.nodeType = 1; this.localName = name; this.ownerDocument = document; this.parentNode = null; this.childNodes = []; this.attributes = {}; this.dataset = {}; this.listeners = new Map(); this.className = ''; this.hidden = false; this.disabled = false; this.value = ''; this._text = ''; this.isConnected = true;}
+    constructor(name) {this.nodeType = 1; this.localName = name; this.ownerDocument = document; this.parentNode = null; this.childNodes = []; this.attributes = {}; this.dataset = {}; this.listeners = new Map(); this.className = ''; this.hidden = false; this.disabled = false; this.value = ''; this._text = ''; this.isConnected = true; this.style = {};}
     get children() {return this.childNodes;}
     get classList() {return {contains: name => this.className.split(/\s+/).includes(name), add: name => {this.className += ' ' + name;}, remove: name => {this.className = this.className.split(/\s+/).filter(item => item !== name).join(' ');}};}
     set innerHTML(_) {throw new Error('Untrusted markup insertion');}
@@ -29,10 +29,12 @@ function fixture(invoke, language = 'fr', options = {}) {
     emit(name, detail = {}) {const event = {target: this, preventDefault() {this.prevented = true;}, stopImmediatePropagation() {this.stopped = true;}, ...detail}; for (const fn of this.listeners.get(name) || []) fn(event); return event;}
     focus() {document.activeElement = this;}
     scrollIntoView() {this.scrolled = true;}
+    getBoundingClientRect() {return this.className.includes('search-context-menu') ? {left:0,top:0,width:224,height:116,bottom:116} : {left:16,top:16,width:562,height:224,bottom:240};}
     contains(node) {return this === node || this.childNodes.some(child => child.contains(node));}
     closest(selector) {return selector === '[data-result-id]' && this.dataset.resultId ? this : this.parentNode?.closest(selector) || null;}
   }
   document.createElement = name => new Element(name); document.createElementNS = (_, name) => new Element(name);
+  const documentEvents = new Element('document'); document.addEventListener = documentEvents.addEventListener.bind(documentEvents); document.removeEventListener = documentEvents.removeEventListener.bind(documentEvents); document.emit = documentEvents.emit.bind(documentEvents);
   const host = document.createElement('section'), original = document.createElement('strong'), opener = document.createElement('button');
   host.className = 'approved-search-host'; host.setAttribute('aria-label', 'Original'); host.append(original); opener.focus();
   const calls = [];
@@ -115,7 +117,7 @@ test('keyboard navigation uses active descendant and sends only the selected opa
 });
 
 test('malicious result names and paths stay text; a real result click opens once', async () => {
-  const payload = '<img src=x onerror=alert(1)>', f = fixture(name => name === 'search_query' ? response([hit('opaque', payload)]) : {});
+  const payload = '<img src=x onerror=alert(1)>.txt', f = fixture(name => name === 'search_query' ? response([hit('opaque', payload)]) : {});
   try {
     f.controller.open(); await f.type('img'); const row = f.controller.elements.list.children[0]; assert(row.textContent.includes(payload)); assert.equal(row.localName, 'button');
     f.controller.elements.list.emit('click', {target: row}); await delay(0); assert.deepEqual(f.calls.find(call => call.name === 'search_open').args, {id: 'opaque'});
@@ -137,6 +139,78 @@ test('LocalSend is optional, unavailable for folders, and receives an opaque ID 
   try {
     f.controller.open(); await f.type('rap'); assert.equal(f.controller.elements.send.hidden, true); f.key('ArrowDown'); assert.equal(f.controller.elements.send.hidden, false);
     f.controller.elements.send.emit('click'); await delay(0); assert.deepEqual(sent, ['file']); assert.equal(f.controller.isOpen(), false);
+  } finally {f.controller.dispose();}
+});
+
+test('right click selects exactly that result and keeps menu actions stable while the pointer moves', async () => {
+  const f = fixture(name => name === 'search_query' ? response([hit('one'), hit('two')]) : {});
+  try {
+    f.controller.open(); await f.type('pdf'); const {list, contextMenu, more} = f.controller.elements, row = list.children[1];
+    const event = list.emit('contextmenu', {target: row, clientX: 570, clientY: 235});
+    assert.equal(event.prevented, true); assert.equal(event.stopped, true); assert.equal(contextMenu.hidden, false);
+    assert.equal(row.getAttribute('aria-selected'), 'true'); assert.equal(more.getAttribute('aria-expanded'), 'true');
+    assert.equal(contextMenu.style.left, '330px'); assert.equal(contextMenu.style.top, '100px');
+    assert.equal(f.document.activeElement, contextMenu.children[0]);
+    list.emit('pointermove', {target: list.children[0]}); assert.equal(row.getAttribute('aria-selected'), 'true');
+    assert.equal(f.calls.filter(call => call.name === 'search_open').length, 0);
+    contextMenu.children[1].emit('click'); await delay(0);
+    assert.deepEqual(f.calls.find(call => call.name === 'search_reveal').args, {id:'two'});
+    assert.equal(f.calls.filter(call => call.name === 'search_open').length, 0);
+  } finally {f.controller.dispose();}
+});
+
+test('the visible action button and keyboard context shortcut expose localized menus without closing search', async () => {
+  const f = fixture(name => name === 'search_query' ? response([hit('one')]) : {}, 'en');
+  try {
+    f.controller.open(); await f.type('pdf'); const {more, contextMenu, input} = f.controller.elements;
+    assert.equal(more.getAttribute('aria-label'), 'More actions'); more.focus(); more.emit('click');
+    assert.equal(contextMenu.getAttribute('aria-label'), 'Actions for rapport.pdf'); assert.equal(contextMenu.children[0].textContent, 'Open');
+    f.host.emit('keydown', {target:f.document.activeElement, key:'End'}); assert.equal(f.document.activeElement, contextMenu.children[1]);
+    f.host.emit('keydown', {target:f.document.activeElement, key:'ArrowDown'}); assert.equal(f.document.activeElement, contextMenu.children[0]);
+    f.host.emit('keydown', {target:f.document.activeElement, key:'Escape'});
+    assert.equal(contextMenu.hidden, true); assert.equal(f.controller.isOpen(), true); assert.equal(f.document.activeElement, more);
+    input.focus(); const event = f.key('F10', {shiftKey:true}); assert.equal(event.prevented, true); assert.equal(contextMenu.hidden, false);
+    f.host.emit('keydown', {target:f.document.activeElement, key:'Tab'}); assert.equal(f.document.activeElement, input); assert.equal(contextMenu.hidden, true);
+    f.key('ContextMenu'); assert.equal(contextMenu.hidden, false);
+    f.document.documentElement.lang = 'fr'; f.controller.render(); assert.equal(contextMenu.children[0].textContent, 'Ouvrir'); assert.equal(contextMenu.hidden, false);
+  } finally {f.controller.dispose();}
+});
+
+test('outside pointer, new query, and close dismiss stale menus without running actions', async () => {
+  const f = fixture(name => name === 'search_query' ? response([hit('one')]) : {});
+  try {
+    f.controller.open(); await f.type('pdf'); const {more, contextMenu, input} = f.controller.elements;
+    more.emit('click'); f.document.emit('pointerdown', {target:f.opener}); assert.equal(contextMenu.hidden, true); assert.equal(f.controller.isOpen(), true);
+    more.emit('click'); f.controller.refresh(); await delay(0); assert.equal(contextMenu.hidden, true); assert.equal(f.document.activeElement, input);
+    more.emit('click'); input.value = 'other'; input.emit('input'); assert.equal(contextMenu.hidden, true);
+    await delay(search.CONFIG.debounce + 15); more.emit('click'); f.controller.close(); assert.equal(contextMenu.hidden, true);
+    assert.equal(f.calls.filter(call => ['search_open','search_reveal','search_stage'].includes(call.name)).length, 0);
+  } finally {f.controller.dispose();}
+});
+
+test('context menus keep folders non-sendable and only share the selected opaque file ID', async () => {
+  const sent = [], f = fixture(name => name === 'search_query' ? response([hit('folder','Docs','folder'), hit('file')]) : {}, 'fr', {onSend:id => sent.push(id)});
+  try {
+    f.controller.open(); await f.type('pdf'); const {list, contextMenu} = f.controller.elements;
+    list.emit('contextmenu', {target:list.children[0], clientX:40, clientY:90}); assert.equal(contextMenu.children[2].hidden, true);
+    contextMenu.children[2].emit('click'); await delay(0); assert.deepEqual(sent, []);
+    list.emit('contextmenu', {target:list.children[1], clientX:40, clientY:130}); assert.equal(contextMenu.children[2].hidden, false);
+    contextMenu.children[2].emit('click'); await delay(0); assert.deepEqual(sent, ['file']); assert.equal(f.controller.isOpen(), false);
+  } finally {f.controller.dispose();}
+});
+
+test('unsupported and active formats are reveal-only including their default keyboard action', async () => {
+  const native = fs.readFileSync(require.resolve('../src-tauri/src/search.rs'), 'utf8');
+  const formats = native.match(/const OPENABLE_FORMATS: &str = "([^"]+)"/)[1].split(' ');
+  for (const format of formats) assert.equal(search.canOpen(hit('one','report.' + format.toUpperCase())), true, format);
+  for (const name of ['script.ps1','shortcut.lnk','app.exe','unknown','unknown.notchy']) assert.equal(search.canOpen(hit('one', name)), false, name);
+  assert.equal(search.canOpen(hit('folder', 'folder.exe', 'folder')), true);
+  const f = fixture(name => name === 'search_query' ? response([hit('one','script.ps1')]) : {});
+  try {
+    f.controller.open(); await f.type('script'); const {contextMenu, more, open} = f.controller.elements;
+    assert.equal(open.hidden, true); more.emit('click'); assert.equal(contextMenu.children[0].hidden, true); assert.equal(f.document.activeElement, contextMenu.children[1]);
+    f.host.emit('keydown', {target:f.document.activeElement, key:'Escape'}); f.controller.elements.input.focus(); f.key('Enter'); await delay(0);
+    assert.deepEqual(f.calls.find(call => call.name === 'search_reveal').args, {id:'one'}); assert.equal(f.calls.some(call => call.name === 'search_open'), false);
   } finally {f.controller.dispose();}
 });
 
