@@ -89,8 +89,19 @@ test('the compact Tasks empty CTA opens its real full editor before focusing the
     const calls=[],host={dataset:{presentation},contains:()=>true};
     const scope={disposed:false,host,expand(){calls.push('expand');host.dataset.presentation='full';},$:()=>({focus(){calls.push('focus-input');}})};
     vm.runInNewContext(`${source.slice(begin,end)}this.run=click;`,scope);
-    scope.run({target:{closest:()=>({dataset:{taskAction:'add'},disabled:false})}});
+    scope.run({target:{closest:()=>({dataset:{taskAction:'add'},disabled:false,classList:{contains:()=>false}})}});
     assert.deepEqual(calls,presentation==='rail'?['expand','focus-input']:['focus-input']);
+  }
+});
+
+test('the narrow scene Tasks plus opens its real list before focusing add, independent of presentation name',()=>{
+  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function click(event)',source.indexOf('  function createTasks(')), end=source.indexOf('    function submit(event)',begin);
+  for(const presentation of ['scene','rail','full']) {
+    const calls=[],host={dataset:{presentation},contains:()=>true};
+    const button={dataset:{taskAction:'add'},disabled:false,classList:{contains:name=>name==='tasks-small-add'}};
+    const scope={disposed:false,host,expand(){calls.push('open-list');host.dataset.presentation='full';},$:()=>({focus(){calls.push('focus-input');}})};
+    vm.runInNewContext(source.slice(begin,end)+'this.run=click;',scope);scope.run({target:{closest:()=>button}});
+    assert.deepEqual(calls,['open-list','focus-input']);
   }
 });
 

@@ -1,24 +1,28 @@
 # Keep your place
 
-Nook is the saved home arrangement. A detailed activity is a temporary view: opening Music, Tasks or Focus does not move that module into the main slot. Change module placement in Settings → Modules.
+Nook is the saved home arrangement. A detailed activity is a temporary view: opening Music, Tasks or Focus does not move that module into the main slot. Use the activity's buttons or clickable title; the background does not open another view. Change module placement in Settings → Modules.
 
 ## Tasks and Focus
 
 | From | Action | Result | Return |
 | --- | --- | --- | --- |
 | Nook | Open Tasks | Read and scroll the shared task list | Back to Nook |
-| Tasks, no cycle running | Prepare Focus | Select the task and set session durations | Back or Escape cancels unsaved settings |
-| Focus preparation | Start | Begin the configured cycle with the selected task | Back to tasks |
-| Tasks, cycle already active | View timer | Show the existing cycle without restarting it | Back to tasks |
-| Running timer | Settings | Read durations and choose Pause to edit | Back or Escape cancels unsaved settings |
-| Paused timer settings | Save and return | Keep elapsed time, phase, session and earned task cycles; remain paused | Return to the initiating view |
+| Tasks | Add task | Enter a title, confirm it, set hours and minutes, then review the interval plan | Back or Escape cancels the unsaved task |
+| Task duration | Confirm duration | Merge the hour/minute fields and show the plan; no task is saved yet | Choose Add task to save |
+| Task plan | Add task | Save the task only after storage accepts it | Return to the initiating task or timer view |
+| Task row | Play | Start or resume that task's existing plan | The home arrangement stays the same |
+| Task title | Open details | Show its Pomodoro timer without restarting it | Tasks or Back to Nook |
+| Timer | Settings | Edit focus, short break, long break and long-break interval for new task plans | Back or Escape cancels unsaved settings |
+| Pomodoro settings | Save | Store the defaults for future tasks; existing task plans and progress stay unchanged | Return to the initiating view |
 | Paused timer | Resume | Continue from the remaining time | The home arrangement stays the same |
 
-A duration cannot end before the time already spent, and the session count cannot be lower than the current session. An invalid edit stays in the form with a readable explanation; it does not change the cycle. Changing settings does not earn a task cycle or emit a completion notification. A draft is not saved merely by changing a field. Pausing is an explicit timer action and remains effective even when the draft is cancelled; resuming and stopping remain separate actions.
+A task's estimate is its **total time budget, including breaks**. With the default 25/5/15 settings, 1 hour 30 minutes becomes three repetitions of 25 minutes of focus followed by a 5-minute break. It does not become three 90-minute work sessions. The preview shows the actual plan before saving. The phase clock shows minutes and seconds; the overall remaining budget uses hours and minutes.
 
-The small Focus card exposes its settings action too. A session does not need to become the primary home module to be configured.
+Invalid hours, minutes or settings stay in the form with a readable explanation. Confirming the duration does not create a task, and changing a field does not save a draft. A failed save keeps the draft available for retry. Changing Pomodoro defaults does not pause, restart or re-plan an existing task, earn a completed interval, or emit a completion notification. Pause and resume remain explicit timer actions.
 
-Completing a task saves its state immediately, checks the circle, draws a line through its title with a small nudge, then moves it below the completed tasks while the next pending row takes its place. You can reopen or remove a task during that sequence; keyboard focus, scroll position, earned cycles and stored task order are preserved, and reduced motion applies the result immediately.
+Focus uses four automatic formats based on its saved slot and the space available: a compact clock with ring control, a wide timer with session information, a timer above the upcoming tasks, or a timer beside the task list. Narrow slots keep the compact format even when they are tall. There are no arrows to rotate through sizes, no scaled text, and no separate timer for the Tasks view. Opening settings, a task form or a detailed timer temporarily uses the detail route; Back returns to the same Nook arrangement.
+
+Completing a task saves its state, checks the circle, draws a line through its title with a small nudge, then moves it below the pending tasks while the next pending row takes its place. You can reopen or remove a task during that sequence; keyboard focus, scroll position and stored task order are preserved, and reduced motion applies the result immediately. The larger timer list labels the selected task as In progress or Paused; the intermediate format lists the other tasks without repeating the selected one.
 
 ## Music
 

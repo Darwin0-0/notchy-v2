@@ -18,7 +18,7 @@ fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).parent().unwrap().canonicalize().unwrap();
     let dist = root.join("dist");
     let assets = vec!["index.html", "tokens.css", "tokens.js", "ia.css", "ia.js", "empty-states.css", "empty-states.js", "notch.css", "welcome.css", "experience.css", "experience-polish.css", "focus-experience.css", "sharing-experience.css", "experience.js", "sharing-experience.js", "i18n.js", "notch.js", "focus.js", "welcome.js", "assets/manrope-latin.woff2", "assets/manrope-OFL.txt"];
-    let assets = assets.into_iter().chain(["search.css", "search.js", "module-runtime.js", "module-library.js", "module-library.css", "calendar.js", "calendar.css"]).collect::<Vec<_>>();
+    let assets = assets.into_iter().chain(["search.css", "search.js", "module-runtime.js", "module-library.js", "module-library.css", "calendar.js", "calendar.css", "duration-core.js", "duration-module.js", "duration-module.css", "focus-duration.js", "duration-integration.css", "assets/duration-dm-sans.woff2", "assets/duration-FONT-LICENSE.txt", "assets/hanken-grotesk-latin.woff2", "assets/HankenGrotesk-OFL.txt"]).collect::<Vec<_>>();
     for name in assets.iter().copied().chain(["assets/spotify.ico"]) {
         let input = root.join(name).canonicalize().unwrap();
         assert!(input.starts_with(&root), "Public UI input must stay inside the project");

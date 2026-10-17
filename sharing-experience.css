@@ -91,3 +91,116 @@
 body[data-motion="false"] .sharing-experience * { animation: none!important; transition: opacity var(--dur-exit) ease!important; }
 body[data-motion="false"] .sharing-experience button:not(:disabled):active { transform: none; }
 @media (forced-colors:active) { .sharing-shelf,.sharing-nearby,.sharing-ip-form,.sharing-file-row,.sharing-device-row,.sharing-icon,.sharing-pill,.sharing-manual,.sharing-ip-input { border: var(--measure-1-px) solid CanvasText; color: CanvasText!important; background: Canvas; } .sharing-file-row[data-selected="true"] { outline: var(--measure-1-px) solid Highlight; box-shadow: none; } .sharing-favorite[aria-pressed="true"] { color: Highlight!important; } .sharing-experience :is(button,input):focus-visible { outline-color: Highlight; } }
+
+/* Nook Tray references: equal panels, preserved geometry at the island's size. */
+#sharing-experience { gap:10px; color:#ececec; font-family:'Hanken Grotesk',var(--font-ui); }
+#sharing-experience :is(.sharing-shelf,.sharing-nearby) { padding:11px; gap:7px; border:1px solid #1d1e22; border-radius:22px; background:#0f1013; }
+#sharing-experience .sharing-drop { flex:0 0 58px; min-height:58px; margin:0; gap:3px; padding:5px 8px; border:1.5px dashed #4aa8ff!important; border-radius:15px; background:rgba(74,168,255,.08); }
+#sharing-experience .sharing-drop svg { width:22px; height:22px; color:#4aa8ff; }
+#sharing-experience .sharing-drop strong { font-size:15px; font-weight:600; line-height:18px; }
+#sharing-experience .sharing-drop-empty { flex:1; min-height:0; }
+#sharing-experience .sharing-drop-empty .notch-empty-title { font-size:15px; font-weight:600; }
+#sharing-experience .sharing-drop-empty .notch-empty-hint { font-size:11px; line-height:15px; }
+#sharing-experience .sharing-drop-empty .notch-empty-icon { inline-size:22px; block-size:22px; }
+#sharing-experience .sharing-files { gap:4px; padding:2px; margin:-2px; scrollbar-width:thin; overscroll-behavior:contain; }
+#sharing-experience .sharing-file-row { position:relative; flex:0 0 28px; min-height:28px; padding:0 7px; border-radius:10px; background:#17181c; }
+#sharing-experience .sharing-file-row[data-selected="true"] { background:#192b3d; box-shadow:inset 0 0 0 1px #4aa8ff; }
+#sharing-experience .sharing-file-select { min-width:0; gap:8px; height:28px; }
+.sharing-file-glyph { display:grid; place-items:center; flex:none; width:19px; height:19px; border-radius:6px; color:#fff; background:#4aa8ff; }
+.sharing-file-glyph svg { width:13px; height:13px; }
+.sharing-file-row[data-tone="orange"] .sharing-file-glyph { background:#ff9a1f; }
+.sharing-file-row[data-tone="mint"] .sharing-file-glyph { background:#7fd6c2; color:#082a24; }
+.sharing-file-row[data-tone="red"] .sharing-file-glyph { background:#ff3b1f; }
+#sharing-experience .sharing-file-name { font-size:12px; line-height:16px; font-weight:500; }
+.sharing-file-size { flex:none; color:#b4b5b9; font-size:10px; line-height:14px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+#sharing-experience .sharing-file-actions { position:absolute; right:4px; padding-left:3px; border-radius:8px; background:#17181c; pointer-events:none; }
+#sharing-experience .sharing-file-row:is(:hover,:focus-within) .sharing-file-actions { pointer-events:auto; }
+#sharing-experience .sharing-file-row:is(:hover,:focus-within) .sharing-file-size { opacity:0; }
+#sharing-experience .sharing-shelf-footer { min-height:21px; margin:0; gap:5px; flex-wrap:wrap; }
+#sharing-experience .sharing-file-count { color:#b4b5b9; font-size:10px; font-weight:400; }
+#sharing-experience .sharing-select-all { padding:4px 11px; border-radius:13px; background:#25262b; color:#ececec!important; font-size:10px; font-weight:600; }
+#sharing-experience .sharing-selected-tools { margin-left:auto; }
+#sharing-experience .sharing-icon { background:#25262b; color:#a8d8ff!important; }
+#sharing-experience .sharing-nearby-heading { padding:0; min-height:15px; }
+#sharing-experience .sharing-nearby-heading h2 { color:#b4b5b9; font-size:10px; font-weight:600; letter-spacing:.12em; }
+#sharing-experience .sharing-readiness { color:#b4b5b9; font-size:10px; font-weight:500; }
+#sharing-experience .sharing-readiness::before { width:5px; height:5px; }
+#sharing-experience .sharing-readiness[data-ready="true"]::before { background:#34d27b; }
+#sharing-experience .sharing-readiness[data-searching="true"]::before { background:#4aa8ff; animation:sharing-ready-pulse 1.4s ease-in-out infinite; }
+#sharing-experience .sharing-devices { justify-content:center; gap:7px; padding:2px; margin:-2px; min-height:0; overscroll-behavior:contain; scrollbar-width:thin; }
+#sharing-experience .sharing-device-row { position:relative; flex:0 0 49px; min-height:49px; padding:7px 8px; border-radius:14px; background:#17181c; }
+#sharing-experience .sharing-device-send { height:auto; min-height:32px; gap:8px; }
+#sharing-experience .sharing-device-glyph { width:29px; height:29px; border:1px solid #1f3350; border-radius:50%; background:#141c28; color:#4aa8ff; }
+#sharing-experience .sharing-device-glyph svg { width:16px; height:16px; }
+#sharing-experience .sharing-device-copy strong { font-size:13px; font-weight:600; line-height:17px; }
+#sharing-experience .sharing-device-copy > span { color:#b4b5b9; font-size:10px; line-height:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sharing-device-action { flex:none; padding:5px 10px; border-radius:13px; background:#fff; color:#000; font-size:10px; line-height:14px; font-weight:600; }
+#sharing-experience .sharing-favorite { position:absolute; top:1px; right:2px; width:15px; height:15px; opacity:0; }
+#sharing-experience .sharing-favorite svg { width:10px; height:10px; }
+#sharing-experience .sharing-device-row:is(:hover,:focus-within) .sharing-favorite,#sharing-experience .sharing-favorite[aria-pressed="true"] { opacity:1; }
+.sharing-device-summary { flex:none; margin:0; color:#b4b5b9; text-align:center; font-size:10px; line-height:14px; }
+#sharing-experience .sharing-device-empty { gap:6px; overflow:auto; scrollbar-width:thin; }
+#sharing-experience .sharing-device-empty .notch-empty-icon { display:grid; place-items:center; inline-size:46px; block-size:46px; flex:none; border:1px solid #1f3350; border-radius:50%; color:#4aa8ff; background:#141c28; }
+#sharing-experience .sharing-device-empty .notch-empty-icon svg { width:22px; height:22px; }
+#sharing-experience .sharing-device-empty strong { font-size:16px; line-height:19px; font-weight:600; letter-spacing:-.02em; }
+#sharing-experience .sharing-device-empty .notch-empty-hint { color:#b4b5b9; font-size:11px; line-height:15px; }
+#sharing-experience .sharing-empty-actions { gap:6px; margin-top:3px; }
+#sharing-experience .sharing-pill,#sharing-experience .sharing-manual { min-height:24px; height:auto; padding:4px 11px; border-radius:13px; font-size:11px; line-height:16px; font-weight:600; }
+#sharing-experience .sharing-secondary,#sharing-experience .sharing-manual { background:#25262b; color:#ececec!important; }
+#sharing-experience .sharing-nearby-footer { min-height:24px; margin:0; gap:5px; }
+#sharing-experience .sharing-nearby-footer > span { color:#b4b5b9; font-size:10px; line-height:14px; }
+.sharing-search { display:flex; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-height:0; text-align:center; }
+#sharing-experience .sharing-search-radar { flex:0 1 110px; width:100%; height:110px; min-height:58px; fill:none; stroke:none; }
+.sharing-search strong { font-size:15px; line-height:18px; font-weight:600; letter-spacing:-.02em; }
+.sharing-search p { margin:0; color:#b4b5b9; font-size:11px; line-height:14px; }
+#sharing-experience .sharing-status,#sharing-experience .sharing-file-status { margin:0; max-height:28px; }
+#sharing-experience .sharing-ip-form { padding:12px; gap:8px; border:1px solid #1d1e22; background:#0f1013; overflow:auto; }
+@keyframes sharing-ready-pulse { 0%,100% { box-shadow:0 0 0 0 #4aa8ff80; } 70% { box-shadow:0 0 0 3px #4aa8ff00; } }
+@container sharing (max-width:400px) {
+  #sharing-experience :is(.sharing-shelf,.sharing-nearby) { padding:7px; gap:5px; border-radius:17px; }
+  #sharing-experience .sharing-drop { flex-basis:49px; min-height:49px; }
+  #sharing-experience .sharing-file-name { font-size:11px; }
+  .sharing-file-size { font-size:9px; }
+  #sharing-experience .sharing-file-select { gap:5px; }
+  #sharing-experience .sharing-readiness { font-size:9px; }
+  #sharing-experience .sharing-device-row { padding:6px; }
+  #sharing-experience .sharing-device-send { gap:5px; flex-wrap:wrap; }
+  #sharing-experience .sharing-device-copy strong { font-size:11px; }
+  #sharing-experience .sharing-device-glyph { width:23px; height:23px; }
+  .sharing-device-action { margin-left:auto; padding:3px 8px; }
+  #sharing-experience .sharing-device-empty strong { font-size:13px; line-height:16px; }
+  #sharing-experience .sharing-pill,#sharing-experience .sharing-manual { padding:4px 8px; font-size:10px; }
+  #sharing-experience .sharing-nearby-footer > span { font-size:9px; }
+  #sharing-experience .sharing-search-radar { flex-basis:95px; height:95px; }
+  .sharing-search strong { font-size:12px; line-height:16px; }
+  .sharing-search p { font-size:10px; }
+}
+/* The same file list is used when the Shelf occupies a Nook module. */
+.notch #shelf-player .shelf-main { gap:7px; min-height:0; padding:10px; border:1px solid #1d1e22; border-radius:18px; background:#0f1013; }
+.notch #shelf-player .shelf-header[hidden] { display:none; }
+.notch #shelf-player .shelf-drop { flex:0 0 54px; min-height:54px; flex-direction:column; gap:2px; padding:4px; border:1.5px dashed #4aa8ff!important; border-radius:14px!important; background:rgba(74,168,255,.08)!important; }
+.notch #shelf-player .shelf-drop svg { width:20px; height:20px; color:#4aa8ff; }
+.notch #shelf-player .shelf-drop strong { font-size:13px; line-height:16px; }
+.notch #shelf-player .shelf-drop > span { display:none; }
+.notch #shelf-player .shelf-list { display:flex; flex-direction:column; gap:4px; padding:2px; margin:-2px; }
+.notch #shelf-player .shelf-list[hidden] { display:none; }
+.notch #shelf-player .shelf-item { flex:none; }
+.notch #shelf-player .shelf-item > button { flex-direction:row; align-items:center; gap:8px; height:29px; padding:0 7px; border-radius:10px; background:#17181c; }
+.notch #shelf-player .shelf-preview { flex:none; width:19px; height:19px; aspect-ratio:auto; border:0; border-radius:6px; background:#4aa8ff; color:#fff; overflow:visible; }
+.notch #shelf-player .shelf-file-icon { padding:0; }
+.notch #shelf-player .shelf-file-icon svg { width:13px; height:13px; }
+.notch #shelf-player .shelf-file-icon > span,.notch #shelf-player .shelf-preview img { display:none; }
+.notch #shelf-player .shelf-item[data-kind="image"] .shelf-preview { background:#7fd6c2; color:#082a24; }
+.notch #shelf-player .shelf-item[data-kind="document"] .shelf-preview { background:#ff3b1f; }
+.notch #shelf-player .shelf-item[data-kind="archive"] .shelf-preview { background:#ff9a1f; }
+.notch #shelf-player .shelf-check { width:10px; height:10px; right:-4px; bottom:-3px; box-shadow:none; }
+.notch #shelf-player .shelf-check svg { width:8px; height:8px; }
+.notch #shelf-player .shelf-item-name { flex:1; min-width:0; font-size:12px; line-height:16px; text-align:left; }
+.notch #shelf-player .shelf-item-size { display:block; flex:none; color:#b4b5b9; font-size:10px; white-space:nowrap; }
+.shelf-kept-footer { display:flex; flex:none; align-items:center; justify-content:space-between; gap:5px; margin-top:auto; min-width:0; }
+.shelf-kept-footer > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#b4b5b9; font-size:10px; }
+.notch #shelf-player .shelf-kept-footer > button { flex:none; padding:4px 11px; border-radius:13px; background:#25262b; font-size:10px; }
+.notch #shelf-player .shelf-footer { max-height:90px; overflow:auto; flex:none; }
+@media (prefers-reduced-motion:reduce) { #sharing-experience .sharing-readiness::before { animation:none!important; } }
+body[data-motion="false"] #sharing-experience .sharing-readiness::before { animation:none!important; }
+@media (forced-colors:active) { #sharing-experience :is(.sharing-shelf,.sharing-nearby,.sharing-file-row,.sharing-device-row,.sharing-drop,.sharing-ip-form,.sharing-device-action),.notch #shelf-player .shelf-main { background:Canvas; color:CanvasText; border-color:CanvasText; } }

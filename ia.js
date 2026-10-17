@@ -79,14 +79,10 @@
       const target=event.target;
       const promote=target.closest('[data-scene-promote]');
       if (promote && event.type==='click' && document.getElementById('nook-layout').contains(promote)) {const route={music:'music',focus:'focus',tasks:'tasks',weather:'weather',shelf:'tray'}[promote.dataset.scenePromote]; if (route) {event.preventDefault();event.stopImmediatePropagation();onRoute(route);return;}}
-      if (target.closest('button,a,input,textarea,select,[contenteditable="true"]') || event.type==='keydown' && !['Enter',' '].includes(event.key)) return;
-      const card=target.closest('[data-activity]'); if (!card || !document.getElementById('nook-layout').contains(card)) return;
-      const route={music:'music',focus:'focus',tasks:'tasks',weather:'weather',shelf:'tray'}[card.dataset.activity]; if (!route) return;
-      if (event.type==='keydown') event.preventDefault(); onRoute(route);
     }
     const nook=document.getElementById('nook-layout');
     tabs.addEventListener('click',select); tabs.addEventListener('keydown',key); scan.addEventListener('click',scanNetwork);
-    nook.addEventListener('click',openCard,true); nook.addEventListener('keydown',openCard);
+    nook.addEventListener('click',openCard,true);
     function render(view, editing) {
       if (disposed) return;
       const next=tabForRoute(view,editing), changed=next!==active; active=next;
@@ -101,9 +97,9 @@
       }
       summary.textContent=t('Diagnostic réseau'); scan.textContent=t('Chercher sur le réseau local');
       if (next==='health' && changed) void refreshHealth();
-      for (const card of nook.querySelectorAll('[data-activity]')) if (card.classList.contains('activity-main') || card.classList.contains('activity-module-summary') || card.classList.contains('activity-card')) {card.tabIndex=0;card.setAttribute('role','group');card.setAttribute('aria-label',t('Ouvrir {module}',{module:t({music:'Musique',focus:'Focus',tasks:'Tâches',weather:'Météo',shelf:'Étagère'}[card.dataset.activity] || card.dataset.activity)}));const button=card.querySelector('[data-scene-promote]');if (button) button.setAttribute('aria-label',card.getAttribute('aria-label'));}
+      for (const card of nook.querySelectorAll('[data-activity]')) if (card.classList.contains('activity-main') || card.classList.contains('activity-module-summary') || card.classList.contains('activity-card')) {card.removeAttribute('tabindex');card.setAttribute('role','group');card.setAttribute('aria-label',t({music:'Musique',focus:'Focus',tasks:'Tâches',weather:'Météo',shelf:'Étagère'}[card.dataset.activity] || card.dataset.activity));}
     }
-    return {render, refreshHealth, dispose() {disposed=true;healthEpoch++;tabs.removeEventListener('click',select);tabs.removeEventListener('keydown',key);scan.removeEventListener('click',scanNetwork);nook.removeEventListener('click',openCard,true);nook.removeEventListener('keydown',openCard);}};
+    return {render, refreshHealth, dispose() {disposed=true;healthEpoch++;tabs.removeEventListener('click',select);tabs.removeEventListener('keydown',key);scan.removeEventListener('click',scanNetwork);nook.removeEventListener('click',openCard,true);}};
   }
   return Object.freeze({PRIMARY,TABS,tabForRoute,invokeCore,prepare,create});
 });

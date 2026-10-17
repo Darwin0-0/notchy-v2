@@ -2,6 +2,7 @@
   'use strict';
   const storageKey = 'notchy-language-v1';
   const english = {
+    'Lever {time}':'Sunrise {time}', 'Ressenti':'Feels like', 'Humidité':'Humidity', 'Vent':'Wind', 'Indice UV':'UV index', 'Donnée indisponible':'Data unavailable', 'Indice UV maximal aujourd’hui':'Today’s maximum UV index',
     'Agenda local':'Local calendar',
     'Ouvrir l’agenda · {date}':'Open calendar · {date}',
     'Voir la météo à {city}':'View weather in {city}',
@@ -193,6 +194,11 @@
     'Mets le cycle en pause avant de modifier ses durées.':'Pause the cycle before changing its durations.',
     'Reste régulier et garde le rythme.': 'Stay steady and keep your rhythm.', 'Progression de la session': 'Session progress', 'TÂCHE': 'TASK', 'Réglages Pomodoro': 'Pomodoro settings', 'Revenir au minuteur': 'Back to the timer', 'Retour': 'Back',
     'Durée de travail': 'Focus duration', 'Durée de travail en minutes': 'Focus duration in minutes', 'Pause courte en minutes': 'Short break in minutes', 'Pause longue en minutes': 'Long break in minutes', 'Sessions': 'Sessions', 'Nombre de sessions': 'Number of sessions',
+    'Heures': 'Hours', 'Minutes': 'Minutes', 'Modifier la durée': 'Edit duration', 'Valider la durée': 'Confirm duration',
+    'Choisis une durée de 1 à 180 minutes.': 'Choose a duration from 1 to 180 minutes.',
+    'Cycle prévu : {cycles} sessions, {minutes} minutes au total.': 'Planned cycle: {cycles} sessions, {minutes} minutes in total.',
+    'Même réseau': 'Same network', 'Recherche': 'Searching', '{count} trouvé(s)': '{count} found', '{count} appareil trouvé': '{count} device found', '{count} appareils trouvés': '{count} devices found',
+    '{count} fichier prêt à envoyer': '{count} file ready to send', '{count} fichiers prêts à envoyer': '{count} files ready to send', 'Même réseau Wi-Fi requis.': 'Same Wi-Fi network required.',
     'Passer à la pause': 'Skip to the break', 'Tâches du Pomodoro': 'Pomodoro tasks', 'Tâches': 'Tasks', 'Ajouter une tâche': 'Add a task', 'Nouvelle tâche': 'New task', 'Ajouter la tâche': 'Add the task',
     'Une tâche suffit pour commencer. Choisis-la, puis lance le minuteur.': 'One task is enough to start. Pick it, then start the timer.', 'Concentration': 'Focus', '{minutes} minutes {seconds} secondes': '{minutes} minutes {seconds} seconds', 'À ton rythme': 'At your own pace',
     'Rouvrir : {task}': 'Reopen: {task}', 'Terminer : {task}': 'Complete: {task}', 'Choisir pour Focus : {task}': 'Choose for Focus: {task}', 'Supprimer : {task}': 'Delete: {task}', 'Terminer le cycle': 'Finish the cycle', 'Passer à la session suivante': 'Skip to the next session',

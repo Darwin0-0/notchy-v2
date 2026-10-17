@@ -6,7 +6,7 @@ function fixture() {
   const nodes=new Map(),animations=[],timers=new Map();let timer=0;
   const node=()=>({hidden:false,textContent:'',querySelector:()=>node(),querySelectorAll:()=>[],cloneNode:()=>node(),getClientRects:()=>[{}]});
   const scope={...core,disposed:false,state:'open',view:'nook',pointerInside:true,commandBusy:false,queueBusy:false,queueOpen:false,queueState:{},queueOperation:'',
-    awaitingPointerEntry:false,keyboardNavigation:false,moduleLibrary:null,welcome:null,fileDialogOpen:false,fileDragging:false,seekDragging:false,
+    awaitingPointerEntry:false,keyboardNavigation:false,moduleLibrary:null,calendar:null,welcome:null,fileDialogOpen:false,fileDragging:false,seekDragging:false,
     localSendContext:null,nearby:{},document:{hidden:false,hasFocus:()=>true,activeElement:null},
     moduleFeedback:null,moduleFeedbackTimer:0,moduleFeedbackSequence:0,moduleFeedbackAnimations:new Set(),moduleActivityStates:new Map(),
     moduleDefinitions:Object.fromEntries(core.getModuleDefinitions().map(item=>[item.id,item])),isModuleEnabled:()=>true,
@@ -24,7 +24,7 @@ function fixture() {
     section('  function musicAnnouncementBlocked(','  function feedbackVisibility()')+
     section('  function protectedInteraction(','  function scheduleCollapse(')+
     section('  function setMusic(','  function animateMusicPlayback(')+
-    'this.api={setMusic,notifyModuleChange,dismissMusicTrackFeedback,musicAnnouncementBlocked};',scope);
+    'this.api={setMusic,notifyModuleChange,dismissMusicTrackFeedback,musicAnnouncementBlocked,protectedInteraction};',scope);
   const song=title=>({...scope.music,title,position:0});
   return{scope,animations,timers,nodes,api:scope.api,change:title=>scope.api.setMusic(song(title))};
 }
@@ -50,4 +50,13 @@ test('interaction can dismiss an existing music announcement without clearing an
   const f=fixture();f.scope.pointerInside=false;f.scope.state='rest';f.change('External');assert(f.scope.moduleFeedback);
   f.api.dismissMusicTrackFeedback();assert.equal(f.scope.moduleFeedback,null);assert.equal(f.nodes.get('module-feedback-announcer').textContent,'');assert.equal(f.timers.size,0);
   f.scope.moduleFeedback={id:'shelf',kind:'received',title:'Received'};f.api.dismissMusicTrackFeedback();assert.equal(f.scope.moduleFeedback.id,'shelf');
+});
+
+test('only an open calendar with an in-flight save protects an otherwise unfocused island',()=>{
+  const f=fixture();f.scope.pointerInside=false;
+  for(const [opened,busy,protectedValue] of [[true,true,true],[true,false,false],[false,true,false],[false,false,false]]){
+    f.scope.calendar={isOpen:()=>opened,isBusy:()=>busy};
+    assert.equal(!!f.api.protectedInteraction(),protectedValue,JSON.stringify({opened,busy}));
+  }
+  f.scope.calendar=null;assert.equal(!!f.api.protectedInteraction(),false);
 });

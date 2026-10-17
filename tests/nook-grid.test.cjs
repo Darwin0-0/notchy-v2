@@ -199,10 +199,11 @@ test('the LocalSend tile opens pending consent or the real file picker route ins
 });
 
 function headerNavigationFixture({view='nook',page='tasks'}={}) {
-  const moduleSettings={enabled:[...installed,'tasks'],slots:['music','focus','weather',null]},renders=[];
+  const moduleSettings={enabled:[...installed,'tasks'],slots:['music','focus','weather',null]},renders=[],left=[];
   const button={dataset:{view:'nook'}},scope={calendar:null,view,state:'open',islandPage:page,disposed:false,moduleSettings,
     shelfLoaded:true,shelfBusy:false,fileDragging:false,moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),
     welcome:null,t:value=>value,toggle:{},menu:{hidden:false,contains:element=>element===button},panel:{setAttribute(){}},byId:()=>({}),
+    focusConfigurationReturn:null,focusComponent:{leaveRoute(){left.push('focus');}},tasksComponent:{leaveRoute(){left.push('tasks');}},
     getModuleEditorActive:()=>false,builtinVisible:()=>false,isModuleEnabled:id=>moduleSettings.enabled.includes(id),scenarioController:null,
     modulePlacementPlan,scenarioModulePlan,nookGridPlan,
     renderIslandNavigation(){},renderMenuSelection(){},renderHomeLayout(){renders.push(Array.from(scope.getHomeSlots()));},
@@ -213,11 +214,11 @@ function headerNavigationFixture({view='nook',page='tasks'}={}) {
   vm.runInNewContext(productionSection('  function getHomeSlots() {','  function getModuleOrder()')+
     productionSection('  function islandNavigation(','  let homeLayout =')+
     productionSection('  function selectView(','  function renderMenuSelection('),scope);
-  return {scope,moduleSettings,renders,clickNook:()=>scope.selectView({target:{closest:()=>button}})};
+  return {scope,moduleSettings,renders,left,clickNook:()=>scope.selectView({target:{closest:()=>button}})};
 }
 
-test('clicking the Nook header returns from either full Tasks route to the saved home even when Nook is already selected', () => {
-  for (const view of ['nook','tasks']) {
+test('clicking Nook returns from Tasks or Focus, closes its editor and preserves the saved home', () => {
+  for (const view of ['nook','tasks','focus']) {
     const f=headerNavigationFixture({view}),before=JSON.stringify(f.moduleSettings);
     assert.deepEqual(Array.from(f.scope.getHomeSlots()),view==='nook'?['tasks',null,null]:['music','focus','weather']);
     f.clickNook();
@@ -226,6 +227,7 @@ test('clicking the Nook header returns from either full Tasks route to the saved
     assert.deepEqual(f.renders.at(-1),['music','focus','weather'],'the saved home scene is rendered');
     assert.equal(JSON.stringify(f.moduleSettings),before,'navigation does not rewrite enabled modules or saved placements');
     assert.equal(f.scope.state,'open');
+    assert.deepEqual(f.left,view==='nook'?[]:[view]);
   }
 });
 

@@ -9,7 +9,16 @@
   const text = value => typeof value === 'string' ? value : '';
   const CAPABILITIES = ['canOcr', 'canConvert', 'canSend', 'canOpen', 'canDownload', 'canRemove'];
   let instance = 0;
-  const PATHS = {upload: 'M12 15V4 M8 8l4-4 4 4 M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6', file: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6', ocr: 'M3 7V5a2 2 0 0 1 2-2h2 M17 3h2a2 2 0 0 1 2 2v2 M21 17v2a2 2 0 0 1-2 2h-2 M7 21H5a2 2 0 0 1-2-2v-2 M7 12h10', convert: 'M4 7h15l-3-3 M20 17H5l3 3 M20 7v5 M4 17v-5', send: 'm22 2-7 20-4-9-9-4Z M22 2 11 13', open: 'M14 3h7v7 M10 14 21 3 M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5', download: 'M12 3v12 m-4-4 4 4 4-4 M5 15v5h14v-5', remove: 'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7', star: 'm12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.3-5.7-3-5.7 3 1.1-6.3-4.5-4.4 6.3-.9Z', phone: 'M7 2h10v20H7z M11 18h2', laptop: 'M4 4h16v12H4z M2 20h20 M9 16v4 M15 16v4', check: 'm5 12 4 4L19 6', back: 'm14 6-6 6 6 6', cancel: 'm6 6 12 12 M18 6 6 18', retry: 'M21 12a9 9 0 1 1-3-6.7L21 8 M21 3v5h-5'};
+  const PATHS = {upload: 'M12 16V4M7 9l5-5 5 5M4 20h16', file: 'M6 3h8l4 4v14H6z', ocr: 'M3 7V5a2 2 0 0 1 2-2h2 M17 3h2a2 2 0 0 1 2 2v2 M21 17v2a2 2 0 0 1-2 2h-2 M7 21H5a2 2 0 0 1-2-2v-2 M7 12h10', convert: 'M4 7h15l-3-3 M20 17H5l3 3 M20 7v5 M4 17v-5', send: 'm22 2-7 20-4-9-9-4Z M22 2 11 13', open: 'M14 3h7v7 M10 14 21 3 M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5', download: 'M12 3v12 m-4-4 4 4 4-4 M5 15v5h14v-5', remove: 'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7', star: 'm12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.3-5.7-3-5.7 3 1.1-6.3-4.5-4.4 6.3-.9Z', phone: 'M7 4.5a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 17 4.5v15a2.5 2.5 0 0 1-2.5 2.5h-5A2.5 2.5 0 0 1 7 19.5zM11 18h2', laptop: 'M6 5h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM2 20h20', check: 'm5 12 4 4L19 6', back: 'm14 6-6 6 6 6', cancel: 'm6 6 12 12 M18 6 6 18', retry: 'M21 12a9 9 0 1 1-3-6.7L21 8 M21 3v5h-5'};
+  // Geometry and timing from Nook_Search.dc.html. Anonymous approach glyphs
+  // illustrate discovery; only the real peer list ever displays device names.
+  const RADAR_MARKUP = '<circle cx="165" cy="100" r="34" fill="none" stroke="#1d2735"/><circle cx="165" cy="100" r="66" fill="none" stroke="#1d2735"/><circle cx="165" cy="100" r="98" fill="none" stroke="#1d2735"/>' + [0,1,2].map(delay=>'<circle cx="165" cy="100" r="24" fill="none" stroke="#4aa8ff" stroke-width="2"><animate attributeName="r" values="24;98" dur="3s" begin="'+delay+'s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;0" dur="3s" begin="'+delay+'s" repeatCount="indefinite"/></circle>').join('') + '<g><path d="M165 100L263 100A98 98 0 0 0 233 30Z" fill="#4aa8ff" opacity=".18"/><animateTransform attributeName="transform" type="rotate" from="0 165 100" to="360 165 100" dur="4s" repeatCount="indefinite"/></g><g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.15;0.25;0.9;1" dur="6s" begin="0s" repeatCount="indefinite"/><circle cx="272" cy="52" r="21" fill="#141c28" stroke="#4aa8ff" stroke-width="2"/><rect x="267" y="43" width="10" height="18" rx="3" fill="none" stroke="#ececec" stroke-width="2"/></g><g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.15;0.25;0.9;1" dur="6s" begin="2s" repeatCount="indefinite"/><circle cx="54" cy="150" r="21" fill="#141c28" stroke="#4aa8ff" stroke-width="2"/><rect x="45" y="143" width="18" height="12" rx="2" fill="none" stroke="#ececec" stroke-width="2"/><line x1="42" y1="159" x2="66" y2="159" stroke="#ececec" stroke-width="2" stroke-linecap="round"/></g><circle cx="165" cy="100" r="24" fill="#1b2a44" stroke="#4aa8ff" stroke-width="2"/><rect x="155" y="92" width="20" height="13" rx="2" fill="none" stroke="#ececec" stroke-width="2"/><line x1="152" y1="110" x2="178" y2="110" stroke="#ececec" stroke-width="2" stroke-linecap="round"/>';
+  const REFERENCE_ICONS = {
+    upload:'<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"></path></g>',
+    file:'<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"></path></g>',
+    phone:'<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2.5"></rect><path d="M11 18h2"></path></g>',
+    laptop:'<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="2"></rect><path d="M2 20h20"></path></g>',
+  };
 
   function normalizeSharingFiles(value) {
     const seen = new Set();
@@ -46,13 +55,13 @@
   function create({host, t = value => value, onAction = () => {}} = {}) {
     if (!host?.ownerDocument) throw new TypeError('A sharing host is required.');
     const document = host.ownerDocument;
-    let disposed = false, state = {}, files = [], devices = [], selected = [], dragDepth = 0, ipOpen = false, ipError = '';
+    let disposed = false, state = {}, files = [], devices = [], selected = [], dragDepth = 0, ipOpen = false, ipError = '', searching = false, searchTimer = null;
     const fileRows = new Map(), deviceRows = new Map();
     const say = (source, values = {}) => String(t(source, values) ?? source).replace(/\{(\w+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
     const make = (tag, className, value) => {const node = document.createElement(tag); if (className) node.className = className; if (value !== undefined) node.textContent = value; return node;};
     const put = (node, value) => {if (node.textContent !== value) node.textContent = value;};
     const place = (parent, node, index) => {if (parent.children[index] !== node) parent.insertBefore(node, parent.children[index] || null);};
-    function icon(name) {const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false'); path.setAttribute('d', PATHS[name] || PATHS.file); svg.append(path); return svg;}
+    function icon(name) {const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false'); if (REFERENCE_ICONS[name]) svg.innerHTML = REFERENCE_ICONS[name]; else {const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', PATHS[name] || PATHS.file); svg.append(path);} return svg;}
     function button(className, command, label, glyph) {const node = make('button', className); node.type = 'button'; node.dataset.sharingCommand = command; if (glyph) node.append(icon(glyph)); if (label) node.append(make('span', '', label)); return node;}
     const shelf = make('section', 'sharing-shelf'), drop = button('sharing-drop', 'add', '', 'upload'), dropTitle = make('strong'), shelfEmpty = make('div', 'sharing-drop sharing-drop-empty');
     drop.append(dropTitle);
@@ -66,17 +75,34 @@
     heading.append(title, readiness);
     const deviceList = make('div', 'sharing-devices'); deviceList.setAttribute('role', 'list');
     const empty = make('div', 'sharing-device-empty'), emptyActions = make('div', 'sharing-empty-actions'), retry = button('sharing-pill sharing-secondary', 'discover');
+    const search = make('div','sharing-search'), radar = document.createElementNS('http://www.w3.org/2000/svg','svg'), searchTitle = make('strong'), searchHint = make('p');
+    radar.setAttribute('class','sharing-search-radar'); radar.setAttribute('viewBox','0 0 330 200'); radar.setAttribute('aria-hidden','true'); radar.setAttribute('focusable','false'); radar.innerHTML = RADAR_MARKUP; search.append(radar,searchTitle,searchHint);
     const transfer = make('div', 'sharing-transfer'), transferOpen = button('sharing-transfer-open', 'open-transfer'), transferLabel = make('strong'), transferDetail = make('span'), transferProgress = make('div', 'sharing-transfer-progress'), transferFill = make('span'), transferCancel = button('sharing-icon', 'cancel', '', 'cancel');
     transferOpen.append(transferLabel, transferDetail); transferProgress.append(transferFill); transferProgress.setAttribute('role', 'progressbar'); transferProgress.setAttribute('aria-valuemin', '0'); transferProgress.setAttribute('aria-valuemax', '100'); transfer.append(transferOpen, transferProgress, transferCancel);
-    const nearbyFooter = make('footer', 'sharing-nearby-footer'), help = make('span'), manual = button('sharing-manual', 'manual-ip', '+ IP'), status = make('p', 'sharing-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); nearbyFooter.append(help, manual);
+    const nearbyFooter = make('footer', 'sharing-nearby-footer'), help = make('span'), manual = button('sharing-manual', 'manual-ip', '+ IP'), stopSearch = button('sharing-pill sharing-secondary','stop'), deviceSummary = make('p','sharing-device-summary'), status = make('p', 'sharing-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); nearbyFooter.append(help,stopSearch,manual);
     const form = make('form', 'sharing-ip-form'), formHeading = make('header'), formTitle = make('strong'), formBack = button('sharing-icon', 'close-ip', '', 'back'), inputLabel = make('label'), address = make('input', 'sharing-ip-input'), formMessage = make('p', 'sharing-ip-message'), formSubmit = button('sharing-pill', 'connect');
     form.noValidate = true; formSubmit.type = 'submit'; address.type = 'text'; address.inputMode = 'decimal'; address.autocomplete = 'off'; address.spellcheck = false; address.maxLength = 21; address.placeholder = '192.168.1.20'; address.name = 'address'; formMessage.id = 'sharing-ip-message-' + ++instance; address.setAttribute('aria-describedby', formMessage.id); address.setAttribute('aria-invalid', 'false');
     inputLabel.append(make('span'), address); formHeading.append(formTitle, formBack); form.append(formHeading, inputLabel, formMessage, formSubmit); form.hidden = true;
-    nearby.append(heading, deviceList, empty, transfer, nearbyFooter, status, form); host.classList.add('sharing-experience'); host.replaceChildren(shelf, nearby);
+    nearby.append(heading, deviceList, deviceSummary, empty, search, transfer, nearbyFooter, status, form); host.classList.add('sharing-experience'); host.replaceChildren(shelf, nearby);
     const emptyAction = event => {event.stopPropagation?.(); command(event);};
     const shelfEmptyView = Empty.show(shelfEmpty, {icon:icon('upload'),onAction:emptyAction}), deviceEmptyView = Empty.show(empty, {icon:icon('laptop'),onAction:emptyAction});
     shelfEmptyView.elements.action.classList.add('sharing-drop-cta'); shelfEmptyView.elements.hint.classList.add('sharing-drop-detail'); shelfEmptyView.elements.action.dataset.sharingCommand = 'add';
     const emptyIp = deviceEmptyView.elements.action; emptyIp.classList.add('sharing-pill'); emptyIp.dataset.sharingCommand = 'manual-ip'; emptyActions.append(emptyIp,retry); empty.append(emptyActions);
+    const motionQuery = document.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)');
+    function syncRadarMotion() {
+      if (searching && !disposed && !host.hidden && !document.hidden && document.body?.dataset.motion !== 'false' && !motionQuery?.matches) radar.unpauseAnimations?.();
+      else {radar.pauseAnimations?.(); radar.setCurrentTime?.(0);}
+    }
+    const Observer = document.defaultView?.MutationObserver, motionObserver = Observer ? new Observer(syncRadarMotion) : null;
+    motionObserver?.observe(document.body,{attributes:true,attributeFilter:['data-motion']}); motionObserver?.observe(host,{attributes:true,attributeFilter:['hidden']});
+    motionQuery?.addEventListener?.('change',syncRadarMotion); document.addEventListener?.('visibilitychange',syncRadarMotion);
+    function endSearch() {searching = false; clearTimeout(searchTimer); searchTimer = null;}
+    function beginSearch() {
+      endSearch(); searching = true; state = {...state,status:''};
+      // This bounded visual scan does not stop the network listener or claim
+      // that discovery is complete. Incoming transfers remain available.
+      searchTimer = setTimeout(()=>{endSearch(); render();},6000); searchTimer.unref?.(); render();
+    }
     function toolLabel(command) {return say({open: 'Ouvrir', ocr: 'Extraire le texte', convert: 'Convertir', send: 'Envoyer', remove: 'Retirer', download: 'Télécharger', cancel: 'Annuler le transfert'}[command] || command);}
     function render(next = {}) {
       if (disposed) return;
@@ -87,13 +113,15 @@
       for (const [index, item] of files.entries()) {
         let row = fileRows.get(item.id);
         if (!row) {
-          const node = make('div', 'sharing-file-row'), select = button('sharing-file-select', 'select', '', 'file'), name = make('span', 'sharing-file-name'), tick = make('span', 'sharing-file-tick'), actions = make('span', 'sharing-file-actions'), tools = new Map();
-          node.setAttribute('role', 'listitem'); select.dataset.sharingFile = item.id; select.append(name, tick); tick.append(icon('check')); tick.setAttribute('aria-hidden', 'true');
+          const node = make('div', 'sharing-file-row'), select = button('sharing-file-select', 'select'), glyph = make('span','sharing-file-glyph'), name = make('span', 'sharing-file-name'), size = make('span','sharing-file-size'), tick = make('span', 'sharing-file-tick'), actions = make('span', 'sharing-file-actions'), tools = new Map();
+          glyph.append(icon('file')); node.setAttribute('role', 'listitem'); select.dataset.sharingFile = item.id; select.append(glyph,name,size,tick); tick.append(icon('check')); tick.setAttribute('aria-hidden', 'true');
           for (const command of ['ocr', 'convert', 'send']) {const node = button('sharing-icon', command, '', command); node.dataset.sharingFile = item.id; tools.set(command, node); actions.append(node);}
-          node.append(select, actions); row = {row: node, select, name, tick, actions, tools}; fileRows.set(item.id, row);
+          node.append(select, actions); row = {row: node, select, name, size, tick, actions, tools}; fileRows.set(item.id, row);
           node.classList.add('experience-new-row'); node.style.setProperty('--entry-index', String(index));
         }
         row.name.textContent = item.name; row.name.title = item.name; row.select.setAttribute('aria-label', say('Sélectionner {file}', {file: item.name})); row.select.setAttribute('aria-pressed', String(chosen.has(item.id))); row.select.disabled = busy; row.row.dataset.selected = String(chosen.has(item.id));
+        const extension = item.name.split('.').at(-1).toLowerCase(); row.row.dataset.tone = /^(pdf|pptx?|docx?)$/.test(extension) ? 'red' : /^(jpe?g|heic|gif)$/.test(extension) ? 'orange' : /^(png|webp|svg)$/.test(extension) ? 'mint' : 'blue';
+        row.size.textContent = item.size === null ? '—' : item.size < 1048576 ? Math.ceil(item.size / 1024)+' '+say('Ko') : new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(item.size / 1048576)+' '+say('Mo');
         for (const [command, node] of row.tools) {node.hidden = item['can' + command[0].toUpperCase() + command.slice(1)] !== true; node.disabled = busy; node.setAttribute('aria-label', toolLabel(command) + ' · ' + item.name); node.title = toolLabel(command);}
         place(fileList, row.row, index);
       }
@@ -110,31 +138,39 @@
       for (const [index, peer] of devices.entries()) {
         let row = deviceRows.get(peer.identity);
         if (!row) {
-          const node = make('div', 'sharing-device-row'), send = button('sharing-device-send', 'send'), glyph = make('span', 'sharing-device-glyph'), copy = make('span', 'sharing-device-copy'), label = make('strong'), detail = make('span'), favorite = button('sharing-favorite', 'favorite', '', 'star');
-          node.setAttribute('role', 'listitem'); copy.append(label, detail); send.append(glyph, copy); node.append(send, favorite); row = {row: node, send, glyph, label, detail, favorite}; deviceRows.set(peer.identity, row);
+          const node = make('div', 'sharing-device-row'), send = button('sharing-device-send', 'send'), glyph = make('span', 'sharing-device-glyph'), copy = make('span', 'sharing-device-copy'), label = make('strong'), detail = make('span'), action = make('span','sharing-device-action'), favorite = button('sharing-favorite', 'favorite', '', 'star');
+          node.setAttribute('role', 'listitem'); copy.append(label, detail); send.append(glyph, copy, action); node.append(send, favorite); row = {row: node, send, glyph, label, detail, action, favorite}; deviceRows.set(peer.identity, row);
           node.classList.add('experience-new-row'); node.style.setProperty('--entry-index', String(index));
         }
         row.send.dataset.sharingPeer = peer.id; row.favorite.dataset.sharingPeer = peer.id;
-        const label = peer.alias || say('Appareil favori'); row.label.textContent = label; row.label.title = label; row.detail.textContent = peer.online ? '' : say('Hors ligne'); row.detail.hidden = peer.online;
+        const label = peer.alias || say('Appareil favori'); row.label.textContent = label; row.label.title = label; row.detail.textContent = say(peer.online ? 'Même réseau' : 'Hors ligne'); row.detail.hidden = false; row.action.textContent = say('Envoyer');
         const sendFiles = selected.length ? selected : files;
         row.glyph.replaceChildren(icon(peer.deviceType === 'mobile' ? 'phone' : 'laptop')); row.row.dataset.online = String(peer.online); row.send.disabled = busy || !peer.online || state.available === false || !sendFiles.length || !sendFiles.every(item => item.canSend);
         row.send.setAttribute('aria-label', say('Envoyer à {device}', {device: label}) + (!peer.online ? ' · ' + say('Hors ligne') : '')); row.favorite.setAttribute('aria-pressed', String(peer.favorite)); row.favorite.setAttribute('aria-label', say(peer.favorite ? 'Retirer {device} des favoris' : 'Ajouter {device} aux favoris', {device: label})); row.favorite.disabled = busy;
         place(deviceList, row.row, index);
       }
       const activeTransfer = state.transfer && ['preparing', 'waiting', 'sending', 'receiving'].includes(state.transfer.status), pending = !!state.incoming;
-      transfer.hidden = !activeTransfer && !pending; deviceList.hidden = !devices.length || activeTransfer || pending; empty.hidden = !!devices.length || activeTransfer || pending;
+      const online = devices.filter(peer=>peer.online);
+      if (online.length || activeTransfer || pending || state.status?.error || state.status?.kind === 'error') endSearch();
+      nearby.dataset.state = pending ? 'consent' : activeTransfer ? 'transfer' : searching ? 'searching' : devices.length ? 'found' : 'idle';
+      transfer.hidden = !activeTransfer && !pending; search.hidden = !searching || activeTransfer || pending; deviceList.hidden = !devices.length || searching || activeTransfer || pending; empty.hidden = !!devices.length || searching || activeTransfer || pending;
+      const sendCount = selected.length || files.length;
+      deviceSummary.hidden = deviceList.hidden; deviceSummary.textContent = say(online.length === 1 ? '{count} appareil trouvé' : '{count} appareils trouvés',{count:online.length})+' · '+say(sendCount === 1 ? '{count} fichier prêt à envoyer' : '{count} fichiers prêts à envoyer',{count:sendCount});
       if (!transfer.hidden) {
         const current = pending ? state.incoming : state.transfer, progress = Number.isFinite(current.progress) ? Math.min(100, Math.max(0, current.progress)) : null;
         transferLabel.textContent = say(pending ? 'Demande de partage' : current.status === 'waiting' ? 'En attente d’acceptation' : current.status === 'receiving' ? 'Réception…' : 'Envoi…'); transferDetail.textContent = text(current.alias) + (progress !== null ? ' · ' + Math.round(progress) + ' %' : '');
         transferProgress.hidden = progress === null || pending; transferFill.style.width = (progress || 0) + '%'; if (progress !== null) transferProgress.setAttribute('aria-valuenow', String(Math.round(progress))); else transferProgress.removeAttribute('aria-valuenow'); transferProgress.setAttribute('aria-label', say('Progression du transfert')); transferCancel.hidden = pending; transferCancel.disabled = busy; transferCancel.setAttribute('aria-label', toolLabel('cancel'));
       }
-      readiness.textContent = say(busy ? 'En cours…' : state.available === true ? 'Prêt' : 'Indisponible'); readiness.dataset.ready = String(state.available === true); nearby.setAttribute('aria-busy', String(busy));
+      readiness.textContent = searching ? say('Recherche') : online.length ? say('{count} trouvé(s)',{count:online.length}) : say(busy ? 'En cours…' : state.available === true ? 'Prêt' : 'Indisponible'); readiness.dataset.ready = String(state.available === true); readiness.dataset.searching = String(searching); nearby.setAttribute('aria-busy', String(busy || searching));
+      searchTitle.textContent = say('Recherche d’appareils…'); searchHint.textContent = say('Même réseau Wi-Fi requis'); stopSearch.textContent = say('Annuler'); stopSearch.hidden = !searching; help.hidden = searching || devices.length > 0;
+      if (devices.length) {if (retry.parentElement !== nearbyFooter) nearbyFooter.insertBefore(retry,manual);} else if (retry.parentElement !== emptyActions) emptyActions.append(retry);
+      retry.hidden = searching || activeTransfer || pending;
       deviceEmptyView.update({title:say('Aucun appareil à proximité'),hint:say('Même réseau Wi‑Fi requis, internet n’est pas nécessaire.'),actionLabel:say('Ajouter une IP')}); retry.textContent = say('Réessayer'); retry.disabled = busy;
       help.textContent = say('Sans internet : même Wi‑Fi'); manual.disabled = busy; emptyIp.disabled = busy;
       const message = typeof state.status === 'string' ? state.status : text(state.status?.message || state.status?.error);
       put(status, message); status.hidden = !message; status.dataset.error = String(!!state.status?.error || state.status?.kind === 'error');
       form.hidden = !ipOpen; formTitle.textContent = say('Ajouter une IP'); formBack.setAttribute('aria-label', say('Retour')); inputLabel.firstChild.textContent = say('Adresse réseau locale'); address.setAttribute('aria-label', say('Adresse réseau locale')); address.disabled = busy; address.setAttribute('aria-invalid', String(!!ipError));
-      for (const layer of [heading, deviceList, empty, transfer, nearbyFooter, status]) layer.inert = ipOpen;
+      for (const layer of [heading, deviceList, deviceSummary, empty, search, transfer, nearbyFooter, status]) layer.inert = ipOpen;
       formMessage.textContent = ipError || message || say('Même réseau Wi‑Fi requis.'); formMessage.dataset.error = String(!!ipError || !!state.status?.error || state.status?.kind === 'error'); formSubmit.textContent = say(busy ? 'Connexion…' : 'Connecter'); formSubmit.disabled = busy;
       if (focused) {
         let visible = focused.isConnected && !focused.disabled;
@@ -142,6 +178,7 @@
         const restore = visible ? focused : ipOpen ? address : files.length ? drop : shelfEmptyView.elements.action;
         if (!restore.disabled && document.activeElement !== restore) restore.focus({preventScroll: true});
       }
+      syncRadarMotion();
     }
     function emit(command, payload = {}) {onAction(command, payload);}
     function command(event) {
@@ -166,6 +203,8 @@
         emit(command, {id: chosen.length === 1 ? chosen[0].id : null, ids: chosen.map(item => item.id), ...(peerId ? {peerId} : {})}); return;
       }
       if (command === 'cancel') {emit(command, {id: state.transfer?.id || null}); return;}
+      if (command === 'stop') {endSearch(); render(); emit('stop'); return;}
+      if (command === 'discover') beginSearch();
       if (command === 'add' || command === 'discover' || command === 'open-transfer') emit(command);
     }
     function submit(event) {
@@ -183,7 +222,7 @@
     function dropFiles(event) {if (!isFileDrag(event) || disposed) return; event.preventDefault(); event.stopPropagation(); dragDepth = 0; host.dataset.dragging = 'false'; const incomingFiles = Array.from(event.dataTransfer?.files || []); if (!state.busy && incomingFiles.length) emit('add', {files: incomingFiles});}
     const listeners = [['click', command], ['keydown', keydown], ['dragenter', enter], ['dragover', over], ['dragleave', leave], ['drop', dropFiles]];
     for (const [name, handler] of listeners) host.addEventListener(name, handler); form.addEventListener('submit', submit); address.addEventListener('input', input);
-    return {render, dispose() {if (disposed) return; disposed = true; shelfEmptyView.dispose(); deviceEmptyView.dispose(); for (const [name, handler] of listeners) host.removeEventListener(name, handler); form.removeEventListener('submit', submit); address.removeEventListener('input', input); fileRows.clear(); deviceRows.clear(); host.dataset.dragging = 'false';}};
+    return {render, dispose() {if (disposed) return; disposed = true; endSearch(); syncRadarMotion(); motionObserver?.disconnect(); motionQuery?.removeEventListener?.('change',syncRadarMotion); document.removeEventListener?.('visibilitychange',syncRadarMotion); shelfEmptyView.dispose(); deviceEmptyView.dispose(); for (const [name, handler] of listeners) host.removeEventListener(name, handler); form.removeEventListener('submit', submit); address.removeEventListener('input', input); fileRows.clear(); deviceRows.clear(); host.dataset.dragging = 'false';}};
   }
   return Object.freeze({normalizeSharingFiles, sharingDeviceList, manualIPv4, sharingSelection, create});
 });

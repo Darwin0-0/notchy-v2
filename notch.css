@@ -644,7 +644,7 @@ body[data-motion="false"] .welcome-player button { transition: none; }
 .module-editor-copy { display: grid; gap: var(--measure-2-px); min-width: 0; }
 .module-editor-heading h2 { margin: 0; flex: 0 0 auto; font-size: var(--text-s); line-height: var(--measure-16-px); font-weight: 600; }
 .module-editor-heading p { margin: 0; color: var(--color-a3a5af); font-size: var(--measure-10d5-px); line-height: var(--measure-16-px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.module-editor-frames { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: repeat(2,minmax(0,1fr)); align-items: stretch; gap: var(--space-3); min-height: 0; min-width: 0; padding: 0; overflow: hidden; }
+.module-editor-frames { display: grid; grid-template-columns: minmax(0,64fr) minmax(0,36fr); grid-template-rows: repeat(2,minmax(0,1fr)); align-items: stretch; gap: var(--space-3); min-height: 0; min-width: 0; padding: 0; overflow: hidden; }
 .module-editor-frames > article { position: relative; width: 100%; height: 100%; max-width: none; min-width: 0; min-height: 0; border: var(--measure-1-px) dashed var(--color-45454a); border-radius: var(--ui-radius-card); outline: none; background: var(--color-141416); cursor: pointer; transition: background-color var(--time-160) ease,border-color var(--time-160) ease; }
 .module-editor-frames > article.is-primary { grid-column: 1; grid-row: 1 / 3; }
 .module-editor-frames > article:not(.is-primary) { grid-column: 2; grid-row: auto; }
@@ -1201,7 +1201,6 @@ body[data-focus-lab] > .focus-player { width: min(var(--measure-420-px),calc(100
 .notch[data-nook-grid="true"] #nook-layout #home-empty { grid-area: 1 / 1 / -1 / -1; }
 .notch[data-nook-grid="true"] #nook-layout > .music-player { grid-column: var(--nook-music-column); grid-row: var(--nook-music-row); min-width: 0; min-height: 0; padding: var(--space-3); border-radius: var(--ui-radius-card); background: var(--color-17171a); }
 .notch[data-nook-grid="true"] #nook-layout > .music-player .music-content { align-content: center; }
-.notch[data-nook-grid="true"] #focus-player:not([hidden]),.notch[data-nook-grid="true"] #focus-active:not([hidden]) { display: contents; }
 .notch[data-nook-grid="true"] .focus-session-pane { grid-column: var(--nook-focus-column,var(--nook-pomodoro-column)); grid-row: var(--nook-focus-row,var(--nook-pomodoro-row)); min-width: 0; min-height: 0; border-radius: var(--ui-radius-card); background: var(--color-17171a); overflow: hidden; }
 .notch[data-nook-grid="true"] .focus-session-pane .focus-timer-card { display: flex; flex-direction: column; align-items: stretch; gap: var(--measure-6-px); height: 100%; min-height: 0; padding: var(--measure-10-px) var(--space-3); border: 0; border-radius: var(--ui-radius-card); background: transparent; }
 .notch[data-nook-grid="true"] .focus-detail-card { flex: 1 1 auto; min-height: 0; }
@@ -1603,6 +1602,8 @@ body[data-motion="false"] #activity-rail *,body[data-motion="false"] #activity-r
 #nook-layout[data-activity-count="2"] .activity-stage,#nook-layout[data-activity-count="3"] .activity-stage { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .activity-card { position: relative; min-width: 0; min-height: 0; border-radius: var(--ui-radius-card); background: var(--color-141416); overflow: hidden; color: var(--color-fff); container: activity-card / size; }
 .activity-main { padding: var(--measure-18-px); }
+.activity-card:is([data-activity="focus"],[data-activity="tasks"]) { border-radius:0; background:transparent; box-shadow:none; }
+.activity-main:has(> #focus-player) { padding:0; }
 .activity-rail-cards { display: grid; grid-template-rows: minmax(0,1fr); gap: var(--scene-gap,var(--space-3)); min-width: 0; min-height: 0; }
 .activity-rail-cards[hidden] { display: none; }
 #nook-layout[data-activity-count="3"] .activity-rail-cards { grid-template-rows: repeat(2,minmax(0,1fr)); }
@@ -2199,8 +2200,6 @@ body[data-motion="false"] .focus-summary-progress > span { transition: none; }
 #music-player .music-art > img { position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; border-radius: 0; filter: saturate(var(--music-art-saturation)) contrast(var(--music-art-contrast)); }
 #music-player .music-art .cover-placeholder { width: var(--measure-38-px); height: var(--measure-38-px); opacity: .7; }
 #music-player .music-provider-badge { display: none; }
-#music-player #music-promote { position: absolute; z-index: 3; left: var(--measure-8-px); top: var(--measure-8-px); display: grid; place-items: center; width: var(--measure-24-px); height: var(--measure-24-px); padding: var(--measure-5-px); border: 0; border-radius: var(--measure-7-px); background: var(--color-0008); color: var(--color-fff); cursor: pointer; }
-#music-player #music-promote svg { width: var(--measure-14-px); height: var(--measure-14-px); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 #music-player .music-copy { position: relative; z-index: 1; display: grid; grid-column: 1; grid-row: 1; grid-template-columns: minmax(0,1fr); align-self: start; align-content: start; gap: var(--measure-3-px); width: 100%; min-width: 0; margin: 0; padding: 0 var(--measure-44-px) 0 0; }
 #music-player .music-eyebrow { display: none; }
 #music-player #music-title { display: block; grid-column: 1; grid-row: 1; max-height: none; min-width: 0; margin: 0; font-size: clamp(var(--text-l),4.4cqw,var(--measure-24-px)); line-height: 1.2; font-weight: 800; letter-spacing: -.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2415,7 +2414,6 @@ body[data-motion="false"] #music-player .music-main,body[data-motion="false"] .m
 #notch-panel[data-music-queue="true"] #music-player .music-controls button { display: grid; flex-basis: var(--measure-32-px); width: var(--measure-32-px); height: var(--measure-32-px); }
 #notch-panel[data-music-queue="true"] #music-player .music-controls svg { width: var(--measure-24-px); height: var(--measure-24-px); }
 #notch-panel[data-music-queue="true"] #music-player #music-queue-toggle { display: grid; inset: var(--space-2) var(--space-2) auto auto; }
-#notch-panel[data-music-queue="true"] #music-player #music-promote { display: none; }
 #notch-panel[data-music-queue="true"] #music-player .music-queue { position: relative; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: var(--measure-28-px) var(--measure-32-px) minmax(0,1fr) auto; gap: var(--space-2); width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0 0 0 var(--space-3); border: 0; border-left: var(--measure-1-px) solid var(--color-ffffff18); background: var(--color-000); }
 #notch-panel[data-music-queue="true"] #music-player .music-queue-heading { min-width: 0; }
 #notch-panel[data-music-queue="true"] #music-player .music-queue-heading h2 { font-size: var(--text-s); line-height: var(--measure-18-px); letter-spacing: 0; text-transform: none; }
@@ -2437,36 +2435,78 @@ body[data-motion="false"] #music-player .music-main,body[data-motion="false"] .m
  #notch-panel[data-music-queue="true"] #music-player .music-empty { inset: 0 0 auto; height: var(--measure-164-px); }
 }
 
-/* Weather follows the same five typographic lines at each Nook card size. */
-#weather-player { background:var(--color-1c1c1e); }
-#nook-layout :is(.activity-main,.activity-module-summary)[data-activity="weather"] { background:var(--color-1c1c1e); }
-#nook-layout .weather-design[data-weather-view="summary"] { --weather-type-size:clamp(24px,7cqw,36px); display:block; width:100%; height:100%; padding:0; font-size:var(--weather-type-size); font-weight:400; line-height:1.05; letter-spacing:-.045em; color:var(--color-f5f5f7); }
-#nook-layout .weather-design[data-weather-view="summary"][data-size="scene"] { --weather-type-size:clamp(16px,12cqw,30px); }
-#nook-layout .weather-design[data-weather-view="summary"][data-size="rail"] { --weather-type-size:15px; }
-#nook-layout .weather-typography { display:flex; flex-direction:column; justify-content:center; gap:var(--space-1); width:100%; height:100%; min-width:0; min-height:0; }
-#nook-layout .weather-typography-line { display:flex; align-items:center; flex:0 0 auto; gap:var(--space-2); width:fit-content; max-width:100%; min-width:0; margin:0; padding:0; font:inherit; line-height:inherit; letter-spacing:inherit; text-transform:none; }
-#nook-layout .weather-typography-line > span { min-width:0; }
-#nook-layout .weather-typography-weekday { font-size:.95em; text-transform:capitalize; }
-#nook-layout .weather-design[data-weather-view="summary"] button { min-height:0; padding:0; border:0; border-radius:var(--measure-4-px); background:transparent; color:inherit; font:inherit; line-height:inherit; letter-spacing:inherit; text-align:left; cursor:pointer; }
-#nook-layout .weather-design[data-weather-view="summary"] .weather-typography-date { font-size:.95em; }
-#nook-layout .weather-design[data-weather-view="summary"] .weather-typography-city { display:block; width:fit-content; max-width:100%; padding:0; font-size:1.08em; line-height:1.05; letter-spacing:inherit; font-weight:400; text-transform:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-#nook-layout .weather-typography-degrees { font-size:1.02em; white-space:nowrap; }
-#nook-layout .weather-design[data-weather-view="summary"] .weather-design-temperature { position:static; display:inline; width:auto; padding:0; font:inherit!important; letter-spacing:inherit; }
-#nook-layout .weather-design[data-weather-view="summary"] .weather-typography-condition { display:flex; gap:var(--space-2); margin:0; font-size:.9em!important; font-weight:400; line-height:1.05; overflow:hidden; }
-#nook-layout .weather-typography-condition-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-#nook-layout .weather-typography svg { display:block; flex:0 0 auto; width:.9em; height:.9em; min-width:var(--measure-14-px); min-height:var(--measure-14-px); fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
-#nook-layout .weather-typography .weather-typography-sky { width:1.05em; height:1.05em; min-width:var(--measure-16-px); min-height:var(--measure-16-px); color:#9abfce; fill:currentColor; }
-#nook-layout .weather-design:is([data-condition="sun"],[data-condition="cloud-sun"],[data-condition="thunder"]) .weather-typography-sky { color:#ff9f0a; }
-#nook-layout .weather-design:is([data-condition="moon"],[data-condition="cloud-moon"]) .weather-typography-sky { color:#b7c7e9; }
-#nook-layout .weather-typography .weather-typography-calendar { color:#8e8e93; }
-#nook-layout .weather-typography-date[data-has-events="true"] .weather-typography-calendar { color:#ff9f0a; }
-#nook-layout .weather-typography .weather-typography-thermometer { width:.6em; height:1.05em; min-width:var(--measure-10-px); min-height:var(--measure-16-px); color:#ff453a; stroke-width:2.2; }
-#nook-layout .weather-typography .weather-typography-cloud { color:#9abfce; fill:currentColor; stroke:none; }
-#nook-layout .weather-design[data-weather-view="summary"] button:hover { background:var(--color-ffffff0a); }
-#nook-layout .weather-design[data-weather-view="summary"] button:focus-visible { outline:var(--measure-2-px) solid var(--color-fff); outline-offset:var(--measure-2-px); }
-#nook-layout .weather-design[data-weather-view="summary"][data-size="rail"] .weather-typography { gap:var(--measure-2-px); }
-#nook-layout .weather-design[data-weather-view="summary"][data-size="rail"] .weather-typography-line { gap:var(--measure-5-px); }
-.weather-player #weather-city-button.weather-design-picker { align-self:flex-start; min-height:var(--measure-28-px); padding:var(--space-1) var(--space-2); border-radius:var(--radius-control); background:var(--color-ffffff0c); color:var(--color-fff); font-size:var(--text-xs); letter-spacing:0; text-transform:none; }
+/* The supplied Simple/Split mockups group text and icons without stretching lines. */
+@font-face { font-family:'Hanken Grotesk'; src:url('assets/hanken-grotesk-latin.woff2') format('woff2'); font-weight:100 900; font-style:normal; font-display:swap; }
+#weather-player { background:#000; }
+#notch .weather-design[data-weather-view] { --weather-link-color:#ffd09a; color:#ececec; font-family:'Hanken Grotesk',Arial,sans-serif; }
+#nook-layout :is(.activity-main,.activity-module-summary)[data-activity="weather"] { background:#000; }
+#nook-layout [data-activity="weather"] .activity-promote { container-type:size; }
+#nook-layout .weather-design[data-weather-view="summary"] { --weather-type-size:clamp(15px,min(12.1cqw,18.4cqh),36px); display:flex; align-items:center; justify-content:center; width:100%; height:100%; padding:0; }
+#nook-layout :is(.activity-main,.activity-module-summary)[data-activity="weather"] { padding:12px; }
+#nook-layout .activity-main[data-activity="weather"] { padding:0; }
+#nook-layout .weather-design[data-weather-view="summary"]:not([data-size="full"]) .weather-typography { width:fit-content; max-width:100%; margin-inline:auto; }
+#notch .weather-design[data-weather-view] .weather-typography { display:flex; flex-direction:column; justify-content:center; gap:0; width:100%; height:auto; min-width:0; min-height:0; color:#ececec; font-family:inherit; font-size:var(--weather-type-size,24px); font-weight:500; line-height:1.08; letter-spacing:-.035em; }
+#notch .weather-design[data-weather-view] .weather-typography-line { display:flex; align-items:center; justify-content:flex-start; flex:0 0 auto; gap:.318em; width:100%; max-width:100%; min-width:0; margin:0; padding:0; font:inherit; line-height:inherit; letter-spacing:inherit; text-transform:none; }
+#notch .weather-design[data-weather-view] .weather-typography-line > span { min-width:0; }
+#notch .weather-design[data-weather-view] .weather-typography-weekday { text-transform:capitalize; }
+#notch .weather-design[data-weather-view] :is(.weather-typography-date,.weather-typography-city) { min-height:0; padding:0; border:0; border-radius:4px; background:transparent; color:inherit; font:inherit; line-height:inherit; letter-spacing:inherit; text-align:left; cursor:pointer; }
+#notch .weather-design[data-weather-view] .weather-typography-city { padding:0; font:inherit; letter-spacing:inherit; text-transform:none; }
+#notch .weather-design[data-weather-view] .weather-typography-label { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#notch .weather-design[data-weather-view] button.weather-typography-line:not(:disabled) { transition:color var(--dur-instant) ease; }
+#notch .weather-design[data-weather-view] button.weather-typography-line:is(:hover,:focus-visible) { color:var(--weather-link-color); background:transparent; filter:none; }
+#notch .weather-design[data-weather-view] button.weather-typography-line:active { scale:1; }
+#notch .weather-design[data-weather-view] button.weather-typography-line:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+#notch .weather-design[data-weather-view] .weather-typography-celsius { display:flex; align-items:center; gap:.318em; min-width:0; }
+#notch .weather-design[data-weather-view] .weather-typography-degrees { justify-content:flex-start; white-space:nowrap; }
+#notch .weather-design[data-weather-view] .weather-typography .weather-design-temperature { position:static; display:inline; width:auto; padding:0; color:inherit; font:inherit!important; letter-spacing:inherit; }
+#notch .weather-design[data-weather-view] .weather-typography-condition { display:flex; margin:0; font-size:inherit!important; font-weight:500; line-height:inherit; overflow:hidden; }
+#notch .weather-design[data-weather-view] .weather-typography-condition-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#notch .weather-design[data-weather-view] .weather-typography svg { display:block; flex:0 0 auto; width:.864em; height:.864em; min-width:0; min-height:0; fill:none; stroke:none; margin:0; }
+#notch .weather-design[data-weather-view] .weather-typography .weather-typography-sky { width:.91em; height:.91em; }
+#notch .weather-design[data-weather-view] .weather-typography .weather-typography-cloud { width:1em; height:1em; }
+#notch .weather-design[data-weather-view] .weather-typography-date[data-has-events="true"] .weather-typography-calendar > rect { fill:#ff8f1f; }
+#notch .weather-design[data-weather-view] .weather-typography-date[data-has-events="true"] .weather-typography-calendar > g { fill:#ececec; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] { --weather-type-size:clamp(16px,7.6cqw,40px); }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography { display:grid; grid-template-columns:minmax(0,.96fr) minmax(0,1.04fr); gap:.0714em .65em; line-height:1.05; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography-condition-label { white-space:normal; overflow:visible; text-overflow:clip; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography-weekday { grid-area:1 / 1; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography-date { grid-area:2 / 1; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography-city { grid-area:3 / 1; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography-degrees { display:contents; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography-celsius { grid-area:1 / 2; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography-fahrenheit { grid-area:2 / 2; }
+#notch .weather-design[data-weather-view="summary"][data-size="full"] .weather-typography-condition { grid-area:3 / 2; }
+
+/* The shared weather/music composition keeps the two groups on a single black surface. */
+#nook-layout[data-activity-count="2"][data-weather-split="true"] .activity-stage { position:relative; grid-template-columns:repeat(2,minmax(0,1fr)); gap:36px; }
+#nook-layout[data-weather-split="true"] .activity-stage::after { content:''; position:absolute; top:18px; bottom:18px; left:50%; width:1px; background:#2a2b2e; pointer-events:none; }
+#nook-layout[data-weather-split="true"] #music-player,#nook-layout[data-weather-split="true"] #music-player .music-main { border-radius:0; background:#000; }
+#nook-layout[data-weather-split="true"] #music-player .music-main::after { display:none; }
+#nook-layout[data-weather-split="true"] #music-player .music-content { display:flex; flex-direction:column; justify-content:center; gap:10px; padding:18px 0; }
+#nook-layout[data-weather-split="true"] #music-player .music-heading { position:static; display:grid; grid-template-columns:64px minmax(0,1fr); align-items:center; gap:12px; min-width:0; }
+#nook-layout[data-weather-split="true"] #music-player .music-art { grid-area:1 / 1; position:relative; inset:auto; width:64px; height:64px; aspect-ratio:1; border-radius:14px; background:#17181b; -webkit-mask-image:none; mask-image:none; }
+#nook-layout[data-weather-split="true"] #music-player .music-art::after { display:none; }
+#nook-layout[data-weather-split="true"] #music-player .music-art img { object-fit:contain; }
+#nook-layout[data-weather-split="true"] #music-player .music-copy { grid-area:1 / 2; display:flex; flex-direction:column; align-self:center; gap:3px; padding:0 18px 0 0; }
+#nook-layout[data-weather-split="true"] #music-player .music-eyebrow { display:block; color:#9a9b9e; font-size:10px; line-height:1.1; }
+#nook-layout[data-weather-split="true"] #music-player #music-title { font:500 20px/1.1 'Hanken Grotesk',Arial,sans-serif; letter-spacing:-.03em; }
+#nook-layout[data-weather-split="true"] #music-player #music-artist { color:#9a9b9e; font:400 13px/1.2 'Hanken Grotesk',Arial,sans-serif; }
+#nook-layout[data-weather-split="true"] #music-player .music-copy > .music-spectrum { top:50%; right:0; margin-top:-7px; }
+#nook-layout[data-weather-split="true"] #music-player .music-timeline { flex:0 0 26px; }
+#nook-layout[data-weather-split="true"] #music-player .music-controls { justify-content:center; gap:28px!important; padding:0; height:32px; }
+#nook-layout[data-weather-split="true"] #music-player .music-controls > :is([data-music-command="shuffle"],[data-music-command="repeat"],.music-favorite) { display:none!important; }
+#nook-layout[data-weather-split="true"] #music-player .music-controls #music-toggle { background:transparent; color:#ececec; }
+#nook-layout[data-weather-split="true"] #music-player .music-controls #music-toggle:hover:not(:disabled) { background:#ffffff17; }
+#nook-layout[data-weather-split="true"] #music-player .music-controls #music-toggle svg { width:26px; height:26px; }
+@container notch-window (max-width:450px) {
+ #nook-layout[data-weather-split="true"] .activity-stage { gap:20px; }
+ #nook-layout[data-weather-split="true"] #music-player .music-heading { grid-template-columns:40px minmax(0,1fr); gap:6px; }
+ #nook-layout[data-weather-split="true"] #music-player .music-art { width:40px; height:40px; border-radius:9px; }
+ #nook-layout[data-weather-split="true"] #music-player #music-title { font-size:14px; }
+ #nook-layout[data-weather-split="true"] #music-player #music-artist { font-size:11px; }
+ #nook-layout[data-weather-split="true"] #music-player .music-controls { gap:10px!important; }
+}
+
 
 /* A secondary Focus scene places the ring before its transport controls. */
 #nook-layout .focus-summary[data-presentation="scene"] { grid-template-rows:var(--measure-24-px) var(--measure-28-px) minmax(0,1fr) var(--measure-14-px) var(--measure-4-px) var(--measure-40-px); }
@@ -2477,3 +2517,24 @@ body[data-motion="false"] #music-player .music-main,body[data-motion="false"] .m
 #nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-link-label { grid-row:4; text-align:center; }
 #nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-progress { grid-row:5; }
 #nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-controls { grid-row:6; }
+
+/* Shared field appearance: focusing keeps the normal surface, border and caret. */
+:is(input,textarea,select,[contenteditable="true"],[role="textbox"],[role="searchbox"],[role="spinbutton"]):is(:focus,:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.search-field:focus-within {
+  border-color: var(--color-ffffff14) !important;
+}
+
+.search-field:has(.search-input:focus-visible),
+.focus-task-add:focus-within,
+.tasks-module-add:focus-within,
+.music-progress:has(#music-seek:focus-visible),
+.focus-duration-label:has(+ .focus-ruler #focus-duration:focus-visible) strong,
+.scenarios-mode input:focus-visible + span,
+.scenarios-switch > input:focus-visible + span {
+  outline: none !important;
+  box-shadow: none !important;
+}

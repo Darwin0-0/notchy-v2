@@ -164,6 +164,19 @@
     }
     return result;
   }
+  function durationMinutes(hours, minutes) {
+    const number = value => typeof value === 'number' || typeof value === 'string' && /^\d{1,2}$/.test(value) ? Number(value) : NaN;
+    const h = number(hours), m = number(minutes), total = h * 60 + m;
+    return Number.isInteger(h) && h >= 0 && h <= 3 && Number.isInteger(m) && m >= 0 && m <= 59 && total >= 1 && total <= 180 ? total : null;
+  }
+  function focusPlan(value) {
+    const settings = focusConfiguration(value), segments = [];
+    for (let cycle = 1; cycle <= settings.total; cycle++) {
+      segments.push({kind:'work', minutes:settings.work});
+      segments.push({kind:cycle === settings.total ? 'long' : 'short', minutes:cycle === settings.total ? settings.longRest : settings.rest});
+    }
+    return {segments, minutes:segments.reduce((sum, segment) => sum + segment.minutes, 0), cycles:settings.total};
+  }
   function focusCardValues(model, settings = focusConfiguration(), now = Date.now(), translate = value => value) {
     const cycle = model.pomodoro, active = !cycle?.finished && (model.sessionActive || !!model.deadline);
     const paused = active && !model.deadline, breaking = cycle?.phase === 'break';
@@ -276,11 +289,17 @@
     schedule ||= window.setTimeout.bind(window); unschedule ||= window.clearTimeout.bind(window);
     if (storage === undefined) {try {storage = window.localStorage;} catch {storage = null;}}
     let model = FocusModel.defaults(), settings = focusConfiguration(), enabled = true, hidden = false, visible = !host.hidden, disposed = false, configOpen = false, taskPickerOpen = false, pickerSignature = '', timer = 0, drag = null, taskSignature = '', taskStatusSource = '';
-    let configurationDraft = null, configurationError = '';
+    let configurationDraft = null, configurationError = '', durationEditing = false;
     const animations = new Set(), transportAnimations = new Set(); let lastRunning = null, lastCompletion = null;
     try {const raw = storage?.getItem(STORAGE_KEY); if (raw && raw.length <= 131072) {const saved = JSON.parse(raw); model = FocusModel.restore(saved?.state, now()); settings = focusConfiguration(saved?.settings);}} catch {}
     host.innerHTML = markup;
     const $ = id => host.querySelector('#' + id), put = (id, value) => {const element = $(id); if (element.textContent !== value) element.textContent = value;};
+    const durationEditor = document.createElement('div'); durationEditor.className = 'focus-duration-editor';
+    durationEditor.innerHTML = '<label class="focus-duration-part"><input id="focus-duration-hours" data-focus-duration-part="hours" type="number" inputmode="numeric" min="0" max="3" step="1" required aria-label="Heures"><span>Hr.</span></label><label class="focus-duration-part"><input id="focus-duration-minutes" data-focus-duration-part="minutes" type="number" inputmode="numeric" min="0" max="59" step="1" required aria-label="Minutes"><span>Min.</span></label><button type="button" data-focus-duration-edit aria-label="Modifier la durée" aria-controls="focus-duration-hours focus-duration-minutes" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19ZM14.5 6.5l3 3"/></svg></button><button type="button" data-focus-duration-confirm aria-label="Valider la durée"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></button>';
+    const durationRuler = host.querySelector('.focus-ruler'); durationRuler.hidden = true; durationRuler.before(durationEditor);
+    const durationPlan = document.createElement('div'); durationPlan.className = 'focus-duration-plan'; durationPlan.innerHTML = '<div id="focus-duration-segments" role="img"></div><div class="focus-duration-summary"><span></span><strong></strong></div>'; durationEditor.after(durationPlan);
+    $('focus-duration').tabIndex = -1; $('focus-duration').setAttribute('aria-hidden', 'true');
+    host.querySelector('.focus-duration-label').htmlFor = 'focus-duration-hours';
     const splitClock = presentation === 'split'; host.dataset.focusPresentation = splitClock ? 'split' : 'default'; host.dataset.focusTasks = 'true'; host.dataset.focusPage = 'split'; host.dataset.focusExperience = '2026';
     if (splitClock) {
       const card = host.querySelector('.focus-timer-card'), controls = host.querySelector('.focus-card-controls');
@@ -524,6 +543,22 @@
       configActions.querySelector('[data-focus-command="skip"]').disabled = !active || !model.pomodoro;
       const formSettings = editingSettings();
       $('focus-duration').value = String(formSettings.work); $('focus-duration').setAttribute('aria-valuetext', t('{minutes} minutes', {minutes: formSettings.work})); put('focus-duration-value', formSettings.work + ' min');
+      if (!configOpen) durationEditing = false;
+      durationEditor.dataset.editing = String(durationEditing);
+      const durationHours = $('focus-duration-hours'), durationMins = $('focus-duration-minutes');
+      for (const [input, value] of [[durationHours, Math.floor(formSettings.work / 60)], [durationMins, formSettings.work % 60]]) {
+        if (document.activeElement !== input) input.value = String(value);
+        input.disabled = !durationEditing || active && !!model.deadline;
+      }
+      const editDuration = durationEditor.querySelector('[data-focus-duration-edit]'), confirmDuration = durationEditor.querySelector('[data-focus-duration-confirm]');
+      editDuration.hidden = durationEditing; editDuration.disabled = active && !!model.deadline; editDuration.setAttribute('aria-expanded', String(durationEditing));
+      confirmDuration.hidden = !durationEditing; confirmDuration.disabled = active && !!model.deadline;
+      const plan = focusPlan(formSettings), planKey = JSON.stringify(plan), planSegments = $('focus-duration-segments');
+      if (planSegments.dataset.value !== planKey) {
+        planSegments.dataset.value = planKey; planSegments.replaceChildren(...plan.segments.map(segment => {const node = document.createElement('i'); node.dataset.kind = segment.kind; node.style.flexGrow = String(segment.minutes); return node;}));
+      }
+      planSegments.setAttribute('aria-label', t('Cycle prévu : {cycles} sessions, {minutes} minutes au total.', {cycles:plan.cycles,minutes:plan.minutes}));
+      durationPlan.querySelector('span').textContent = plan.cycles + ' × ' + t('{minutes} min', {minutes:formSettings.work}); durationPlan.querySelector('strong').textContent = t('{minutes} min', {minutes:plan.minutes});
       for (const input of host.querySelectorAll('[data-focus-setting]')) input.value = formSettings[input.dataset.focusSetting];
       const ticks = $('focus-ticks');
       if (ticks.dataset.value !== String(formSettings.work)) {
@@ -557,7 +592,7 @@
       if (value === 'prepare' && active()) {configurationDraft = null; configurationError = ''; configOpen = false; closeTaskPicker(); render(); $('focus-toggle').focus({preventScroll:true}); return true;}
       if (value === 'configure' || value === 'prepare') {closeTaskPicker(); if (!configOpen) configurationDraft = focusConfiguration(active() ? model.pomodoro : settings); configurationError = ''; if (typeof openConfiguration === 'function') openConfiguration(); configOpen = true; stopAnimations(); render(); $('focus-config-back').focus({preventScroll: true}); return true;}
       if (value === 'back') {configurationDraft = null; configurationError = ''; configOpen = false; render(); if (typeof closeConfiguration === 'function') closeConfiguration(); else $('focus-configure').focus({preventScroll: true}); return true;}
-      if (value === 'pause-edit' && active() && model.deadline) {model.remaining = FocusModel.remaining(model, now()); model.deadline = null; stopTimer(); save(); render(); $('focus-duration').focus({preventScroll:true}); return true;}
+      if (value === 'pause-edit' && active() && model.deadline) {model.remaining = FocusModel.remaining(model, now()); model.deadline = null; durationEditing = true; stopTimer(); save(); render(); $('focus-duration-hours').focus({preventScroll:true}); return true;}
       if (value === 'apply-settings') {
         if (![...$('focus-setup').querySelectorAll('input')].every(input => input.reportValidity())) return false;
         const accepted = FocusModel.adjustConfiguration(model, editingSettings(), now());
@@ -614,6 +649,11 @@
       put('focus-task-status', t(taskStatusSource));
     }
     function click(event) {
+      if (event.target.closest('[data-focus-duration-edit]')) {
+        if (disposed || active() && model.deadline) return;
+        $('focus-duration-minutes').setCustomValidity(''); durationEditing = true; render(); $('focus-duration-hours').focus({preventScroll:true}); $('focus-duration-hours').select(); return;
+      }
+      if (event.target.closest('[data-focus-duration-confirm]')) {confirmDuration(); return;}
       const option = event.target.closest('[data-focus-picker-task]');
       if (option && host.contains(option)) {const id = option.dataset.focusPickerTask; closeTaskPicker(true); tasks(id ? {type: 'select', id} : {type: 'unlink'}); return;}
       if (event.target.closest('[data-focus-picker-close]')) {closeTaskPicker(true); render(); return;}
@@ -624,11 +664,26 @@
     }
     function input(event) {
       if (disposed || active() && model.deadline) return;
-      const key = event.target.id === 'focus-duration' ? 'work' : event.target.dataset.focusSetting;
+      const part = event.target.dataset.focusDurationPart;
+      let value = Number(event.target.value);
+      if (part) {
+        const hours = $('focus-duration-hours'), minutes = $('focus-duration-minutes'); minutes.setCustomValidity('');
+        value = durationMinutes(hours.value, minutes.value);
+        if (value === null) {minutes.setCustomValidity(t('Choisis une durée de 1 à 180 minutes.')); return;}
+      }
+      const key = event.target.id === 'focus-duration' || part ? 'work' : event.target.dataset.focusSetting;
       if (!key || !event.target.checkValidity()) return;
-      configurationError = ''; if (configOpen) configurationDraft = focusConfiguration({...editingSettings(), [key]: Number(event.target.value)});
-      else {settings = focusConfiguration({...settings, [key]: Number(event.target.value)}); save();} render();
+      configurationError = ''; if (configOpen) configurationDraft = focusConfiguration({...editingSettings(), [key]: value});
+      else {settings = focusConfiguration({...settings, [key]: value}); save();} render();
     }
+    function confirmDuration() {
+      if (disposed || active() && model.deadline) return;
+      const hours = $('focus-duration-hours'), minutes = $('focus-duration-minutes');
+      minutes.setCustomValidity(durationMinutes(hours.value, minutes.value) === null ? t('Choisis une durée de 1 à 180 minutes.') : '');
+      if (!hours.reportValidity() || !minutes.reportValidity()) return;
+      durationEditing = false; render(); durationEditor.querySelector('[data-focus-duration-edit]').focus({preventScroll:true});
+    }
+    function durationKeydown(event) {if (event.key === 'Enter' && event.target.matches('[data-focus-duration-part]')) {event.preventDefault(); confirmDuration();}}
     function wheel(event) {if (disposed || active() && model.deadline) return; event.preventDefault(); editingSettings().work = Math.max(1, Math.min(180, editingSettings().work + Math.sign(event.deltaY))); configurationError = ''; if (!configurationDraft) save(); render();}
     function pointerDown(event) {if (disposed || active() && model.deadline || event.button !== 0) return; event.preventDefault(); drag = {x: event.clientX, work: editingSettings().work, id: event.pointerId}; event.target.setPointerCapture(event.pointerId);}
     function pointerMove(event) {if (!drag || drag.id !== event.pointerId) return; const value = Math.max(1, Math.min(180, drag.work - Math.round((event.clientX - drag.x) / 8))); if (value !== editingSettings().work) {editingSettings().work = value; configurationError = ''; render();}}
@@ -659,13 +714,13 @@
       return card;
     }
     const ruler = $('focus-duration');
-    host.addEventListener('click', click); host.addEventListener('keydown', pickerKeydown); host.addEventListener('input', input); $('focus-task-form').addEventListener('submit', submitTask); ruler.addEventListener('wheel', wheel, {passive: false});
+    host.addEventListener('click', click); host.addEventListener('keydown', pickerKeydown); host.addEventListener('keydown', durationKeydown); host.addEventListener('input', input); $('focus-task-form').addEventListener('submit', submitTask); ruler.addEventListener('wheel', wheel, {passive: false});
     ruler.addEventListener('pointerdown', pointerDown); ruler.addEventListener('pointermove', pointerMove); ruler.addEventListener('pointerup', pointerUp); ruler.addEventListener('pointercancel', pointerUp);
     document.addEventListener('visibilitychange', wake); reduced.addEventListener('change', wake);
     const unsubscribeLanguage = i18n?.onChange?.(() => {if (disposed) return; translateStatic(); taskSignature = ''; render();});
     function dispose() {
       if (disposed) return; disposed = true; stopTimer(); stopAnimations(); taskListMotion.dispose(); drag = null;
-      host.removeEventListener('click', click); host.removeEventListener('keydown', pickerKeydown); host.removeEventListener('input', input); $('focus-task-form').removeEventListener('submit', submitTask); ruler.removeEventListener('wheel', wheel);
+      host.removeEventListener('click', click); host.removeEventListener('keydown', pickerKeydown); host.removeEventListener('keydown', durationKeydown); host.removeEventListener('input', input); $('focus-task-form').removeEventListener('submit', submitTask); ruler.removeEventListener('wheel', wheel);
       ruler.removeEventListener('pointerdown', pointerDown); ruler.removeEventListener('pointermove', pointerMove); ruler.removeEventListener('pointerup', pointerUp); ruler.removeEventListener('pointercancel', pointerUp);
       document.removeEventListener('visibilitychange', wake); reduced.removeEventListener('change', wake);
       unsubscribeLanguage?.();
@@ -689,7 +744,7 @@
       <aside class="tasks-current"><div class="tasks-current-copy"><div class="tasks-current-caption"><span></span><small data-tasks-small-count></small></div>
       <button type="button" class="tasks-current-title" data-task-action="expand"></button><button type="button" class="tasks-cycle-dots" data-task-action="estimate"></button>
       <label class="tasks-estimate-label"><span></span><input data-tasks-estimate type="number" min="1" max="12" step="1"></label><small class="tasks-cycle-description"></small></div>
-      <button type="button" class="tasks-start" data-task-action="start">${timer}<span></span></button><button type="button" class="tasks-small-add" data-task-action="expand">${plus}</button></aside>
+      <button type="button" class="tasks-start" data-task-action="start">${timer}<span></span></button><button type="button" class="tasks-small-add" data-task-action="add">${plus}</button></aside>
       <form class="tasks-module-add" data-tasks-form><span aria-hidden="true">${plus}</span><input data-tasks-input type="text" maxlength="500" autocomplete="off"><button type="submit">${plus}</button></form>
       <p class="tasks-module-status" role="status" aria-live="polite"></p>`;
     const $ = selector => host.querySelector(selector), list = $('.tasks-module-list');
@@ -763,7 +818,7 @@
     function click(event) {
       const button = event.target.closest('[data-task-action]'); if (disposed || !button || !host.contains(button) || button.disabled) return;
       const action = button.dataset.taskAction, id = button.dataset.taskId;
-      if (action === 'add') {if (host.dataset.presentation === 'rail') expand(); $('[data-tasks-input]').focus({preventScroll: true}); return;}
+      if (action === 'add') {if (host.dataset.presentation === 'rail' || button.classList.contains('tasks-small-add')) expand(); $('[data-tasks-input]').focus({preventScroll: true}); return;}
       if (action === 'expand') {expand(); return;}
       if (action === 'start') {
         if (focus.tasks({type: 'select', id})) {if (typeof prepare === 'function') {prepare(button); return;} const card = focus.summary(); if (!card.active) focus.command('start'); else if (card.paused) focus.command('toggle');}
@@ -797,5 +852,5 @@
     window.notchyFocusLab = focus; window.addEventListener('pagehide', () => focus.dispose(), {once: true});
     return focus;
   }
-  return {FocusModel, focusConfiguration, focusCardValues, renderClock, taskListOrder, TASK_LIST_MOTION, create, createTasks, mountLab, STORAGE_KEY};
+  return {FocusModel, focusConfiguration, durationMinutes, focusPlan, focusCardValues, renderClock, taskListOrder, TASK_LIST_MOTION, create, createTasks, mountLab, STORAGE_KEY};
 });

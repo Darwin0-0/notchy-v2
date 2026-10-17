@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="welcome.css">
   <link rel="stylesheet" href="experience.css">
   <link rel="stylesheet" href="focus-experience.css">
+  <link rel="stylesheet" href="duration-integration.css">
   <link rel="stylesheet" href="sharing-experience.css">
   <link rel="stylesheet" href="experience-polish.css">
   <link rel="stylesheet" href="ia.css">
@@ -21,6 +22,9 @@
   <script src="i18n.js" defer></script>
   <script src="welcome.js" defer></script>
   <script src="focus.js" defer></script>
+  <script src="duration-core.js" defer></script>
+  <script src="duration-module.js" defer></script>
+  <script src="focus-duration.js" defer></script>
   <script src="empty-states.js" defer></script>
   <script src="experience.js" defer></script>
   <script src="sharing-experience.js" defer></script>
@@ -121,7 +125,6 @@
         <div id="music-content" class="music-content" hidden>
           <div class="music-heading">
             <div class="music-art"><img id="music-cover" alt="" hidden><svg class="cover-placeholder" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13M9 5l12-2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span class="music-provider-badge" aria-label="Spotify" hidden><img src="spotify.ico" alt=""></span></div>
-            <button id="music-promote" type="button" data-scene-promote="music" aria-label="Afficher l’activité" data-i18n-aria-label="Afficher l’activité" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M4 4l6 6m10-6-6 6M4 20l6-6m10 6-6-6"/></svg></button>
             <div class="music-copy"><span class="music-eyebrow"><span class="music-playing-label" data-i18n>EN LECTURE</span></span><strong id="music-title"></strong><span id="music-artist"></span><button id="music-source" type="button" data-music-command="open" aria-label="Ouvrir le lecteur" data-i18n-aria-label="Ouvrir le lecteur"></button><span id="music-player-spectrum" class="music-spectrum" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
           </div>
           <div class="music-timeline"><span id="music-elapsed">0:00</span><div id="music-progress" class="music-progress"><span aria-hidden="true"></span><input id="music-seek" type="range" min="0" max="100" step="1" value="0" aria-label="Position dans le morceau" disabled data-i18n-aria-label="Position dans le morceau"></div><span id="music-duration">0:00</span></div>
@@ -161,10 +164,11 @@
       <section id="tasks-player" class="tasks-module" aria-label="Tâches" hidden data-i18n-aria-label="Tâches"></section>
       <section id="shelf-player" class="shelf-player" aria-label="Étagère de fichiers" hidden data-i18n-aria-label="Étagère de fichiers">
         <div class="shelf-main">
-          <header class="shelf-header"><div><strong data-i18n>Étagère</strong><span id="shelf-count">0 fichier</span></div><div class="shelf-header-actions"><button id="shelf-select-all" type="button" data-shelf-command="select-all" aria-label="Tout sélectionner" aria-pressed="false" disabled data-i18n-aria-label="Tout sélectionner"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/></svg></button><button id="shelf-add" type="button" data-shelf-command="add" aria-label="Ajouter des fichiers" data-i18n-aria-label="Ajouter des fichiers"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></header>
+          <header class="shelf-header" hidden><strong data-i18n>Étagère</strong><button id="shelf-add" type="button" data-shelf-command="add" aria-label="Ajouter des fichiers" data-i18n-aria-label="Ajouter des fichiers">+</button></header>
           <input id="shelf-input" type="file" multiple hidden>
+          <button id="shelf-drop" class="shelf-drop" type="button" data-shelf-command="add"><svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></g></svg><strong data-i18n>Dépose ici</strong><span data-i18n>ou clique pour choisir des fichiers.</span></button>
           <div id="shelf-list" class="shelf-list" role="group" aria-label="Fichiers de l’Étagère" hidden data-i18n-aria-label="Fichiers de l’Étagère"></div>
-          <button id="shelf-drop" class="shelf-drop" type="button" data-shelf-command="add"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h4l3 4h9v8H3V8Zm0 0V5h7l3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><strong data-i18n>Rien ici pour l’instant</strong><span data-i18n>Dépose tes fichiers sur l’encoche<br>ou clique pour les choisir.</span></button>
+          <div class="shelf-kept-footer"><span id="shelf-count">0 fichier</span><button id="shelf-select-all" type="button" data-shelf-command="select-all" aria-label="Tout sélectionner" aria-pressed="false" disabled data-i18n-aria-label="Tout sélectionner" data-i18n>Tout</button></div>
           <footer class="shelf-footer"><div id="shelf-contextual" class="shelf-contextual" role="group" aria-label="Actions du fichier sélectionné" hidden data-i18n-aria-label="Actions du fichier sélectionné"><button id="shelf-open" type="button" data-shelf-command="open" data-i18n>Ouvrir</button><button id="shelf-preview" type="button" data-shelf-command="preview" data-i18n>Aperçu</button><button id="shelf-ocr" type="button" data-shelf-command="ocr" data-i18n>Extraire le texte</button><button id="shelf-convert" type="button" data-shelf-command="convert" data-i18n>Convertir</button><button id="shelf-reveal" type="button" data-shelf-command="reveal" aria-label="Afficher la copie dans le dossier" title="Dans le dossier" hidden data-i18n-aria-label="Afficher la copie dans le dossier" data-i18n-title="Dans le dossier"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v11H3V7Zm0 0V4h7l2 3M12 13v4m-2-2 2 2 2-2"/></svg></button></div><div class="shelf-bulk-actions"><span id="shelf-selection" data-i18n>Aucun fichier sélectionné</span><button id="shelf-share" type="button" data-shelf-command="share" disabled data-i18n>Partager</button><button id="shelf-download" type="button" data-shelf-command="download" disabled data-i18n>Télécharger</button><button id="shelf-remove" type="button" data-shelf-command="remove" disabled data-i18n>Retirer</button></div></footer>
         </div>
         <aside id="shelf-nearby" class="shelf-nearby" aria-label="Partage à proximité" data-i18n-aria-label="Partage à proximité"><header class="shelf-nearby-heading"><h3 data-i18n>À proximité</h3><button id="shelf-nearby-toggle" type="button" aria-label="Rechercher des appareils LocalSend" data-i18n-aria-label="Rechercher des appareils LocalSend"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14-5L3 9m0-6v6h6M4 13a8 8 0 0 0 14 5l3-3m0 6v-6h-6"/></svg></button></header><p id="shelf-nearby-status" class="shelf-nearby-status" role="status" data-i18n>Ouvre LocalSend sur ton appareil, puis recherche.</p><button id="shelf-transfer-cancel" type="button" hidden data-i18n>Annuler l’envoi</button><div id="shelf-nearby-peers" class="shelf-nearby-peers"></div><p class="shelf-nearby-hint" data-i18n>Les appareils LocalSend apparaîtront ici.</p></aside>

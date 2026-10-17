@@ -56,6 +56,14 @@ test('native persistence uses existing guarded settings operations and exact pay
   assert.deepEqual(await persistence.load(), data(appointment()));
   assert.deepEqual(calls[1], ['settings_set', {patch: {[KEY]: data(appointment())}}]);
 });
+test('native save accepts the same appointment acknowledged with alphabetically ordered properties', async () => {
+  const source = data(appointment(), appointment({id:'appointment-2', start:'13:00', end:'14:00'}));
+  const reply = {events:source.events.map(({date,end,id,start,title}) => ({date,end,id,start,title})), version:1};
+  let saved;
+  const persistence = createPersistence({invoke:async (operation,args) => {assert.equal(operation,'settings_set'); saved=args.patch[KEY]; return {[KEY]:reply};}});
+  await assert.doesNotReject(persistence.save(source));
+  assert.deepEqual(saved, source);
+});
 test('native failure cannot fall back to browser storage and pretend a save succeeded', async () => {
   let browserWrites = 0;
   const persistence = createPersistence({invoke: async () => {throw Error('native rejected');}, storage: {setItem() {browserWrites++;}}});

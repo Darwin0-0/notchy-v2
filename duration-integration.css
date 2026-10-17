@@ -1,0 +1,10 @@
+/* New source component replaces both legacy surfaces; the outer notch owns geometry. */
+#focus-player[data-duration-module],#tasks-player[data-duration-module]{display:flex!important;flex-direction:column!important;position:relative!important;width:100%!important;min-width:0!important;min-height:0!important;padding:0!important;gap:0!important;overflow:hidden!important;background:transparent!important;border-radius:0!important;box-shadow:none!important;isolation:isolate}
+#focus-player[data-duration-module][hidden],#tasks-player[data-duration-module][hidden]{display:none!important}
+.duration-mount{display:block;width:100%;flex:1;min-height:0;min-width:0;overflow:hidden}
+#focus-player[data-duration-module]>.focus-tool-back{flex:none;align-self:flex-start;position:relative;inset:auto;margin:4px 12px;height:24px;font-size:11px;z-index:2}
+#focus-player[data-duration-module]>.focus-tool-back[hidden]{display:none!important}
+#notch-panel>#focus-player[data-duration-module],#notch-panel>#tasks-player[data-duration-module]{height:100%!important;max-height:none!important;min-height:0!important}
+#nook-layout #focus-player[data-duration-module],#nook-layout #tasks-player[data-duration-module]{height:100%!important;min-height:0!important}
+
+#tasks-player[data-retired=true]{display:none!important}

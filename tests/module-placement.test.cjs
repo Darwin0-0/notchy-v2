@@ -7,19 +7,20 @@ const {modulePlacementPlan, normalizeModules, assignModuleSlot, createActivitySc
 
 const ids = ['music', 'focus', 'weather', 'shelf'];
 
-test('each catalogue module receives full, half and quarter templates from its actual placement', () => {
+test('each catalogue module receives its template and share from its actual placement', () => {
   for (const id of [...ids,'tasks']) {
     const enabled = [...ids,'tasks'];
     const others = ids.filter(value => value !== id);
     const single = modulePlacementPlan({enabled, slots: [id]});
     assert.deepEqual(single.items, [{id, slot: 0, index: 0, presentation: 'full', share: 100, heightShare: 1}]);
     const pair = modulePlacementPlan({enabled, slots: [id, others[0]]});
-    assert.equal(pair.primary, id); assert.equal(pair.items[0].presentation, 'scene'); assert.equal(pair.items[0].share, 50);
-    assert.equal(pair.items[1].presentation, 'scene'); assert.equal(pair.items[1].share, 50); assert.equal(pair.items[1].heightShare, 1);
+    const equal = pair.slots.includes('weather') && pair.slots.includes('music');
+    assert.equal(pair.primary, id); assert.equal(pair.items[0].presentation, 'scene'); assert.equal(pair.items[0].share, equal ? 50 : 64);
+    assert.equal(pair.items[1].presentation, 'scene'); assert.equal(pair.items[1].share, equal ? 50 : 36); assert.equal(pair.items[1].heightShare, 1);
     const triple = modulePlacementPlan({enabled, slots: [others[0], id, others[1]]});
     assert.deepEqual(triple.items.map(item => item.presentation), ['scene','rail','rail']);
     assert.deepEqual(triple.items.map(item => item.heightShare), [1,.5,.5]);
-    assert(triple.items.every(item => item.share === 50));
+    assert.deepEqual(triple.items.map(item => item.share), [64,36,36]);
     assert.equal(triple.items.reduce((area,item) => area + item.share * item.heightShare,0),100);
   }
 });

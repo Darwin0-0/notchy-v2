@@ -45,7 +45,7 @@
     if (typeof value.title !== 'string' || value.title !== value.title.trim() || !value.title || [...value.title].length > LIMITS.title || /[\u0000-\u001f\u007f-\u009f]/.test(value.title)) throw fault('title');
     if (!validDate(value.date)) throw fault('date');
     if (!validTime(value.start) || !validTime(value.end) || value.start >= value.end) throw fault('time');
-    return {...value};
+    return {id:value.id, title:value.title, date:value.date, start:value.start, end:value.end};
   }
   function validateData(value) {
     if (!exact(value, ['version', 'events']) || value.version !== 1 || !Array.isArray(value.events) || value.events.length > LIMITS.events) throw fault('invalid');
@@ -191,7 +191,7 @@
     async function submitEvent(event) {
       event.preventDefault(); if (store.snapshot().busy) return;
       try {await store.add(draft); if (disposed) return; selected = draft.date; formOpen = false; formError = ''; notice = say('Rendez-vous enregistré.', 'Appointment saved.'); render(); add.focus({preventScroll: true});}
-      catch (error) {if (!disposed) {formError = error.code || 'storage'; render(); const name = error.code === 'title' ? 'title' : error.code === 'date' ? 'date' : error.code === 'time' ? 'end' : null; if (name) fields[name].input.focus({preventScroll: true}); if (opened) status.scrollIntoView({block: 'nearest'});}}
+      catch (error) {if (!disposed) {formError = error.code || 'storage'; render(); const name = error.code === 'title' ? 'title' : error.code === 'date' ? 'date' : error.code === 'time' ? 'end' : null; if (opened) {(name ? fields[name].input : submit).focus({preventScroll: true}); status.scrollIntoView({block: 'nearest'});}}}
     }
     async function removeEvent(id) {
       try {await store.remove(id); if (!disposed) {notice = say('Rendez-vous supprimé.', 'Appointment deleted.'); render(); add.focus({preventScroll: true});}}

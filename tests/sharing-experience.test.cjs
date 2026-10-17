@@ -149,3 +149,66 @@ test('file failures are announced in the Shelf without becoming a LocalSend netw
   assert.equal(right.hidden,true);component.render({status:{message:'Fictional discovery failed',error:true},fileStatus:{message:''}});
   assert.equal(left.hidden,true);assert.equal(right.textContent,'Fictional discovery failed');assert.equal(right.parentElement.className,'sharing-nearby');
 });
+
+test('reference file rows retain real names, measured sizes and explicit selection controls', () => {
+  const f=fixture(),component=create(f);
+  component.render({files:[file('a',{name:'real-photo.jpg',size:86016}),file('b',{name:'actual-report.pdf',size:1258291})],peers:[],available:true});
+  const sizes=f.all(f.host,node=>node.className==='sharing-file-size');
+  assert.equal(sizes[0].textContent,'84 Ko'); assert.match(sizes[1].textContent,/1[.,]2 Mo/);
+  const rows=f.all(f.host,node=>node.className.includes('sharing-file-row'));
+  assert.equal(rows[0].dataset.tone,'orange'); assert.equal(rows[1].dataset.tone,'red');
+  assert.equal(f.command('select-all').textContent,'Tout'); assert(f.host.textContent.includes('2 fichiers gardés'));
+  component.dispose();
+});
+
+test('discovery uses the supplied anonymous radar and ends its visual scan without stopping the listener', t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=fixture(),actions=[],component=create({...f,onAction:(command,payload)=>actions.push({command,payload})});
+  component.render({files:[file('a')],peers:[],available:true});
+  f.click(f.command('discover'));
+  const nearby=f.find(node=>node.className==='sharing-nearby'),radar=f.find(node=>node.attributes.class==='sharing-search-radar');
+  assert.equal(nearby.dataset.state,'searching'); assert.equal(radar.attributes.viewBox,'0 0 330 200');
+  for(const timing of ['dur="3s"','dur="4s"','dur="6s"','begin="0s"','begin="1s"','begin="2s"']) assert(radar.innerHTML.includes(timing));
+  assert(!/Pixel|MacBook|<text/.test(radar.innerHTML),'discovery cannot fabricate found device aliases');
+  assert.deepEqual(actions,[{command:'discover',payload:{}}]);
+  t.mock.timers.tick(6000);
+  assert.equal(nearby.dataset.state,'idle'); assert.equal(actions.length,1,'visual timeout never emits a network stop');
+  component.dispose();
+});
+
+test('discovery cancellation and a real peer result replace the radar with truthful actions and counts', () => {
+  const f=fixture(),actions=[],component=create({...f,onAction:(command,payload)=>actions.push({command,payload})});
+  component.render({files:[file('a'),file('b')],peers:[],available:true}); f.click(f.command('discover')); f.click(f.command('stop'));
+  assert.deepEqual(actions.map(action=>action.command),['discover','stop']);
+  f.click(f.command('discover'));
+  component.render({selectedIds:['a'],peers:[{id:'real-phone',alias:'Actual phone',deviceType:'mobile'}]});
+  const nearby=f.find(node=>node.className==='sharing-nearby'); assert.equal(nearby.dataset.state,'found');
+  assert.equal(f.command('stop').hidden,true); assert.equal(f.find(node=>node.className==='sharing-device-summary').textContent,'1 appareil trouvé · 1 fichier prêt à envoyer');
+  assert.equal(f.find(node=>node.className==='sharing-device-action').textContent,'Envoyer');
+  f.click(f.command('send',node=>node.dataset.sharingPeer==='real-phone'));
+  assert.deepEqual(actions.at(-1),{command:'send',payload:{id:'a',ids:['a'],peerId:'real-phone'}});
+  component.dispose();
+});
+
+test('a discovery failure ends the radar and remains visible without creating a device', () => {
+  const f=fixture(),component=create(f); component.render({files:[],peers:[],available:true}); f.click(f.command('discover'));
+  component.render({status:{message:'Actual network failure',error:true}});
+  assert.equal(f.find(node=>node.className==='sharing-nearby').dataset.state,'idle');
+  assert.equal(f.find(node=>node.className==='sharing-status').textContent,'Actual network failure');
+  assert.equal(f.all(f.host,node=>node.className.includes('sharing-device-row')).length,0);
+  f.click(f.command('discover')); assert.equal(f.find(node=>node.className==='sharing-nearby').dataset.state,'searching','retry clears only the previous displayed failure');
+  component.dispose();
+});
+
+test('reduced motion pauses the SVG timeline and switching the preference resumes only an active scan', () => {
+  const f=fixture(); let listener=null,paused=0,resumed=0,time=null;
+  const preference={matches:true,addEventListener(name,callback){listener=callback;},removeEventListener(){listener=null;}};
+  f.document.defaultView={matchMedia:()=>preference};
+  const component=create(f),radar=f.find(node=>node.attributes.class==='sharing-search-radar');
+  radar.pauseAnimations=()=>paused++; radar.unpauseAnimations=()=>resumed++; radar.setCurrentTime=value=>{time=value;};
+  component.render({files:[],peers:[],available:true}); f.click(f.command('discover'));
+  assert(paused>0); assert.equal(resumed,0); assert.equal(time,0);
+  preference.matches=false; listener(); assert.equal(resumed,1);
+  f.document.body.dataset.motion='false'; listener(); assert(paused>1); assert.equal(resumed,1);
+  component.dispose(); assert.equal(listener,null);
+});

@@ -72,3 +72,6 @@ a { color: #c6dffb; font-size: 13px; }
 @media (max-width: 900px) { .workspace { grid-template-columns: 280px minmax(0, 1fr); } .tools { padding: 28px 20px; } .island { width: calc(100% - 16px); padding: 12px; } }
 @media (max-width: 700px) { .workspace { display: flex; flex-direction: column-reverse; } .canvas { min-height: 420px; } .tools { padding: 24px; } }
 @media (prefers-reduced-motion: no-preference) { .module-runtime-action { transition: background-color .15s ease; } }
+
+/* Shared field appearance for the SDK. */
+:is(input,textarea,select,[contenteditable="true"],[role="textbox"],[role="searchbox"],[role="spinbutton"]):is(:focus,:focus-visible) { outline: none !important; box-shadow: none !important; }

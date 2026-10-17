@@ -1,6 +1,6 @@
 # Development
 
-Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. The interface uses plain JavaScript and CSS: `notch.js` coordinates the island, `focus.js` owns tasks and timers, and `welcome.js` owns onboarding. Dedicated components handle settings, sharing and local search, with shared design tokens and French/English text.
+Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. The interface uses plain JavaScript and CSS: `notch.js` coordinates the island, `duration-core.js` owns the shared task and timer state, `duration-module.js` renders its views, and `focus-duration.js` connects them to the host and existing Focus storage. `focus.js` retains the compatibility model and presentation helpers; `welcome.js` owns onboarding. Dedicated components handle settings, sharing and local search, with shared design tokens and French/English text.
 
 ## Installing and first launch
 

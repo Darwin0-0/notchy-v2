@@ -239,9 +239,10 @@
     const normalized = normalizeModules(value);
     const slots = normalized.slots.slice(0, 3).map(id => normalized.enabled.includes(id) ? id : null);
     const indices = slots.map((id, index) => id ? index : -1).filter(index => index >= 0), count = indices.length;
+    const equalSplit = count === 2 && slots.includes('weather') && slots.includes('music');
     const items = indices.map((slot, index) => ({id: slots[slot], slot, index,
       presentation: count === 1 ? 'full' : count === 3 && index ? 'rail' : 'scene',
-      share: count === 1 ? 100 : 50, heightShare: count === 3 && index ? .5 : 1}));
+      share: count === 1 ? 100 : equalSplit ? 50 : index ? 36 : 64, heightShare: count === 3 && index ? .5 : 1}));
     return {slots, indices, count, primary: items[0]?.id || null, primaryIndex: indices[0] ?? -1, items};
   }
   function moduleEditorPresentation(value, picked = null) {
@@ -432,6 +433,23 @@
     return Object.hasOwn(paths, icon) ? paths[icon] : cloud;
   }
 
+  // SVG geometry and colors are taken directly from the supplied Notch mockups.
+  function weatherGlyphMarkup(kind) {
+    const glyphs = {
+      "sunrise": "<path d=\"M28 70a22 22 0 0 1 44 0z\" fill=\"#ff8f1f\"></path><g stroke=\"#ff8f1f\" stroke-width=\"8\" stroke-linecap=\"round\"><line x1=\"8\" y1=\"82\" x2=\"92\" y2=\"82\"></line><line x1=\"50\" y1=\"10\" x2=\"50\" y2=\"24\"></line><line x1=\"20\" y1=\"26\" x2=\"29\" y2=\"35\"></line><line x1=\"80\" y1=\"26\" x2=\"71\" y2=\"35\"></line><line x1=\"10\" y1=\"68\" x2=\"20\" y2=\"68\"></line><line x1=\"90\" y1=\"68\" x2=\"80\" y2=\"68\"></line></g>",
+      "thermometer": "<g fill=\"none\" stroke=\"#ff3b1f\" stroke-width=\"8\" stroke-linecap=\"round\"><path d=\"M38 60V18a12 12 0 0 1 24 0v42a22 22 0 1 1-24 0z\"></path><line x1=\"50\" y1=\"30\" x2=\"50\" y2=\"66\"></line></g><circle cx=\"50\" cy=\"74\" r=\"9\" fill=\"#ff3b1f\"></circle>",
+      "calendar": "<rect x=\"4\" y=\"8\" width=\"92\" height=\"84\" rx=\"16\" fill=\"#5a5b5e\"></rect><g fill=\"#8a8b8f\"><rect x=\"30\" y=\"30\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"50\" y=\"30\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"70\" y=\"30\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"18\" y=\"50\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"38\" y=\"50\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"58\" y=\"50\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"78\" y=\"50\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"18\" y=\"70\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"38\" y=\"70\" width=\"10\" height=\"9\" rx=\"3\"></rect><rect x=\"58\" y=\"70\" width=\"10\" height=\"9\" rx=\"3\"></rect></g>",
+      "cloud": "<g fill=\"#a8c3d3\"><circle cx=\"34\" cy=\"56\" r=\"16\"></circle><circle cx=\"54\" cy=\"42\" r=\"22\"></circle><circle cx=\"76\" cy=\"58\" r=\"14\"></circle><rect x=\"30\" y=\"56\" width=\"52\" height=\"16\" rx=\"8\"></rect></g>",
+      "humidity": "<path d=\"M50 10C50 10 22 44 22 62a28 28 0 0 0 56 0C78 44 50 10 50 10z\" fill=\"#4aa8ff\"></path>",
+      "wind": "<g fill=\"none\" stroke=\"#7fd6c2\" stroke-width=\"8\" stroke-linecap=\"round\"><path d=\"M8 38h56a12 12 0 1 0-12-12\"></path><path d=\"M8 58h76a12 12 0 1 1-12 12\"></path></g>",
+      "uv": "<circle cx=\"50\" cy=\"50\" r=\"20\" fill=\"#ffd23f\"></circle><g stroke=\"#ffd23f\" stroke-width=\"8\" stroke-linecap=\"round\"><line x1=\"50\" y1=\"8\" x2=\"50\" y2=\"20\"></line><line x1=\"50\" y1=\"80\" x2=\"50\" y2=\"92\"></line><line x1=\"8\" y1=\"50\" x2=\"20\" y2=\"50\"></line><line x1=\"80\" y1=\"50\" x2=\"92\" y2=\"50\"></line></g>",
+      "sun": "<circle cx=\"50\" cy=\"50\" r=\"20\" fill=\"#ff8f1f\"></circle><g stroke=\"#ff8f1f\" stroke-width=\"8\" stroke-linecap=\"round\"><line x1=\"50\" y1=\"8\" x2=\"50\" y2=\"20\"></line><line x1=\"50\" y1=\"80\" x2=\"50\" y2=\"92\"></line><line x1=\"8\" y1=\"50\" x2=\"20\" y2=\"50\"></line><line x1=\"80\" y1=\"50\" x2=\"92\" y2=\"50\"></line><line x1=\"20\" y1=\"20\" x2=\"28\" y2=\"28\"></line><line x1=\"72\" y1=\"72\" x2=\"80\" y2=\"80\"></line><line x1=\"80\" y1=\"20\" x2=\"72\" y2=\"28\"></line><line x1=\"20\" y1=\"80\" x2=\"28\" y2=\"72\"></line></g>",
+      "rain": "<g fill=\"#8fa6b8\"><circle cx=\"34\" cy=\"56\" r=\"16\"></circle><circle cx=\"54\" cy=\"42\" r=\"22\"></circle><circle cx=\"76\" cy=\"58\" r=\"14\"></circle><rect x=\"30\" y=\"56\" width=\"52\" height=\"16\" rx=\"8\"></rect></g><g stroke=\"#4aa8ff\" stroke-width=\"7\" stroke-linecap=\"round\"><line x1=\"38\" y1=\"82\" x2=\"34\" y2=\"94\"></line><line x1=\"56\" y1=\"82\" x2=\"52\" y2=\"94\"></line><line x1=\"74\" y1=\"82\" x2=\"70\" y2=\"94\"></line></g>"
+};
+    if (kind === 'cloud-sun' || kind === 'cloud-moon') kind = 'cloud';
+    return Object.hasOwn(glyphs,kind) ? glyphs[kind] : '<g transform="scale(4.1666667)" fill="none" stroke="#a8c3d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + weatherConditionPath(kind) + '"/></g>';
+  }
+
   function weatherDesignValues(snapshot = {}, presentation = 'full', now = Date.now()) {
     const size = ['full', 'scene', 'rail'].includes(presentation) ? presentation : 'full';
     const validTemperature = value => Number.isFinite(value) && Math.abs(value) <= 150, available = validTemperature(snapshot.temperature);
@@ -442,6 +460,8 @@
       const date = new Date(value + 'T12:00:00Z');
       return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
     };
+    const bounded = (value, min, max) => Number.isFinite(value) && value >= min && value <= max ? value : null;
+    const sunrise = typeof snapshot.sunrise === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(snapshot.sunrise) && validDate(snapshot.sunrise.slice(0,10)) && Number(snapshot.sunrise.slice(11,13)) < 24 && Number(snapshot.sunrise.slice(14,16)) < 60 && (!snapshot.sunrise.slice(17) || Number(snapshot.sunrise.slice(17)) < 60) ? snapshot.sunrise : null;
     const seenHours = new Set(), seenDays = new Set();
     const hours = available && Array.isArray(snapshot.hours) ? snapshot.hours.filter(hour => {
       const at = hour?.time;
@@ -452,7 +472,7 @@
       if (!validDate(day?.date) || !validTemperature(day.min) || !validTemperature(day.max) || day.min > day.max || seenDays.has(day.date)) return false;
       seenDays.add(day.date); return true;
     }).slice(0, 3).map(day => ({date: day.date, min: Math.round(day.min), max: Math.round(day.max)})) : [];
-    return {size, available, hours, days, narrative: size !== 'rail' && available, date,
+    return {feelsLike: validTemperature(snapshot.feelsLike) ? Math.round(snapshot.feelsLike) : null, humidity: bounded(snapshot.humidity,0,100), windSpeed: bounded(snapshot.windSpeed,0,400), uvIndex: bounded(snapshot.uvIndex,0,30), sunrise, size, available, hours, days, narrative: size !== 'rail' && available, date,
       celsius: available ? Math.round(snapshot.temperature) : null, fahrenheit: available ? Math.round(snapshot.temperature * 9 / 5 + 32) : null,
       calendarTodayCount: Number.isSafeInteger(snapshot.calendarTodayCount) && snapshot.calendarTodayCount >= 0 && snapshot.calendarTodayCount <= 9999 ? snapshot.calendarTodayCount : null,
       min: validTemperature(snapshot.min) ? Math.round(snapshot.min) : null, max: validTemperature(snapshot.max) ? Math.round(snapshot.max) : null,
@@ -550,7 +570,7 @@
     return {width: size.width, band: size.height, radius: size.radius, shoulder: 0, progress: 0};
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = {ISLAND_CONFIG, FocusModel, focusConfiguration, focusCardValues, weatherNarrative, weatherConditionPath, weatherDesignValues, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, modulePlacementPlan, moduleEditorPresentation, homeModuleLayout, nookGridPlan, getModuleDefinitions, openPanelLimits, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, artworkPalette, closedBandSize, activitySnapshot, createActivityScene};
+  if (typeof module === 'object' && module.exports) module.exports = {ISLAND_CONFIG, FocusModel, focusConfiguration, focusCardValues, weatherNarrative, weatherConditionPath, weatherGlyphMarkup, weatherDesignValues, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, modulePlacementPlan, moduleEditorPresentation, homeModuleLayout, nookGridPlan, getModuleDefinitions, openPanelLimits, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, artworkPalette, closedBandSize, activitySnapshot, createActivityScene};
   if (!window?.document) return;
 
   const document = window.document;
@@ -1046,7 +1066,8 @@
   }
   function moduleContextMenu(event) {
     const target = event.target;
-    if (['search','module-library'].includes(view) || welcome?.isActive() || !notch.contains(target) || target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || window.getSelection()?.toString().trim()) return false;
+    const editingControl = (event.composedPath?.() || [target]).some(node => node?.matches?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])'));
+    if (event.defaultPrevented || ['search','module-library'].includes(view) || welcome?.isActive() || !notch.contains(target) || editingControl || window.getSelection()?.toString().trim()) return false;
     event.preventDefault(); return openModuleEditor(event);
   }
   function modulePreview(host, id, template = 'main') {
@@ -1300,7 +1321,7 @@
   let peerFavorites = [];
   try {const saved = window.localStorage.getItem('notchy-peer-favorites-v1'); if (saved && saved.length < 20000) peerFavorites = JSON.parse(saved).filter(item => item && /^[a-f0-9]{64}$/.test(item.identity) && typeof item.alias === 'string').slice(0,32).map(item => ({identity:item.identity,alias:item.alias.slice(0,120),deviceType:item.deviceType === 'mobile' ? 'mobile' : 'desktop'}));} catch {}
   async function sharingAction(command, value = {}) {
-    if (disposed || shelfBusy || nearbyBusy && !['cancel','open-transfer'].includes(command)) return;
+    if (disposed || shelfBusy || nearbyBusy && !['cancel','stop','open-transfer'].includes(command)) return;
     const item = shelfItems.find(item => item.id === value.id);
     if (command === 'add') {
       if (Array.isArray(value.files)) {const before=new Set(shelfItems.map(item=>item.id)); await uploadFiles(value.files); const added=shelfItems.filter(item=>!before.has(item.id)); if (added.length) {for (const file of added) byId('sharing-experience').querySelector('[data-sharing-file="'+file.id+'"]')?.closest('.sharing-file-row')?.classList.add('experience-drop-row'); gestureFeedback(byId('sharing-experience').querySelector('.sharing-drop'),'drop',600); notifyModuleChange({id:'shelf',kind:'kept',title:t('Fichier gardé'),detail:added[0].name,compact:true});}}
@@ -1311,6 +1332,7 @@
     else if (command === 'download') await downloadShelfFiles(shelfItems.filter(file => (value.ids || [value.id]).includes(file.id)));
     else if (command === 'remove') {selectedFiles.clear(); for (const id of value.ids || [value.id]) if (shelfItems.some(item => item.id === id)) selectedFiles.add(id); syncShelfSelection(); await shelfCommand({target:byId('shelf-remove')});}
     else if (command === 'discover') await nearbyRequest({command:'discover'});
+    else if (command === 'stop') await nearbyRequest({command:'stop'});
     else if (command === 'connect') {await nearbyRequest({command:'connect',address:value.address}); if (nearbyError) gestureFeedback(byId('sharing-experience').querySelector('.sharing-ip-form'),'error');}
     else if (command === 'cancel' && nearby.transfer?.id) await nearbyRequest({command:'cancel',id:nearby.transfer.id});
     else if (command === 'open-transfer') {
@@ -1465,7 +1487,7 @@
     const back = route === 'focus' ? focusToolBack : detailBack;
     if (!back.hidden && !back.closest('[hidden],[inert]')) back.focus({preventScroll:true});
   }
-  const focusComponent = FocusAPI.create({host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus, openTasks() {
+  const focusComponent = FocusAPI.create({openDuration(kind) {openActivityDetail(kind === 'tasks' ? 'tasks' : 'focus');}, host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus, openTasks() {
     openActivityDetail('tasks'); tasksComponent.focusInput();
   }, openConfiguration() {
     if (!focusComponent.inspect().configOpen) focusConfigurationReturn = {view,page:islandPage,control:document.activeElement};
@@ -1515,7 +1537,7 @@
   }
   function renderFocus() {
     if (!disposed) {
-      if (!focusPlayer.parentElement?.classList?.contains('activity-main')) focusPlayer.dataset.presentation = 'full';
+      if (!focusPlayer.parentElement?.classList?.contains('activity-main') && !focusPlayer.parentElement?.classList?.contains('activity-rail-cards')) focusPlayer.dataset.presentation = 'full';
       focusComponent.lifecycle({enabled: focusCoreEnabled(), hidden: document.hidden, visible: state === 'open' && !focusPlayer.hidden && !getModuleEditorActive()});
       if (view === 'tasks') tasksPlayer.dataset.presentation = 'full';
       tasksComponent?.render();
@@ -1683,13 +1705,9 @@
     if (communityCards.has(id)) return communityCards.get(id);
     if (activityCards.has(id)) return activityCards.get(id);
     if (id === 'music') {activityCards.set(id, player); return player;}
+    if (id === 'focus') {focusPlayer.classList.add('activity-card', 'activity-card-secondary'); activityCards.set(id, focusPlayer); return focusPlayer;}
     if (id === 'tasks') {tasksPlayer.classList.add('activity-card', 'activity-card-secondary'); activityCards.set(id, tasksPlayer); return tasksPlayer;}
     const card = document.createElement('article'); card.className = 'activity-card activity-card-secondary'; card.dataset.activity = id; card.dataset.module = id === 'transfer' ? 'localsend' : id === 'file' ? 'shelf' : id; card.setAttribute('role', 'group');
-    if (id === 'focus') {
-      card.classList.add('focus-summary');
-      card.innerHTML = '<header class="focus-summary-heading"><button type="button" data-scene-promote="focus" class="focus-summary-phase"></button><button type="button" data-scene-command="focus-configure" class="focus-summary-configure"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button></header><div class="focus-summary-clock focus-clock" role="timer" aria-live="off"></div><button type="button" data-scene-command="focus-link-task" class="focus-summary-task"></button><div class="focus-summary-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div><footer class="focus-summary-controls"><button type="button" data-scene-command="focus-complete-task" class="focus-summary-done"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button><button type="button" data-scene-command="focus-toggle" class="focus-summary-toggle"><svg viewBox="0 0 24 24" aria-hidden="true"><path/></svg></button></footer>';
-      activityCards.set(id, card); return card;
-    }
     card.innerHTML = '<button type="button" class="activity-promote" data-scene-promote="' + id + '"><span class="activity-card-body"><span class="activity-card-art" aria-hidden="true"><img alt="" hidden><svg viewBox="0 0 24 24"><use href="#localsend-icon-share"/></svg></span><span class="activity-card-copy"><span class="activity-card-eyebrow"></span><strong class="activity-card-title"></strong><span class="activity-card-detail"></span></span><span class="activity-card-ring" aria-hidden="true"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="26"/><circle class="activity-card-ring-fill" cx="30" cy="30" r="26" pathLength="1"/></svg></span></span><span class="activity-card-value"></span></button><div class="activity-card-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div><div class="activity-card-times"><span></span><span></span></div><div class="activity-card-actions"><button type="button" class="activity-card-action"><svg viewBox="0 0 24 24" aria-hidden="true"><path/></svg></button></div><div class="activity-card-completion" role="status" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><span></span></div>';
     const status = document.createElement('span'); status.className = 'activity-card-status-label'; card.querySelector('.activity-card-eyebrow').append(status);
     if (id === 'weather' || id === 'shelf') {
@@ -1725,7 +1743,7 @@
       if (!card || !activityStage.contains(card)) continue;
       if (item.id === 'music') continue; // The same live player owns every music placement.
       if (item.id === 'tasks') {tasksComponent.render(); continue;}
-      if (item.id === 'focus') {renderFocusSummary(card); continue;}
+      if (item.id === 'focus') {focusComponent.render(false); continue;}
       const isMusic = item.id === 'music', isFocus = item.id === 'focus', isTransfer = item.id === 'transfer', isWeather = item.id === 'weather', isShelf = item.id === 'shelf', playing = item.playing;
       const weatherCopy = isWeather ? getWeatherSummary().narrative : null;
       const transferName = isTransfer && (nearby.incoming?.files?.[0]?.name || nearby.transfer?.files?.[0]?.name || (nearby.transfer?.fileCount ? localSendCount(nearby.transfer.fileCount) : 'LocalSend'));
@@ -1765,27 +1783,6 @@
     }
     activitySide.setAttribute('aria-label', t('Activités en cours'));
   }
-  function renderFocusSummary(card) {
-    const value = focusComponent.summary(), linked = focus.tasks.find(task => task.id === focus.activeTaskId && !task.done);
-    card.dataset.complete = String(!!focus.complete); card.dataset.playing = String(!!focus.deadline);
-    card.dataset.focusBreak = focus.pomodoro?.phase === 'break' ? focus.pomodoro.breakKind : 'none';
-    const phase = t(focus.pomodoro?.phase === 'break' ? 'PAUSE' : 'FOCUS') + ' · ' + t('CYCLE') + ' ' + (focus.pomodoro?.session || 1) + '/' + value.total;
-    text(card.querySelector('.focus-summary-phase'), phase); card.querySelector('.focus-summary-phase').setAttribute('aria-label', t('Afficher l’activité') + ' · ' + phase);
-    let ring = card.querySelector('.focus-summary-reference-ring');
-    if (!ring) {ring = document.createElement('div'); ring.className = 'focus-summary-reference-ring'; ring.innerHTML = '<svg viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="24"/><circle class="reference-ring-fill" cx="28" cy="28" r="24" pathLength="1"/></svg>'; card.append(ring); ring.append(card.querySelector('.focus-summary-clock')); const link = document.createElement('span'); link.className = 'focus-summary-link-label'; card.append(link);}
-    ring.style.setProperty('--focus-progress', value.progress);
-    text(card.querySelector('.focus-summary-link-label'), linked ? t('Tâche liée') : '');
-    const clock = card.querySelector('.focus-summary-clock');
-    FocusAPI.renderClock(clock, value.seconds, {motion: motionEnabled() && state === 'open' && !document.hidden});
-    clock.setAttribute('aria-label', t('{minutes} minutes {seconds} secondes', {minutes: Math.floor(value.seconds / 60), seconds: value.seconds % 60}));
-    const task = card.querySelector('.focus-summary-task'); text(task, linked?.title || t('Focus libre')); task.title = linked?.title || t('Focus libre');
-    task.setAttribute('aria-label', t(linked ? 'Changer la tâche liée : {task}' : 'Lier une tâche', {task: linked?.title}));
-    const progress = card.querySelector('.focus-summary-progress'); progress.style.setProperty('--focus-progress', value.progress); progress.setAttribute('aria-label', t('Progression de la session')); progress.setAttribute('aria-valuenow', String(Math.round(value.progress * 100)));
-    card.querySelector('[data-scene-command="focus-configure"]').setAttribute('aria-label', t('Régler le Pomodoro'));
-    const done = card.querySelector('.focus-summary-done'); done.disabled = !linked; done.setAttribute('aria-label', t('Terminée'));
-    const toggle = card.querySelector('.focus-summary-toggle'); toggle.setAttribute('aria-label', t(value.active ? value.paused ? 'Reprendre Focus' : 'Mettre Focus en pause' : 'Démarrer Focus'));
-    toggle.querySelector('path').setAttribute('d', focus.deadline ? 'M6 5h4v14H6ZM14 5h4v14h-4Z' : 'M8 5v14l11-7Z');
-  }
   function renderActivityScene() {
     const home = byId('nook-layout'), eligible = view === 'nook' && !getModuleEditorActive() && islandPage !== 'essential';
     if (!eligible) return false;
@@ -1801,6 +1798,7 @@
     if (expiry.length) activityExpiryTimer = window.setTimeout(() => {activityExpiryTimer = 0; if (!disposed) renderHomeLayout();}, Math.max(1, Math.min(...expiry) - Date.now()));
     ensureActivityStage();
     home.dataset.layout = 'activities'; home.dataset.grid = 'activities'; home.dataset.scenario = ''; home.dataset.primary = snapshot.primary || ''; home.dataset.sceneComplete = String(!!snapshot.items[0]?.complete); home.dataset.activityCount = String(snapshot.items.length);
+    home.dataset.weatherSplit = String(snapshot.items.length === 2 && snapshot.items.some(item => item.id === 'weather') && snapshot.items.some(item => item.id === 'music'));
     homeLayout = {mode: 'activities', primary: snapshot.primary, rail: [...snapshot.rail], items: snapshot.items.map((item, index) => ({id: item.id, complete: !!item.complete, presentation: snapshot.items.length === 1 ? 'full' : snapshot.items.length === 3 && index ? 'rail' : 'scene'}))};
     if (!snapshot.items.length) {
       for (const definition of Object.values(moduleDefinitions)) {const element = byId(definition.element); if (element.parentElement !== panel) panel.append(element); element.hidden = true;}
@@ -1808,7 +1806,7 @@
     }
     const primary = snapshot.items[0], component = moduleDefinitions[primary.id] && (['music', 'focus', 'tasks'].includes(primary.id) || communityCards.has(primary.id)) && !primary.complete ? byId(moduleDefinitions[primary.id].element) : null;
     for (const definition of Object.values(moduleDefinitions)) {
-      const element = byId(definition.element), parent = element === component ? activityMain : (['music', 'tasks'].includes(definition.id) || communityCards.has(definition.id)) && snapshot.rail.includes(definition.id) ? activitySide : panel;
+      const element = byId(definition.element), parent = element === component ? activityMain : (['music', 'focus', 'tasks'].includes(definition.id) || communityCards.has(definition.id)) && snapshot.rail.includes(definition.id) ? activitySide : panel;
       if (element.parentElement !== parent) parent.append(element);
       element.hidden = !builtinVisible(definition.id); element.dataset.module = definition.id;
     }
@@ -1820,14 +1818,13 @@
     primaryContent.dataset.presentation = presentation; primaryContent.dataset.module = activityMain.dataset.module; primaryContent.dataset.activity = primary.id;
     if (primary.id === 'tasks') tasksComponent.render();
     if (activityMain.firstElementChild !== primaryContent || activityMain.children.length !== 1) activityMain.replaceChildren(primaryContent);
-    for (const id of snapshot.rail) {const card = activitySummaryCard(id); card.dataset.presentation = snapshot.items.length === 2 ? 'scene' : 'rail'; card.dataset.activity = id; if (id === 'music') {card.classList.add('activity-card', 'activity-card-secondary'); card.hidden = false;} if (id === 'tasks') {card.hidden = false; tasksComponent.render();} if (card.parentElement !== activitySide) activitySide.append(card);}
+    for (const id of snapshot.rail) {const card = activitySummaryCard(id); card.dataset.presentation = snapshot.items.length === 2 ? 'scene' : 'rail'; card.dataset.activity = id; if (['music', 'focus'].includes(id)) {card.classList.add('activity-card', 'activity-card-secondary'); card.hidden = false;} if (id === 'tasks') {card.hidden = false; tasksComponent.render();} if (card.parentElement !== activitySide) activitySide.append(card);}
     for (const card of [...activitySide.children]) if (!snapshot.rail.includes(card.dataset.activity)) card.remove();
     snapshot.rail.forEach((id, index) => {const card = activitySummaryCard(id); if (activitySide.children[index] !== card) activitySide.insertBefore(card, activitySide.children[index] || null);});
     activitySide.hidden = !snapshot.rail.length;
     if (activityStage.parentElement !== home) home.append(activityStage);
     for (const child of [...home.children]) if (![activityStage, byId('home-main'), byId('home-side'), byId('home-empty')].includes(child)) child.remove();
     byId('home-main').hidden = true; byId('home-side').hidden = true; byId('home-empty').hidden = true; home.inert = false;
-    byId('music-promote').hidden = !player.parentElement?.classList?.contains('activity-rail-cards');
     renderActivitySceneValues(); renderMusicQueue(); musicQueueLifecycle(); return true;
   }
   function animateActivityPromotion() {
@@ -2481,87 +2478,69 @@
   }
   function renderWeatherDesign(host, presentation, {interactive = false, calendarTodayCount = weather.calendarTodayCount} = {}) {
     const failure = (typeof weather.error === 'string' && weather.error) || (!weatherPickerOpen ? weatherError : '');
-    const values = weatherDesignValues({...weather, calendarTodayCount}, presentation), next = localizedWeatherNarrative({...weather, busy: weatherBusy, error:failure || weather.error});
+    const values = weatherDesignValues({...weather, calendarTodayCount}, interactive ? 'full' : presentation), next = localizedWeatherNarrative({...weather, busy: weatherBusy, error:failure || weather.error});
     const sharedFailure = !weatherBusy && !!failure && values.size !== 'rail' && !!window.NotchEmpty;
     const revealResult = host.dataset.state === 'loading' && next.state === 'ready' && !weatherError && !weather.error && !document.hidden && host.getClientRects().length > 0;
-    const condition = t(weather.condition || 'Conditions indisponibles'), locale = i18n.locale() === 'en' ? 'en-GB' : 'fr-FR';
-    const freshness = weatherFreshness(weather);
-    const signature = JSON.stringify([values, next, condition, freshness, weather.icon, weather.isDay, locale, interactive, interactive && weatherPickerOpen, failure]);
+    const condition = t(weather.condition || 'Conditions indisponibles'), locale = i18n.locale() === 'en' ? 'en-GB' : 'fr-FR', freshness = weatherFreshness(weather);
+    const signature = JSON.stringify([values,next,condition,freshness,weather.icon,weather.isDay,locale,interactive,interactive && weatherPickerOpen,failure]);
     if (host.dataset.weatherDesign === signature) return;
     host.dataset.weatherDesign = signature; host.dataset.size = values.size; host.dataset.state = next.state;
     host.dataset.weatherView = interactive ? 'detail' : 'summary';
-    const make = (className, value, tag = 'span') => {const node = document.createElement(tag); node.className = className; if (value !== undefined) node.textContent = value; return node;};
+    host.dataset.condition = weather.icon || 'unknown'; host.dataset.day = String(weather.isDay !== false); host.dataset.calendarKnown = String(values.calendarTodayCount !== null); host.setAttribute('aria-busy',String(weatherBusy)); host.title = freshness;
+    const make = (className,value,tag = 'span') => {const node = document.createElement(tag); node.className = className; if (value !== undefined) node.textContent = value; return node;};
+    const glyph = (className,kind) => {const node = byId('weather-condition-icon').cloneNode(true); node.removeAttribute('id'); node.setAttribute('class',className); node.setAttribute('viewBox','0 0 100 100'); node.setAttribute('aria-hidden','true'); node.setAttribute('focusable','false'); node.dataset.weatherGlyph = kind; node.innerHTML = weatherGlyphMarkup(kind); return node;};
+    const today = new Date(values.date+'T12:00:00'), day = new Intl.DateTimeFormat(locale,{weekday:'long'}).format(today), shortDate = new Intl.DateTimeFormat(locale,{day:'numeric',month:'long'}).format(today), fullDate = new Intl.DateTimeFormat(locale,{dateStyle:'full'}).format(today);
+    const calendar = (detailed = false) => {
+      const button = make('weather-typography-line weather-typography-date',undefined,'button'); button.type = 'button'; button.dataset.weatherCommand = 'calendar'; button.dataset.hasEvents = String(values.calendarTodayCount !== null && values.calendarTodayCount > 0);
+      button.setAttribute('aria-haspopup','dialog'); button.setAttribute('aria-controls','calendar-player'); button.setAttribute('aria-expanded','false');
+      const appointments = values.calendarTodayCount > 0 ? t(values.calendarTodayCount === 1 ? '1 rendez-vous aujourd’hui' : '{count} rendez-vous aujourd’hui',{count:values.calendarTodayCount}) : '';
+      button.setAttribute('aria-label',t('Ouvrir l’agenda · {date}',{date:fullDate})+(appointments ? ' · '+appointments : '')); button.title = appointments || fullDate;
+      if (!detailed) button.append(glyph('weather-typography-calendar','calendar'));
+      button.append(make('weather-typography-label',detailed ? day+' '+shortDate : shortDate)); return button;
+    };
+    const city = () => {
+      const button = make('weather-typography-line weather-typography-city weather-design-city',undefined,'button'); button.type = 'button'; button.dataset.weatherCommand = interactive ? 'picker' : 'details'; button.setAttribute('aria-label',t(interactive ? 'Changer de ville · {city}' : 'Voir la météo à {city}',{city:next.city})); button.title = next.city; button.append(make('weather-typography-label',next.city));
+      if (interactive) {button.id = 'weather-city-button'; button.setAttribute('aria-expanded',String(weatherPickerOpen)); button.setAttribute('aria-controls','weather-picker');} return button;
+    };
+    const celsius = values.celsius === null ? '—°C' : values.celsius+'°C', fahrenheit = values.fahrenheit === null ? '—°F' : values.fahrenheit+'°F';
     if (!interactive) {
-      const glyph = (className, path, viewBox = '0 0 24 24') => {const node = byId('weather-condition-icon').cloneNode(true); node.removeAttribute('id'); node.setAttribute('class', className); node.setAttribute('viewBox', viewBox); node.setAttribute('aria-hidden', 'true'); node.setAttribute('focusable', 'false'); node.querySelector('path').setAttribute('d', path); return node;};
-      const today = new Date(values.date + 'T12:00:00'), fullDate = new Intl.DateTimeFormat(locale, {dateStyle:'full'}).format(today);
-      const stack = make('weather-typography'), weekday = make('weather-typography-line weather-typography-weekday');
-      weekday.append(make('', new Intl.DateTimeFormat(locale, {weekday:'long'}).format(today)), glyph('weather-typography-sky', weatherConditionPath(weather.icon)));
-      const calendar = make('weather-typography-line weather-typography-date', undefined, 'button'); calendar.type = 'button'; calendar.dataset.weatherCommand = 'calendar'; calendar.dataset.hasEvents = String(values.calendarTodayCount !== null && values.calendarTodayCount > 0);
-      calendar.setAttribute('aria-haspopup', 'dialog'); calendar.setAttribute('aria-controls', 'calendar-player'); calendar.setAttribute('aria-expanded', 'false');
-      const appointments = values.calendarTodayCount > 0 ? t(values.calendarTodayCount === 1 ? '1 rendez-vous aujourd’hui' : '{count} rendez-vous aujourd’hui', {count:values.calendarTodayCount}) : '';
-      calendar.setAttribute('aria-label', t('Ouvrir l’agenda · {date}', {date:fullDate}) + (appointments ? ' · ' + appointments : '')); calendar.title = appointments || fullDate;
-      calendar.append(glyph('weather-typography-calendar', 'M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2ZM7 2v4M17 2v4M3 9h18M7 13h1m4 0h1m4 0h1M7 17h1m4 0h1m4 0h1'), make('', new Intl.DateTimeFormat(locale, {day:'numeric',month:'long'}).format(today)));
-      const city = make('weather-typography-line weather-typography-city weather-design-city', next.city, 'button'); city.type = 'button'; city.dataset.weatherCommand = 'details'; city.setAttribute('aria-label', t('Voir la météo à {city}', {city:next.city})); city.title = next.city;
-      const degrees = make('weather-typography-line weather-typography-degrees'); degrees.setAttribute('aria-label', t('Température en degrés Celsius et Fahrenheit'));
-      degrees.append(make('weather-design-temperature', values.celsius === null ? '—°C' : values.celsius + '°C'), glyph('weather-typography-thermometer', 'M9 5a3 3 0 0 1 6 0v9.5a5 5 0 1 1-6 0ZM12 8v10M12 18h.01', '5 0 14 26'), make('weather-typography-fahrenheit', values.fahrenheit === null ? '—°F' : values.fahrenheit + '°F'));
-      const description = make('weather-typography-line weather-typography-condition weather-design-condition'); description.title = condition;
-      description.append(make('weather-typography-condition-label', condition), glyph('weather-typography-cloud', weatherConditionPath('cloud')));
-      const fresh = make('weather-design-freshness', freshness); fresh.hidden = true;
-      stack.append(weekday, calendar, city, degrees, description); host.replaceChildren(stack, fresh);
-      host.dataset.condition = weather.icon || 'unknown'; host.dataset.day = String(weather.isDay !== false); host.dataset.calendarKnown = String(values.calendarTodayCount !== null); host.setAttribute('aria-busy', String(weatherBusy)); host.title = freshness;
-      if (revealResult) stack.classList.add('experience-weather-result');
-      return;
+      const stack = make('weather-typography'), weekday = make('weather-typography-line weather-typography-weekday'); weekday.append(make('',day),glyph('weather-typography-sky','sunrise'));
+      const degrees = make('weather-typography-line weather-typography-degrees'), c = make('weather-typography-celsius'); degrees.setAttribute('aria-label',t('Température en degrés Celsius et Fahrenheit'));
+      c.append(make('weather-design-temperature',celsius),glyph('weather-typography-thermometer','thermometer')); degrees.append(c,make('weather-typography-fahrenheit',fahrenheit));
+      const description = make('weather-typography-line weather-typography-condition weather-design-condition'); description.title = condition; description.append(make('weather-typography-condition-label',condition),glyph('weather-typography-cloud',weather.icon || 'unknown'));
+      stack.append(weekday,calendar(),city(),degrees,description);
+      const fresh = make('weather-design-freshness',freshness); fresh.hidden = true; host.replaceChildren(stack,fresh);
+      if (revealResult) stack.classList.add('experience-weather-result'); return;
     }
-    const heading = make('weather-design-heading'), icon = byId('weather-condition-icon').cloneNode(true); icon.removeAttribute('id');
-    icon.querySelector('path').setAttribute('d', weatherConditionPath(weather.icon));
-    const city = make('weather-design-city', next.city + (values.size === 'rail' ? '' : ' · ' + t(weather.isDay === false ? 'CE SOIR' : 'AUJOURD’HUI')));
-    const picker = make('weather-design-picker', t('Choisir une ville'), 'button'); picker.type = 'button'; picker.id = 'weather-city-button'; picker.dataset.weatherCommand = 'picker'; picker.setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city})); picker.setAttribute('aria-expanded', String(weatherPickerOpen)); picker.setAttribute('aria-controls', 'weather-picker');
-    if (values.size === 'rail') heading.append(make('weather-design-eyebrow',t('MÉTÉO')));
-    if (values.size !== 'rail') heading.append(icon);
-    heading.append(city);
-    const reading = make('weather-design-reading'), temperature = make('weather-design-temperature', next.temperature), detail = make('weather-design-detail');
-    const feels = make('weather-design-feels', t('Ressenti {temperature}', {temperature: next.feelsLike}));
-    const range = [values.max !== null ? t('max {temperature}°', {temperature: values.max}) : '', values.size === 'full' && values.min !== null ? t('min {temperature}°', {temperature: values.min}) : ''].filter(Boolean).join(' · ');
-    const meta = make('weather-design-meta'); meta.append(feels); if (range) meta.append(make('weather-design-range', range));
-    const description = make('weather-design-condition', condition);
-    if (values.size === 'rail') description.prepend(icon);
-    detail.append(description, meta); reading.append(temperature, detail);
-    const current = make('weather-design-current'); current.append(heading, picker, reading);
-    const narrative = make('weather-design-narrative');
-    const words = (value, emphasis = false) => narrative.append(make(emphasis ? 'weather-design-emphasis' : '', value, emphasis ? 'strong' : 'span'));
-    if (values.narrative) {
-      words(next.when + t(' à ')); words(next.city, true); words(t(', il fait ')); words(next.temperature, true); words(t(' et ')); words(condition.toLocaleLowerCase(locale), true); words('.');
-      if (values.max !== null) {words(t(' Aujourd’hui, jusqu’à ')); words(values.max + '°', true);}
-      if (values.rainRisk !== null) {words(t(values.max !== null ? ', avec ' : ' Avec ')); words(values.rainRisk + ' %', true); words(t(' de risque de précipitations.'));} else if (values.max !== null) words('.');
-      if (values.size === 'full' && Number.isFinite(weather.feelsLike)) {words(t(' Ressenti ')); words(next.feelsLike, true); words('.');}
+    const hero = make('weather-detail-hero',undefined,'header'), location = make('weather-detail-location',undefined,'div'), subtitle = make('weather-detail-subtitle',undefined,'div');
+    subtitle.append(calendar(true));
+    if (values.sunrise) subtitle.append(make('weather-detail-sunrise','· '+t('Lever {time}',{time:values.sunrise.slice(11,16)})));
+    location.append(city(),subtitle);
+    const reading = make('weather-detail-reading',undefined,'div'), meta = make('weather-detail-reading-meta'); meta.append(make('weather-typography-fahrenheit',fahrenheit),make('weather-detail-condition',condition)); meta.title = condition;
+    reading.append(make('weather-design-temperature',celsius),glyph('weather-detail-condition-icon',weather.icon || 'unknown'),meta); hero.append(location,reading);
+    const stats = make('weather-detail-stats',undefined,'div');
+    for (const [name,kind,value,unit] of [['Ressenti','thermometer',values.feelsLike,'°'],['Humidité','humidity',values.humidity,'%'],['Vent','wind',values.windSpeed,' km/h'],['Indice UV','uv',values.uvIndex,'']]) {
+      const tile = make('weather-detail-stat',undefined,'div'); tile.dataset.metric = kind;
+      tile.append(glyph('weather-detail-stat-icon',kind),make('weather-detail-stat-label',t(name)),make('weather-detail-stat-value',value === null ? '—' : new Intl.NumberFormat(locale,{maximumFractionDigits:1}).format(value)+unit,'strong'));
+      if (value === null) tile.title = t('Donnée indisponible'); if (kind === 'uv') tile.title = t('Indice UV maximal aujourd’hui'); stats.append(tile);
     }
-    const outlook = make('weather-design-outlook'), hourly = make('weather-design-hourly'), hours = make('weather-design-hours'); hours.setAttribute('aria-label', t('Prochaines heures'));
-    for (const hour of values.hours) {const chip = make('weather-design-hour'); chip.append(make('weather-design-hour-time', locale === 'fr-FR' ? hour.time.slice(11, 13) + ' h' : hour.time.slice(11, 16)), make('', hour.temperature + '°', 'strong')); hours.append(chip);}
-    hourly.append(make('weather-design-caption', t('PROCHAINES HEURES')), hours); hourly.hidden = !values.hours.length;
-    const daily = make('weather-design-daily'), days = make('weather-design-days'); days.setAttribute('aria-label', t('3 jours'));
-    for (const day of values.days) {
-      const chip = make('weather-design-day'); chip.append(make('weather-design-day-name', new Intl.DateTimeFormat(locale, {weekday: 'short', timeZone: 'UTC'}).format(new Date(day.date + 'T12:00:00Z'))), make('', day.max + '°', 'strong'), make('weather-design-day-min', day.min + '°'));
-      days.append(chip);
+    const outlook = make('weather-design-outlook weather-detail-forecast',undefined,'section'), hours = make('weather-design-hours'); hours.setAttribute('aria-label',t('Prochaines heures'));
+    for (const hour of values.hours) {
+      const sample = weather.hours?.find(item => item.time === hour.time), chip = make('weather-design-hour');
+      chip.append(make('weather-design-hour-time',locale === 'fr-FR' ? hour.time.slice(11,13)+' h' : hour.time.slice(11,16)),glyph('weather-design-hour-icon',sample?.icon || weather.icon || 'unknown'),make('',hour.temperature+'°','strong')); hours.append(chip);
     }
-    daily.append(make('weather-design-caption', t('3 JOURS')), days); daily.hidden = !values.days.length;
-    outlook.append(hourly, daily); outlook.hidden = !values.hours.length && !values.days.length;
-    const empty = make('weather-design-empty', sharedFailure ? '' : next.status || t('Choisis une ville ou utilise ta position actuelle.')); empty.hidden = values.available && !sharedFailure;
-    narrative.hidden = !values.narrative; reading.hidden = !values.available;
-    host.setAttribute('aria-busy', String(weatherBusy));
-    host.dataset.condition = weather.icon || 'unknown'; host.dataset.day = String(weather.isDay !== false);
-    const fresh = make('weather-design-freshness', freshness); fresh.hidden = !values.available || sharedFailure;
-    host.replaceChildren(current, narrative, outlook, empty, fresh);
+    outlook.append(hours); outlook.hidden = !values.hours.length;
+    const empty = make('weather-design-empty',sharedFailure ? '' : next.status || t('Choisis une ville ou utilise ta position actuelle.')); empty.hidden = values.available && !sharedFailure;
+    host.classList.add('weather-detail'); host.replaceChildren(hero,stats,outlook,empty);
     if (sharedFailure) {
       empty.classList.add('weather-design-error');
       const since = Number.isFinite(weather.fetchedAt) && weather.fetchedAt > 0 && weather.fetchedAt <= Date.now() ? weather.fetchedAt : null;
-      const view = window.NotchEmpty.show(empty, {icon:icon.cloneNode(true),title:t('Météo indisponible'),hint:uiMessage(failure),actionLabel:t('Réessayer'),since,onAction(event) {
-        event.stopPropagation(); weatherCommand(event);
-        byId('weather-main').querySelector('.weather-tools [data-weather-command="refresh"]')?.focus({preventScroll:true});
-      }});
+      const view = window.NotchEmpty.show(empty,{icon:glyph('','cloud'),title:t('Météo indisponible'),hint:uiMessage(failure),actionLabel:t('Réessayer'),since,onAction(event) {event.stopPropagation(); weatherCommand(event); byId('weather-main').querySelector('.weather-tools [data-weather-command="refresh"]')?.focus({preventScroll:true});}});
       view.elements.action.dataset.weatherCommand = 'refresh';
     }
-    if (revealResult) for (const node of [current, narrative, outlook]) if (!node.hidden) node.classList.add('experience-weather-result');
+    if (revealResult) for (const node of [hero,stats,outlook]) if (!node.hidden) node.classList.add('experience-weather-result');
   }
+
   function renderWeatherSummary(button) {
     const next = localizedWeatherNarrative({...weather, busy: weatherBusy}), key = JSON.stringify(next);
     if (button.dataset.weatherNarrative === key) return;
@@ -2716,7 +2695,7 @@
       const size = document.createElement('span'); size.className = 'shelf-item-size'; size.textContent = item.size >= 1048576 ? (item.size / 1048576).toFixed(1) + ' ' + t('Mo') : Math.ceil(item.size / 1024) + ' ' + t('Ko');
       button.append(preview, name, size); card.append(button); shelfList.append(card);
     }
-    byId('shelf-drop').hidden = shelfItems.length > 0;
+    byId('shelf-drop').hidden = false;
     shelfList.hidden = shelfItems.length === 0;
     text(byId('shelf-count'), localSendCount(shelfItems.length));
     textUI(byId('shelf-status'), shelfError);
@@ -2948,7 +2927,6 @@
       else if (!music.cover) image.removeAttribute('src');
     }
     if (spectrumArtwork !== music.cover) { spectrumArtwork = music.cover; spectrumAnalyzed = ''; notch.style.setProperty('--spectrum-color', 'var(--color-fff)'); applyArtworkPalette(); coverLoaded({target: coverImages[0]}); }
-    byId('music-promote').hidden = !player.parentElement?.classList?.contains('activity-rail-cards');
     const paused = !music.playing || connectionLost;
     byId('music-toggle').setAttribute('aria-label', paused ? t('Lire') : t('Mettre en pause'));
     byId('music-play-icon').setAttribute('d', paused ? 'M8.5 4.8a1 1 0 0 0-1.5.86v12.68a1 1 0 0 0 1.5.86l10.5-6.34a1 1 0 0 0 0-1.72Z' : 'M7 5h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM15 5h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z');
@@ -3376,7 +3354,7 @@
   function protectedInteraction({ignoreFeedback = false} = {}) {
     const focused = document.hasFocus() ? document.activeElement : null;
     const editing = focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]');
-    return awaitingPointerEntry || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || !ignoreFeedback && state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
+    return awaitingPointerEntry || calendar?.isOpen() && calendar.isBusy() || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || !ignoreFeedback && state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
   }
   function scheduleCollapse(deactivated = false) {
     window.clearTimeout(collapseTimer); collapseTimer = 0;
@@ -3475,6 +3453,8 @@
   }
   function selectViewButton(button) {
     if (!button) return;
+    if (view === 'focus' && button.dataset.view !== 'focus') {focusConfigurationReturn = null; focusComponent.leaveRoute?.();}
+    if (view === 'tasks' && button.dataset.view !== 'tasks') tasksComponent?.leaveRoute?.();
     calendar?.close({restoreFocus:false});
     if (view === 'module-library' && button.dataset.view !== 'module-library') moduleLibrary?.hide();
     if (view === 'search' && button.dataset.view !== 'search') search?.close({restoreFocus: false, notify: false});
@@ -3740,7 +3720,7 @@
   calendar = window.NotchyCalendar.create({host:byId('calendar-player'),locale:i18n.locale,
     load:calendarPersistence.load, save:calendarPersistence.save,
     onClose:calendarClosed,
-    onChange() {renderWeather(); syncCalendarLayer();}
+    onChange(value) {renderWeather(); syncCalendarLayer(); if(!value.busy) recheckCollapse();}
   });
   void calendar.refresh();
   search = window.NotchySearch.create({host: byId('search-player'), invoke: invokeSearch, t,

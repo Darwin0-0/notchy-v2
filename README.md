@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/94bf59c0-2316-48e4-83d8-acb2e9363eca
 
 Notchy is a compact notch for Windows. Click to open your controls. Move away and the notch settles into its discreet view. Its panel adapts to the modules you choose and the space they need.
 
-Nook keeps the arrangement you choose, with your everyday essentials beside it. Open an activity for its detailed controls, then return to the same layout. Starting or pausing a focus session keeps your music in place.
+Nook keeps the arrangement you choose, with your everyday essentials beside it. Use an activity's buttons or clickable title for its detailed controls, then return to the same layout. Starting or pausing a focus session keeps your music in place.
 
 On your first launch, Mimo wakes up, takes a curious look and welcomes you in. An optional quick guide helps you find your way; revisit it from Settings whenever you need a reminder. The installed app starts with Windows and stays discreet after setup. You can turn this off in Settings.
 
@@ -33,7 +33,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 ## Make room for what matters
 
 - **Music within reach.** Notchy automatically follows compatible Windows media players, with artwork, playback controls, track progress and a softly animated spectrum. Everyday playback needs no personal API key. Add **Up next** with the optional Spotify connection.
-- **One place for tasks and Pomodoro.** Keep your next task beside your session, work in focused intervals, and take a short or long break when it is time.
+- **One place for tasks and Pomodoro.** Give a task a total time budget, including breaks, and preview its focus and rest intervals before adding it. The timer and task list share the same progress.
 - **A panel for each moment.** Choose Focus, Ambience, Day, Complete or Minimal from Scenarios in Settings. Optional rules follow your work and breaks; manual choices and ongoing interactions stay protected.
 - **Your day at a glance.** Read the weather, open detailed forecasts from the city, and keep appointments in a local calendar. Its icon changes color when you have something planned today.
 - **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
@@ -54,7 +54,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 1. [Download the Windows installer](https://github.com/Darwin0-0/notchy-v2/releases/latest) and run setup. No build tools are needed; setup downloads WebView2 if it is missing.
 2. Hover over the notch for a quick preview, then click to open the controls. Move away to return to the discreet view. Keyboard editing, file dialogs and active drags stay protected while you use them.
 3. Open **Settings → Modules** to arrange Music, Focus, Tasks, Weather and Shelf. Open **Tray** for files and LocalSend; save a copy to Downloads whenever you need one.
-4. Choose your city, add a task and prepare a focus session. Set its duration before starting. To adjust an active session, pause it from its settings; saved changes keep the time already spent. Back or Escape cancels an unsaved change.
+4. Choose your city and add a task: enter its title, set hours and minutes, review the interval plan, then choose **Add task**. A 90-minute budget includes three 25-minute focus intervals and three 5-minute breaks with the default settings. Pomodoro settings apply to new task plans; existing plans keep their timings and progress. Back or Escape cancels an unsaved form.
 5. Use **Ctrl+Space** for local search. Navigate with the arrow keys, press **Enter** to open a result or **Ctrl+Enter** to reveal it, and **Escape** to return. If the global shortcut is busy, Notchy tries **Ctrl+Shift+Space**; **Ctrl+K** also works inside Notchy.
 
 Your personal profiles and files stay in local data folders and are excluded from the source repository. Weather uses a public forecast service; Spotify is optional, and LocalSend connects devices on your local network. Setup and privacy details are in the [development guide](docs/DEVELOPMENT.md).
@@ -73,7 +73,9 @@ Have an idea for a module? Start on the [blank island in the module SDK](sdk/REA
 
 ## Architecture
 
-Notchy has three main places: **Nook** for your activities, **Tray** for files and nearby sharing, and **Settings** for General, Modules, Scenarios and Health. Select an activity card to open its detailed controls; return to Nook without losing the current song, task or timer.
+Notchy has three main places: **Nook** for your activities, **Tray** for files and nearby sharing, and **Settings** for General, Modules, Scenarios and Health. Buttons and clickable titles open detailed controls; the card background does not navigate. Return to Nook without losing the current song, task or timer.
+
+Focus has four automatic presentations, from a compact timer to a timer beside the task list. The available width and height choose the format; there are no size arrows to cycle through, and opening a detail does not change your saved module placement.
 
 The Rust core owns native settings, network diagnostics, device discovery and file operations. The interface reuses those results and keeps its presentation separate from them. Shared [design tokens](docs/tokens.md) keep activity colors, status colors, type and motion consistent. LocalSend works on the same local network without internet; when automatic discovery is unavailable, add a private IP or use the explicit local-network search in Health.
 
