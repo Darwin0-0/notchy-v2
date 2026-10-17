@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="empty-states.css">
   <link rel="stylesheet" href="search.css">
   <link rel="stylesheet" href="module-library.css">
+  <link rel="stylesheet" href="calendar.css">
   <script src="tokens.js" defer></script>
   <script src="i18n.js" defer></script>
   <script src="welcome.js" defer></script>
@@ -27,6 +28,7 @@
   <script src="search.js" defer></script>
   <script src="module-runtime.js" defer></script>
   <script src="module-library.js" defer></script>
+  <script src="calendar.js" defer></script>
   <script src="notch.js" defer></script>
 </head>
 <body>
@@ -178,6 +180,7 @@
         <div id="weather-picker" class="weather-picker" hidden><button class="weather-picker-back" type="button" data-weather-command="picker" aria-label="Revenir à la météo" data-i18n-aria-label="Revenir à la météo" data-i18n>Retour</button><form id="weather-search-form" data-weather-command="search"><label for="weather-city-input" data-i18n>Rechercher une ville</label><div><input id="weather-city-input" type="search" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Nom de la ville" data-i18n-placeholder="Nom de la ville"><button type="submit" data-weather-command="search" data-i18n>Rechercher</button></div></form><div id="weather-search-results" class="weather-search-results" role="group" aria-label="Villes trouvées" data-i18n-aria-label="Villes trouvées"></div></div>
         <p id="weather-status" class="weather-status" role="status" aria-live="polite"></p>
       </section>
+      <section id="calendar-player" class="calendar-player" aria-label="Agenda local" hidden data-i18n-aria-label="Agenda local"></section>
       <section id="welcome-player" class="welcome-player" aria-label="Bienvenue dans Notchy" hidden data-i18n-aria-label="Bienvenue dans Notchy"></section>
       <!-- Visual module editor, opened from the widget context menu. -->
       <section id="health-player" class="experience-view" hidden aria-label="Santé de Notchy" data-i18n-aria-label="Santé de Notchy"></section>

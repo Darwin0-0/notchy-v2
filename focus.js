@@ -14,6 +14,7 @@
   'use strict';
   const NOTCH_TOKENS = typeof module === 'object' && module.exports ? require('./tokens.js') : window.NOTCH_TOKENS;
   const STORAGE_KEY = 'notchy-minimal-focus-v1';
+  const TASK_LIST_MOTION = Object.freeze({check:120, strike:180, move:200, titleShift:4, easing:'cubic-bezier(.2,.8,.2,1)'});
     const FocusModel = (() => {
  'use strict';
  const defaults = () => ({task: '', tasks: [], activeTaskId: null, taskPrompt: null, sessionSummary: null, minutes: 25, remaining: 1500, deadline: null, complete: false, sessionActive: false});
@@ -208,6 +209,64 @@
     });
     clock.dataset.value = value;
   }
+  function taskListOrder(tasks, activeId, completed = []) {
+    const byId=new Map(tasks.map(task=>[task.id,task])),done=completed.filter(id=>byId.get(id)?.done);
+    for(const task of tasks)if(task.done&&!done.includes(task.id))done.push(task.id);
+    const pending=tasks.filter(task=>!task.done),active=pending.findIndex(task=>task.id===activeId);
+    if(active>0)pending.unshift(...pending.splice(active,1));
+    return [...pending.map(task=>task.id),...done];
+  }
+  function createTaskListMotion(list, {motion = () => true} = {}) {
+    const document=list.ownerDocument,window=document.defaultView,reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+    const rows=new Map(),previous=new Map(),completing=new Map(),moving=new Map();
+    list.style.setProperty('--task-check-duration',TASK_LIST_MOTION.check+'ms');list.style.setProperty('--task-strike-duration',TASK_LIST_MOTION.strike+'ms');
+    let desired=[],completed=[],disposed=false;
+    const enabled=()=>!disposed&&!document.hidden&&!reduced.matches&&motion()!==false&&!!list.getClientRects().length;
+    function cancelCompletion(id){const entry=completing.get(id);if(!entry)return;completing.delete(id);entry.row.classList.remove('task-completing');delete entry.row.dataset.taskMotion;entry.check?.cancel();entry.strike.cancel();}
+    function place(){
+      if(disposed||completing.size)return;
+      const focused=list.contains(document.activeElement)?document.activeElement:null,scroll=list.scrollTop;
+      const before=new Map([...rows].map(([id,row])=>[id,row.getBoundingClientRect().top]));
+      for(const animation of moving.values())animation.cancel();moving.clear();
+      desired.forEach((id,index)=>{const row=rows.get(id);if(row&&list.children[index]!==row)list.insertBefore(row,list.children[index]||null);});
+      list.scrollTop=scroll;
+      if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
+      if(!enabled())return;
+      for(const id of desired){const row=rows.get(id),offset=before.get(id)-row.getBoundingClientRect().top;
+        if(!Number.isFinite(offset)||Math.abs(offset)<.5||!row.animate)continue;
+        const animation=row.animate([{transform:'translateY('+offset+'px)'},{transform:'translateY(0px)'}],{duration:TASK_LIST_MOTION.move,easing:TASK_LIST_MOTION.easing});
+        moving.set(id,animation);const finish=()=>{if(moving.get(id)===animation)moving.delete(id);};animation.finished.then(finish,finish);
+      }
+    }
+    function complete(row,id){
+      const title=row.querySelector('.tasks-module-select,.focus-task-select'),path=row.querySelector('.tasks-module-check path,.focus-task-check path');
+      if(!title?.animate)return;
+      if(document.createRange){const range=document.createRange();range.selectNodeContents(title);title.style.setProperty('--task-strike-width',Math.min(title.clientWidth,range.getBoundingClientRect().width)+'px');}
+      row.classList.add('task-completing');row.dataset.taskMotion='checking';
+      const check=path?.animate?.([{strokeDasharray:'25',strokeDashoffset:'25'},{strokeDasharray:'25',strokeDashoffset:'0'}],{duration:TASK_LIST_MOTION.check,easing:TASK_LIST_MOTION.easing});
+      const strike=title.animate([{transform:'translateX(0px)'},{transform:'translateX('+TASK_LIST_MOTION.titleShift+'px)',offset:.65},{transform:'translateX(0px)'}],
+        {delay:TASK_LIST_MOTION.check,duration:TASK_LIST_MOTION.strike,easing:TASK_LIST_MOTION.easing,fill:'both'});
+      const entry={row,check,strike};completing.set(id,entry);
+      check?.finished.then(()=>{if(completing.get(id)===entry)row.dataset.taskMotion='striking';},()=>{});
+      const finish=()=>{if(completing.get(id)!==entry)return;completing.delete(id);row.classList.remove('task-completing');delete row.dataset.taskMotion;strike.cancel();place();};
+      strike.finished.then(finish,finish);
+    }
+    function update(tasks,activeId){
+      const ids=new Set(tasks.map(task=>task.id));
+      for(const[id,row]of rows)if(!ids.has(id)){cancelCompletion(id);moving.get(id)?.cancel();moving.delete(id);row.remove();rows.delete(id);previous.delete(id);}
+      desired=taskListOrder(tasks,activeId,completed);completed=desired.filter(id=>tasks.find(task=>task.id===id)?.done);
+      for(const task of tasks){const row=rows.get(task.id);if(!row)continue;if(!row.isConnected)list.append(row);
+        if(!task.done)cancelCompletion(task.id);else if(previous.get(task.id)===false&&!completing.has(task.id)&&enabled())complete(row,task.id);
+        previous.set(task.id,task.done);
+      }
+      if(!enabled())for(const id of [...completing.keys()])cancelCompletion(id);
+      place();
+    }
+    function settle(){if(!enabled()){for(const id of [...completing.keys()])cancelCompletion(id);place();}}
+    reduced.addEventListener('change',settle);document.addEventListener('visibilitychange',settle);
+    return {row(id,create){if(!rows.has(id))rows.set(id,create());return rows.get(id);},update,settle,
+      dispose(){disposed=true;for(const id of [...completing.keys()])cancelCompletion(id);for(const animation of moving.values())animation.cancel();moving.clear();reduced.removeEventListener('change',settle);document.removeEventListener('visibilitychange',settle);rows.clear();}};
+  }
   function create({host, changed = () => {}, openTasks = null, openConfiguration = null, closeConfiguration = null, restoreTaskFocus = null, motion = true, storage, presentation = 'default', now = Date.now, setTimeout: schedule, clearTimeout: unschedule} = {}) {
     const document = host?.ownerDocument;
     if (!document) throw new TypeError('Focus nécessite un élément hôte.');
@@ -299,6 +358,7 @@
     const label = () => t(model.pomodoro?.phase === 'break' ? model.pomodoro.breakKind === 'long' ? 'Pause longue' : 'Pause courte' : 'Concentration');
     const usable = () => enabled && !hidden && !document.hidden && !disposed;
     const motionEnabled = () => (typeof motion === 'function' ? motion() : motion) !== false && !reduced.matches;
+    const taskListMotion=createTaskListMotion($('focus-task-list'),{motion:()=>usable()&&visible&&motionEnabled()});
     const save = () => {try {storage?.setItem(STORAGE_KEY, JSON.stringify({state: model, settings}));} catch {}};
     function stopTransportAnimations() {for (const animation of transportAnimations) animation.cancel(); transportAnimations.clear(); for (const old of host.querySelectorAll('.focus-transport-exit')) old.remove();}
     function stopAnimations() {stopTransportAnimations(); for (const animation of animations) animation.cancel(); animations.clear(); for (const old of host.querySelectorAll('.focus-digit-old')) old.remove();}
@@ -358,6 +418,7 @@
     }
     function summary() {const card = focusCardValues(model, settings, now(), t); return {...card, label: label(), running: !!model.deadline, time: time(card.seconds), configOpen, taskPickerOpen};}
     function renderTasks() {
+      taskListMotion.settle();
       put('focus-selected-task', model.complete ? t('Cycle terminé') : model.pomodoro?.phase === 'break' ? label() : model.task || t('À ton rythme'));
       put('focus-task-link', model.task || t('Lier une tâche'));
       $('focus-task-link').setAttribute('aria-label', model.task ? t('Changer la tâche liée : {task}', {task: model.task}) : t('Lier une tâche'));
@@ -369,22 +430,21 @@
       const focused = document.activeElement, restore = host.contains(focused) && focused?.dataset?.focusTaskAction ? {action: focused.dataset.focusTaskAction, id: focused.dataset.taskId} : null;
       const scrollTop = $('focus-task-list').scrollTop;
       const nextTask = model.tasks.find(task => !task.done && task.id !== model.activeTaskId);
-      const ordered = [...model.tasks].sort((a,b) => Number(b.id===model.activeTaskId)-Number(a.id===model.activeTaskId) || Number(b.done)-Number(a.done));
-      const rows = ordered.map(task => {
-        const previous = [...$('focus-task-list').children].find(row => row.dataset.taskId === task.id);
-        const row = document.createElement('div'); row.className = 'focus-task-row'; row.dataset.taskId = task.id; row.setAttribute('role', 'listitem'); row.classList.toggle('current', task.id === model.activeTaskId); row.classList.toggle('done', task.done); row.classList.toggle('is-next', task.id === nextTask?.id); row.classList.toggle('just-completed', task.done && !!previous && !previous.classList.contains('done')); row.style.setProperty('--task-progress', String(Math.min(1,(task.completedCycles||0)/(task.estimatedCycles||1))));
-        const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'focus-task-check'; toggle.dataset.focusTaskAction = 'toggle'; toggle.dataset.taskId = task.id;
+      for (const task of model.tasks) {
+        const row=taskListMotion.row(task.id,()=>{const node=document.createElement('div');node.className='focus-task-row';node.dataset.taskId=task.id;node.setAttribute('role','listitem');return node;});
+        row.classList.toggle('current', task.id === model.activeTaskId); row.classList.toggle('done', task.done); row.classList.toggle('is-next', task.id === nextTask?.id); row.style.setProperty('--task-progress', String(Math.min(1,(task.completedCycles||0)/(task.estimatedCycles||1))));
+        const toggle = row.querySelector('.focus-task-check') || document.createElement('button'); toggle.type = 'button'; toggle.className = 'focus-task-check'; toggle.dataset.focusTaskAction = 'toggle'; toggle.dataset.taskId = task.id;
         toggle.setAttribute('role', 'checkbox'); toggle.setAttribute('aria-checked', String(task.done)); toggle.setAttribute('aria-label', t(task.done ? 'Rouvrir : {task}' : 'Terminer : {task}', {task: task.title}));
-        toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
-        const select = document.createElement('button'); select.type = 'button'; select.className = 'focus-task-select'; select.dataset.focusTaskAction = 'select'; select.dataset.taskId = task.id; select.textContent = task.title;
+        if(!toggle.firstElementChild)toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
+        const select = row.querySelector('.focus-task-select') || document.createElement('button'); select.type = 'button'; select.className = 'focus-task-select'; select.dataset.focusTaskAction = 'select'; select.dataset.taskId = task.id; select.textContent = task.title;
         select.title = task.title; select.disabled = task.done; select.setAttribute('aria-pressed', String(task.id === model.activeTaskId)); select.setAttribute('aria-label', t('Choisir pour Focus : {task}', {task: task.title}));
-        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'focus-task-remove'; remove.dataset.focusTaskAction = 'delete'; remove.dataset.taskId = task.id; remove.setAttribute('aria-label', t('Supprimer : {task}', {task: task.title}));
-        remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>';
-        const cycles = document.createElement('span'); cycles.className = 'focus-task-cycles'; cycles.textContent = `${task.completedCycles || 0}/${task.estimatedCycles || 1}`; cycles.title = t('{completed} sur {estimated} cycles', {completed: task.completedCycles || 0, estimated: task.estimatedCycles || 1});
-        const next = document.createElement('small'); next.className = 'tasks-row-next'; next.hidden = task.id !== nextTask?.id; next.textContent = t('Suivante');
-        row.append(toggle, select, next, cycles, remove); return row;
-      });
-      $('focus-task-list').replaceChildren(...rows); $('focus-task-list').scrollTop = scrollTop;
+        const remove = row.querySelector('.focus-task-remove') || document.createElement('button'); remove.type = 'button'; remove.className = 'focus-task-remove'; remove.dataset.focusTaskAction = 'delete'; remove.dataset.taskId = task.id; remove.setAttribute('aria-label', t('Supprimer : {task}', {task: task.title}));
+        if(!remove.firstElementChild)remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>';
+        const cycles = row.querySelector('.focus-task-cycles') || document.createElement('span'); cycles.className = 'focus-task-cycles'; cycles.textContent = `${task.completedCycles || 0}/${task.estimatedCycles || 1}`; cycles.title = t('{completed} sur {estimated} cycles', {completed: task.completedCycles || 0, estimated: task.estimatedCycles || 1});
+        const next = row.querySelector('.tasks-row-next') || document.createElement('small'); next.className = 'tasks-row-next'; next.hidden = task.id !== nextTask?.id; next.textContent = t('Suivante');
+        if(!row.firstElementChild)row.append(toggle, select, next, cycles, remove);
+      }
+      taskListMotion.update(model.tasks,model.activeTaskId); $('focus-task-list').scrollTop = scrollTop;
       if (restore) ([...$('focus-task-list').querySelectorAll('[data-focus-task-action]')].find(button => button.dataset.taskId === restore.id && button.dataset.focusTaskAction === restore.action && !button.disabled) || $('focus-task-input')).focus({preventScroll: true});
     }
     function render(notify = true, event = null) {
@@ -604,7 +664,7 @@
     document.addEventListener('visibilitychange', wake); reduced.addEventListener('change', wake);
     const unsubscribeLanguage = i18n?.onChange?.(() => {if (disposed) return; translateStatic(); taskSignature = ''; render();});
     function dispose() {
-      if (disposed) return; disposed = true; stopTimer(); stopAnimations(); drag = null;
+      if (disposed) return; disposed = true; stopTimer(); stopAnimations(); taskListMotion.dispose(); drag = null;
       host.removeEventListener('click', click); host.removeEventListener('keydown', pickerKeydown); host.removeEventListener('input', input); $('focus-task-form').removeEventListener('submit', submitTask); ruler.removeEventListener('wheel', wheel);
       ruler.removeEventListener('pointerdown', pointerDown); ruler.removeEventListener('pointermove', pointerMove); ruler.removeEventListener('pointerup', pointerUp); ruler.removeEventListener('pointercancel', pointerUp);
       document.removeEventListener('visibilitychange', wake); reduced.removeEventListener('change', wake);
@@ -622,7 +682,7 @@
     const icon = (path, filled = false) => `<svg viewBox="0 0 24 24" aria-hidden="true"${filled ? ' class="is-filled"' : ''}><path d="${path}"/></svg>`;
     const check = icon('M5 12.5l4.5 4.5L19 7.5'), plus = icon('M12 5v14M5 12h14');
     const timer = icon('M12 9.5v4l2.5 1.5M9.5 3h5M12 3v3M19.5 13.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0');
-    let disposed = false, signature = '', status = '', previousTasks = new Map();
+    let disposed = false, signature = '', status = '';
     host.classList.add('tasks-module');
     host.innerHTML = `<div class="tasks-list-pane"><header class="tasks-module-heading"><strong></strong><span data-tasks-count></span><button type="button" class="tasks-unlink" data-task-action="unlink"></button></header>
       <div class="tasks-module-list" role="list"></div><div class="tasks-module-empty"><svg viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="8" y="8" width="40" height="40" rx="12"/><path d="m18 28 7 7 14-14"/></svg><strong></strong><span></span><button type="button" data-task-action="add"></button></div></div>
@@ -633,6 +693,7 @@
       <form class="tasks-module-add" data-tasks-form><span aria-hidden="true">${plus}</span><input data-tasks-input type="text" maxlength="500" autocomplete="off"><button type="submit">${plus}</button></form>
       <p class="tasks-module-status" role="status" aria-live="polite"></p>`;
     const $ = selector => host.querySelector(selector), list = $('.tasks-module-list');
+    const taskListMotion=createTaskListMotion(list,{motion:()=>document.body?.dataset.motion!=='false'});
     function cycleDots(button, task) {
       button.replaceChildren();
       if (!task) return;
@@ -644,6 +705,7 @@
     }
     function render() {
       if (disposed) return;
+      taskListMotion.settle();
       const state = focus.getState(), selected = state.tasks.find(task => task.id === state.activeTaskId && !task.done), current = selected || state.tasks.find(task => !task.done);
       const done = state.tasks.filter(task => task.done).length, count = `${done} / ${state.tasks.length}`, presentation = host.dataset.presentation || 'full';
       host.dataset.presentation = presentation; host.dataset.taskEmpty = String(!current); host.dataset.taskListEmpty = String(state.tasks.length === 0);
@@ -681,20 +743,20 @@
       const focused = document.activeElement, restore = host.contains(focused) && focused?.dataset?.taskId ? {id: focused.dataset.taskId, action: focused.dataset.taskAction} : null;
       const scrollTop = list.scrollTop;
       const nextTask = state.tasks.find(task => !task.done && task.id !== state.activeTaskId);
-      const ordered = [...state.tasks].sort((a,b) => Number(b.id===state.activeTaskId)-Number(a.id===state.activeTaskId) || Number(b.done)-Number(a.done));
-      list.replaceChildren(...ordered.map(task => {
-        const row = document.createElement('div'); row.className = 'tasks-module-row'; row.dataset.taskId = task.id; row.setAttribute('role', 'listitem'); row.classList.toggle('is-current', task.id === state.activeTaskId); row.classList.toggle('is-done', task.done); row.classList.toggle('is-next', task.id === nextTask?.id); row.classList.toggle('just-completed', task.done && previousTasks.get(task.id) === false);
+      for (const task of state.tasks) {
+        const row=taskListMotion.row(task.id,()=>{const node=document.createElement('div');node.className='tasks-module-row';node.dataset.taskId=task.id;node.setAttribute('role','listitem');return node;});
+        row.classList.toggle('is-current', task.id === state.activeTaskId); row.classList.toggle('is-done', task.done); row.classList.toggle('is-next', task.id === nextTask?.id);
         row.style.setProperty('--task-progress', String(Math.min(1, (task.completedCycles || 0) / (task.estimatedCycles || 1))));
-        const button = (action, className) => {const node = document.createElement('button'); node.type = 'button'; node.dataset.taskAction = action; node.dataset.taskId = task.id; node.className = className; return node;};
-        const toggle = button('toggle', 'tasks-module-check'); toggle.setAttribute('role', 'checkbox'); toggle.setAttribute('aria-checked', String(task.done)); toggle.setAttribute('aria-label', t(task.done ? 'Rouvrir : {task}' : 'Terminer : {task}', {task: task.title})); toggle.innerHTML = check;
+        const button = (action, className) => {const node = row.querySelector('.'+className) || document.createElement('button'); node.type = 'button'; node.dataset.taskAction = action; node.dataset.taskId = task.id; node.className = className; return node;};
+        const toggle = button('toggle', 'tasks-module-check'); toggle.setAttribute('role', 'checkbox'); toggle.setAttribute('aria-checked', String(task.done)); toggle.setAttribute('aria-label', t(task.done ? 'Rouvrir : {task}' : 'Terminer : {task}', {task: task.title})); if(!toggle.firstElementChild)toggle.innerHTML = check;
         const select = button('select', 'tasks-module-select'); select.textContent = task.title; select.title = task.title; select.disabled = task.done; select.setAttribute('aria-pressed', String(task.id === state.activeTaskId)); select.setAttribute('aria-label', t('Choisir pour Focus : {task}', {task: task.title}));
         const cycles = button('estimate', 'tasks-cycle-dots'); cycleDots(cycles, task);
-        const active = document.createElement('span'); active.className = 'tasks-module-active'; active.hidden = task.id !== state.activeTaskId; active.innerHTML = timer; active.setAttribute('aria-label', t('Tâche liée à Focus'));
-        const remove = button('delete', 'tasks-module-delete'); remove.setAttribute('aria-label', t('Supprimer : {task}', {task: task.title})); remove.innerHTML = icon('M7 7l10 10M17 7 7 17');
-        const next = document.createElement('small'); next.className = 'tasks-row-next'; next.hidden = task.id !== nextTask?.id; next.textContent = t('Suivante');
-        row.append(toggle, select, next, cycles, active, remove); return row;
-      }));
-      previousTasks = new Map(state.tasks.map(task => [task.id, task.done]));
+        const active = row.querySelector('.tasks-module-active') || document.createElement('span'); active.className = 'tasks-module-active'; active.hidden = task.id !== state.activeTaskId; if(!active.firstElementChild)active.innerHTML = timer; active.setAttribute('aria-label', t('Tâche liée à Focus'));
+        const remove = button('delete', 'tasks-module-delete'); remove.setAttribute('aria-label', t('Supprimer : {task}', {task: task.title})); if(!remove.firstElementChild)remove.innerHTML = icon('M7 7l10 10M17 7 7 17');
+        const next = row.querySelector('.tasks-row-next') || document.createElement('small'); next.className = 'tasks-row-next'; next.hidden = task.id !== nextTask?.id; next.textContent = t('Suivante');
+        if(!row.firstElementChild)row.append(toggle, select, next, cycles, active, remove);
+      }
+      taskListMotion.update(state.tasks,state.activeTaskId);
       list.scrollTop = scrollTop;
       if (restore) ([...host.querySelectorAll('[data-task-action]')].find(button => button.dataset.taskId === restore.id && button.dataset.taskAction === restore.action && !button.disabled) || input).focus({preventScroll: true});
     }
@@ -724,7 +786,7 @@
     const unsubscribe = i18n?.onChange?.(render);
     render();
     return Object.freeze({render, focusInput() {$('[data-tasks-input]').focus({preventScroll: true});}, inspect: () => ({count: focus.getState().tasks.length, activeTaskId: focus.getState().activeTaskId, presentation: host.dataset.presentation, disposed}),
-      dispose() {if (disposed) return; disposed = true; host.removeEventListener('click', click); host.removeEventListener('change', estimate); $('[data-tasks-form]').removeEventListener('submit', submit); unsubscribe?.();}});
+      dispose() {if (disposed) return; disposed = true; taskListMotion.dispose(); host.removeEventListener('click', click); host.removeEventListener('change', estimate); $('[data-tasks-form]').removeEventListener('submit', submit); unsubscribe?.();}});
   }
   function mountLab(document) {
     const window = document.defaultView, host = document.getElementById('focus-player');
@@ -735,5 +797,5 @@
     window.notchyFocusLab = focus; window.addEventListener('pagehide', () => focus.dispose(), {once: true});
     return focus;
   }
-  return {FocusModel, focusConfiguration, focusCardValues, renderClock, create, createTasks, mountLab, STORAGE_KEY};
+  return {FocusModel, focusConfiguration, focusCardValues, renderClock, taskListOrder, TASK_LIST_MOTION, create, createTasks, mountLab, STORAGE_KEY};
 });

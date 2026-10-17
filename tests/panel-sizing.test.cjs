@@ -17,6 +17,7 @@ function fixture() {
   const properties = {}, targets = [], options = [], homeProperties = {};
   const home = {dataset: {}, style: {setProperty(name, value) {homeProperties[name] = value;}}};
   const context = {
+    syncCalendarLayer() {},
     ISLAND_CONFIG, closedBandSize, homeModuleLayout, nookGridPlan, shape, islandPage:'music',
     disposed: false, state: 'open', view: 'music', closingTo: null, fileDragging: false, editorActive: false, ia: {render() {}},
     musicActive: false, focusActive: false, transferActive: false, animations: false,

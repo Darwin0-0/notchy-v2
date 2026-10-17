@@ -34,6 +34,22 @@ test('forecast validation removes impossible dates, duplicate slots and invalid 
   assert.deepEqual(value.days, [{date: '2026-10-15', min: 17, max: 26}]);
 });
 
+test('weather typography converts real temperatures without inventing unavailable readings', () => {
+  for (const [temperature, celsius, fahrenheit] of [[14,14,57],[27,27,81],[0,0,32],[-40,-40,-40],[14.4,14,58]]) {
+    const value = weatherDesignValues({temperature}); assert.equal(value.celsius, celsius); assert.equal(value.fahrenheit, fahrenheit); assert.equal(value.available, true);
+  }
+  for (const temperature of [null, undefined, NaN, Infinity, 151, -151, '14']) {
+    const value = weatherDesignValues({temperature}); assert.equal(value.available, false); assert.equal(value.celsius, null); assert.equal(value.fahrenheit, null);
+  }
+});
+
+test('weather calendar distinguishes unknown data from a confirmed empty or populated day', () => {
+  for (const count of [0,1,12,9999]) assert.equal(weatherDesignValues({calendarTodayCount:count}).calendarTodayCount, count);
+  for (const count of [undefined,null,-1,1.5,'2',Infinity,10000]) assert.equal(weatherDesignValues({calendarTodayCount:count}).calendarTodayCount, null);
+  const start = new Date(2026,9,17,0,0,1).getTime(), end = new Date(2026,9,17,23,59,59).getTime();
+  assert.equal(weatherDesignValues({}, 'full', start).date, '2026-10-17'); assert.equal(weatherDesignValues({}, 'full', end).date, '2026-10-17');
+});
+
 for (const presentation of ['full', 'scene', 'rail']) test(`weather ${presentation} renders the latest condition independently of its hidden icon template`, () => {
   const node = tag => ({tag, children: [], dataset: {}, attributes: {}, classList: {add() {}},
     append(...items) {this.children.push(...items);}, prepend(...items) {this.children.unshift(...items);},
@@ -56,5 +72,15 @@ for (const presentation of ['full', 'scene', 'rail']) test(`weather ${presentati
     assert.equal(host.querySelector('svg').querySelector('path').attributes.d, weatherConditionPath(condition));
     assert.equal(templatePath.attributes.d, weatherConditionPath('sun'), 'rendering must not mutate the shared template');
     assert.equal(host.dataset.condition, condition);
+  }
+  for (const count of [undefined,null,0,1,4,-1,'3']) {
+    scope.weather.calendarTodayCount = count; scope.render(host, presentation);
+    const stack = host.children[0], calendar = stack.children[1], city = stack.children[2], degrees = stack.children[3];
+    assert.equal(stack.children.length, 5); assert.equal(calendar.tag, 'button'); assert.equal(calendar.dataset.weatherCommand, 'calendar');
+    assert.equal(calendar.attributes['aria-haspopup'], 'dialog'); assert.equal(calendar.attributes['aria-controls'], 'calendar-player'); assert.equal(calendar.attributes['aria-expanded'], 'false');
+    assert.equal(calendar.dataset.hasEvents, String(Number.isSafeInteger(count) && count > 0));
+    assert.equal(city.tag, 'button'); assert.equal(city.dataset.weatherCommand, 'details');
+    assert.equal(degrees.children[0].textContent, '19°C'); assert.equal(degrees.children[2].textContent, '66°F');
+    scope.render(host, presentation); assert.equal(host.children[0], stack, 'unchanged weather/calendar must preserve the focused control rather than rebuild it');
   }
 });

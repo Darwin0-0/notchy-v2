@@ -2,6 +2,12 @@
   'use strict';
   const storageKey = 'notchy-language-v1';
   const english = {
+    'Agenda local':'Local calendar',
+    'Ouvrir l’agenda · {date}':'Open calendar · {date}',
+    'Voir la météo à {city}':'View weather in {city}',
+    '1 rendez-vous aujourd’hui':'1 appointment today',
+    '{count} rendez-vous aujourd’hui':'{count} appointments today',
+    'Température en degrés Celsius et Fahrenheit':'Temperature in Celsius and Fahrenheit',
     'Bibliothèque de modules':'Module library', 'Bibliothèque':'Library',
     'Enregistrement impossible. Réessaie.':'Could not save. Try again.',
     'Entre une adresse IP locale valide (ex. 192.168.1.20).':'Enter a valid local IP address (e.g. 192.168.1.20).',

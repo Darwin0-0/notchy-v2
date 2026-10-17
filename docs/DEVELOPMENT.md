@@ -130,6 +130,8 @@ Replace the placeholder with your own 32-character hexadecimal client ID. Do not
 
 Weather uses Open-Meteo without a personal key. Current-location access depends on Windows permissions; a city can be chosen manually.
 
+The calendar stores appointments under `notchy-calendar-v1` in the existing local preferences profile. Native reads and writes use guarded `settings_get` and `settings_set` commands. The closed schema accepts up to 200 appointments with a title, a local date and same-day start and end times. A failed save leaves the previous appointments intact. Damaged calendar entries remain private recovery data; reads report them as unavailable, and changing another preference does not erase them. The calendar has no external account connection or synchronisation.
+
 LocalSend starts on every normal launch, including an existing Windows startup command that contains only `--autostart`; opening Tray is not required for reception or discovery. The older `--localsend` flag remains compatible but is no longer required. A deliberate **Stop** keeps sharing off for that process; restarting Notchy starts it again. `--desktop-check` never starts LocalSend or opens its network listeners automatically. A listen failure leaves the application usable and appears in Tray and Health, where the user can retry.
 
 Devices must be able to reach each other on the local network, and Windows Firewall may require permission. Incoming files still require explicit acceptance. LocalSend has no artificial byte-size cap per file or transfer. Available disk space, Shelf file-count limits and preview/OCR/conversion processing limits are separate constraints.

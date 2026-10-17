@@ -18,9 +18,21 @@ A duration cannot end before the time already spent, and the session count canno
 
 The small Focus card exposes its settings action too. A session does not need to become the primary home module to be configured.
 
+Completing a task saves its state immediately, checks the circle, draws a line through its title with a small nudge, then moves it below the completed tasks while the next pending row takes its place. You can reopen or remove a task during that sequence; keyboard focus, scroll position, earned cycles and stored task order are preserved, and reduced motion applies the result immediately.
+
 ## Music
 
 Open the player's detail controls and return to Nook without exchanging the Music and Focus positions. Up next remains a sliding drawer beside the current player, with its own close action. It uses the optional Spotify connection; ordinary Windows playback controls remain separate.
+
+Track metadata and artwork update immediately. New-track announcements stay quiet while you use the player, queue, search or another Notchy control. Suppressed announcements are discarded, so leaving the panel does not replay the tracks you just browsed.
+
+## Weather and your local calendar
+
+The weather card shows the day, date, city, Celsius and Fahrenheit readings, and current conditions. Hovering the date or city highlights the action; it never opens a view. Click the date to open your local calendar. Click the city to see detailed forecasts; choosing another city is a separate action there.
+
+The calendar icon is gray for a confirmed empty day and accented when you have appointments today. While the calendar is loading or unavailable, Notchy does not claim the day is empty. Appointments belong to this Notchy profile and stay on this computer; they do not connect to an external calendar.
+
+Choose a day, add a title and a start and end time, and save. A successful save is required before an appointment appears. Delete removes that appointment. Return or Escape closes the calendar and restores the date control in the same home arrangement. Escape inside the add form first cancels that draft. Keyboard arrows move between dates, and Page Up or Page Down changes the month.
 
 ## Files and local sharing
 

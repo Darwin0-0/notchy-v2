@@ -139,7 +139,7 @@ mod experience_preference_tests {
 
     #[test]
     fn preference_commands_whitelist_and_validate_both_new_values_and_deletion() {
-        assert_eq!(KEYS.len(), 9);
+        assert_eq!(KEYS.len(), 10);
         for (key, value) in [(ORDER, order().to_string()), (FAVORITES, json!([favorite(0)]).to_string())] {
             let command = json!({"key":key,"value":value});
             assert_eq!(preference_input(&command).unwrap(), (key, Some(value.as_str())));
@@ -398,7 +398,9 @@ async fn settings_get(window:WebviewWindow,state:State<'_,Arc<DesktopState>>)->R
 async fn settings_set(window:WebviewWindow,state:State<'_,Arc<DesktopState>>,patch:Value)->Result<Value,String> {
     native_guard(&window,&state)?; let mut preferences=state.preferences.lock().await;
     let next=notchy::settings::merge(&preferences,&patch).map_err(|error|error.message)?;
-    let result=replace_preferences(&state,next.clone()).await?; *preferences=next; refresh_preferences_tray(&state,&preferences)?; Ok(result)
+    let result=replace_preferences(&state,next.clone()).await?; *preferences=next;
+    // A tray-label refresh must not turn an already persisted change into an apparent failed save.
+    let _=refresh_preferences_tray(&state,&preferences); Ok(result)
 }
 #[tauri::command]
 async fn favorites_list(window:WebviewWindow,state:State<'_,Arc<DesktopState>>)->Result<Value,String> {

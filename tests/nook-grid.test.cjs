@@ -200,7 +200,7 @@ test('the LocalSend tile opens pending consent or the real file picker route ins
 
 function headerNavigationFixture({view='nook',page='tasks'}={}) {
   const moduleSettings={enabled:[...installed,'tasks'],slots:['music','focus','weather',null]},renders=[];
-  const button={dataset:{view:'nook'}},scope={view,state:'open',islandPage:page,disposed:false,moduleSettings,
+  const button={dataset:{view:'nook'}},scope={calendar:null,view,state:'open',islandPage:page,disposed:false,moduleSettings,
     shelfLoaded:true,shelfBusy:false,fileDragging:false,moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),
     welcome:null,t:value=>value,toggle:{},menu:{hidden:false,contains:element=>element===button},panel:{setAttribute(){}},byId:()=>({}),
     getModuleEditorActive:()=>false,builtinVisible:()=>false,isModuleEnabled:id=>moduleSettings.enabled.includes(id),scenarioController:null,
@@ -243,7 +243,7 @@ test('the Tasks navigation destination and internal Nook returns retain their ex
 });
 
 test('returning to a visible Shelf summary reloads an invalidated file cache once instead of showing stale files', () => {
-  const loads=[],scope={view:'files',state:'open',islandPage:'essential',disposed:false,shelfLoaded:false,shelfBusy:false,fileDragging:false,
+  const loads=[],scope={calendar:null,view:'files',state:'open',islandPage:'essential',disposed:false,shelfLoaded:false,shelfBusy:false,fileDragging:false,
     moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),welcome:null,t:value=>value,
     toggle:{},menu:{},panel:{setAttribute(){}},byId:()=>({}),getModuleEditorActive:()=>false,builtinVisible:()=>false,
     getHomeSlots:()=>['weather','shelf',null,null],scenarioController:null,

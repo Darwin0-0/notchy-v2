@@ -432,9 +432,11 @@
     return Object.hasOwn(paths, icon) ? paths[icon] : cloud;
   }
 
-  function weatherDesignValues(snapshot = {}, presentation = 'full') {
+  function weatherDesignValues(snapshot = {}, presentation = 'full', now = Date.now()) {
     const size = ['full', 'scene', 'rail'].includes(presentation) ? presentation : 'full';
-    const available = Number.isFinite(snapshot.temperature), validTemperature = value => Number.isFinite(value) && Math.abs(value) <= 150;
+    const validTemperature = value => Number.isFinite(value) && Math.abs(value) <= 150, available = validTemperature(snapshot.temperature);
+    const today = new Date(now); if (!Number.isFinite(today.getTime()) || today.getFullYear() < 1900 || today.getFullYear() > 9999) today.setTime(Date.now());
+    const date = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
     const validDate = value => {
       if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
       const date = new Date(value + 'T12:00:00Z');
@@ -450,7 +452,9 @@
       if (!validDate(day?.date) || !validTemperature(day.min) || !validTemperature(day.max) || day.min > day.max || seenDays.has(day.date)) return false;
       seenDays.add(day.date); return true;
     }).slice(0, 3).map(day => ({date: day.date, min: Math.round(day.min), max: Math.round(day.max)})) : [];
-    return {size, available, hours, days, narrative: size !== 'rail' && available,
+    return {size, available, hours, days, narrative: size !== 'rail' && available, date,
+      celsius: available ? Math.round(snapshot.temperature) : null, fahrenheit: available ? Math.round(snapshot.temperature * 9 / 5 + 32) : null,
+      calendarTodayCount: Number.isSafeInteger(snapshot.calendarTodayCount) && snapshot.calendarTodayCount >= 0 && snapshot.calendarTodayCount <= 9999 ? snapshot.calendarTodayCount : null,
       min: validTemperature(snapshot.min) ? Math.round(snapshot.min) : null, max: validTemperature(snapshot.max) ? Math.round(snapshot.max) : null,
       rainRisk: Number.isFinite(snapshot.rainRisk) ? Math.round(Math.max(0, Math.min(100, snapshot.rainRisk))) : null};
   }
@@ -564,6 +568,32 @@
   const menu = document.getElementById('notch-menu');
   const menuButtons = [...menu.querySelectorAll('[data-view]')];
   let detailReturn = null, detailView = '';
+  let calendar = null;
+  let calendarReturnHost = null;
+  const calendarInert = new Map();
+  function syncCalendarLayer() {
+    for (const button of panel.querySelectorAll('[data-weather-command="calendar"]')) button.setAttribute('aria-expanded', String(!!calendar?.isOpen()));
+    if (calendar?.isOpen()) {
+      for (const child of panel.children) if (child.id !== 'calendar-player') {
+        if (!calendarInert.has(child)) calendarInert.set(child, child.inert);
+        child.inert = true;
+      }
+    } else {
+      for (const [child, inert] of calendarInert) if (child.isConnected) child.inert = inert;
+      calendarInert.clear();
+    }
+  }
+  function openCalendar(trigger) {
+    if (!calendar || state !== 'open' || getModuleEditorActive()) return;
+    calendarReturnHost = trigger.closest('.weather-design');
+    calendar.open({trigger, keyboard:keyboardNavigation}); syncCalendarLayer();
+  }
+  function calendarClosed({trigger, restoreFocus}) {
+    syncCalendarLayer();
+    const target = calendarReturnHost?.querySelector('[data-weather-command="calendar"]') || trigger;
+    calendarReturnHost = null;
+    if (restoreFocus && target?.isConnected && !target.closest('[hidden],[inert]')) target.focus({preventScroll:true});
+  }
   const detailBack = document.createElement('button'); detailBack.type='button'; detailBack.className='activity-detail-back'; detailBack.hidden=true; panel.prepend(detailBack);
   detailBack.addEventListener('click', () => {const origin=detailReturn; detailReturn=null; detailView=''; restoreFocusRoute(origin);});
   function renderDetailReturn() {
@@ -857,11 +887,20 @@
     const detail = ['focus', 'tasks'].includes(value.id) && value.kind !== 'task-complete' ? value.detail.startsWith('Session ') ? t('Session {session} sur {total}', {session: focus.pomodoro?.session || 1, total: focus.pomodoro?.total || 4}) : t(value.detail) : value.detail;
     return {...value, title: t(value.title), detail};
   }
+  function musicAnnouncementBlocked() {
+    // The feedback's own quiet-return guard is not user interaction.
+    return document.hidden || pointerInside || commandBusy || queueBusy || state === 'open' && view === 'search' || protectedInteraction({ignoreFeedback:true});
+  }
+  function dismissMusicTrackFeedback() {
+    if (moduleFeedback?.id !== 'music' || moduleFeedback.kind !== 'track') return;
+    text(byId('module-feedback-announcer'), ''); clearModuleFeedback();
+  }
   function notifyModuleChange(event) {
     if (event?.id === 'files') event = {...event, id: 'shelf'};
     if (event?.id === 'focus' && !isModuleEnabled('focus') && isModuleEnabled('tasks')) event = {...event, id: 'tasks'};
     const definition = moduleDefinitions[event?.id];
     if (disposed || !definition || !isModuleEnabled(event.id) || !definition.band.changes.includes(event.kind) || document.hidden) return;
+    if (event.id === 'music' && event.kind === 'track' && musicAnnouncementBlocked()) {dismissMusicTrackFeedback(); return;}
     const restoreQuiet = state === 'rest' || moduleFeedback?.restoreQuiet === true;
     clearModuleFeedback(false);
     moduleFeedback = {...event, sequence: ++moduleFeedbackSequence, restoreQuiet};
@@ -1408,6 +1447,8 @@
   let focusToolReturn = null, focusConfigurationReturn = null;
   function restoreFocusRoute(origin) {
     if (!origin) return;
+    // Keep keyboard interaction anchored while the old detail controls are hidden.
+    if (keyboardNavigation) menu.querySelector('[data-view="nook"]')?.focus({preventScroll:true});
     if (origin.page) islandPage = origin.page;
     selectViewButton({dataset:{view:origin.view}}); setState('open');
     const control = origin.control;
@@ -1421,6 +1462,8 @@
       else {detailReturn=origin;detailView=route;}
     }
     selectViewButton({dataset:{view:route}}); setState('open');
+    const back = route === 'focus' ? focusToolBack : detailBack;
+    if (!back.hidden && !back.closest('[hidden],[inert]')) back.focus({preventScroll:true});
   }
   const focusComponent = FocusAPI.create({host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus, openTasks() {
     openActivityDetail('tasks'); tasksComponent.focusInput();
@@ -1652,7 +1695,12 @@
     if (id === 'weather' || id === 'shelf') {
       card.classList.add('activity-module-summary');
       const preview = document.createElement('span'); preview.className = 'activity-module-preview'; card.querySelector('.activity-promote').append(preview);
-      if (id === 'weather') {const design = document.createElement('span'); design.className = 'weather-design'; card.querySelector('.activity-promote').append(design);}
+      if (id === 'weather') {
+        // Weather owns two distinct buttons: the date opens the agenda, the city opens forecasts.
+        const previous = card.querySelector('.activity-promote'), container = document.createElement('div'); container.className = previous.className;
+        container.append(...previous.childNodes); previous.replaceWith(container);
+        const design = document.createElement('span'); design.className = 'weather-design'; container.append(design);
+      }
       if (id === 'shelf') card.querySelector('.activity-card-art svg').innerHTML = '<path d="M3 6h7l2 3h9v11H3Z"/>';
     }
     if (id === 'music') {
@@ -1804,9 +1852,7 @@
         else {selectViewButton({dataset: {view: localSendContext ? 'localsend' : 'tray'}}); setState('open');}
       } else if (id === 'file') {selectViewButton({dataset: {view: 'files'}}); setState('open');}
       else if (moduleDefinitions[id]?.view && moduleDefinitions[id].view !== 'nook') {
-        const origin={view,page:islandPage,control:document.activeElement}, target=moduleDefinitions[id].view;
-        if (id==='focus') focusToolReturn=origin; else {detailReturn=origin;detailView=target;}
-        selectViewButton({dataset:{view:target}}); setState('open');
+        openActivityDetail(moduleDefinitions[id].view);
       }
       return;
     }
@@ -2433,9 +2479,9 @@
     const minutes = Math.max(0, Math.floor((now - fetched) / 60000));
     return (value.stale ? t('Dernières données') + ' · ' : '') + (minutes < 1 ? t('Mis à jour à l’instant') : t('Mis à jour il y a {minutes} min', {minutes}));
   }
-  function renderWeatherDesign(host, presentation, {interactive = false} = {}) {
+  function renderWeatherDesign(host, presentation, {interactive = false, calendarTodayCount = weather.calendarTodayCount} = {}) {
     const failure = (typeof weather.error === 'string' && weather.error) || (!weatherPickerOpen ? weatherError : '');
-    const values = weatherDesignValues(weather, presentation), next = localizedWeatherNarrative({...weather, busy: weatherBusy, error:failure || weather.error});
+    const values = weatherDesignValues({...weather, calendarTodayCount}, presentation), next = localizedWeatherNarrative({...weather, busy: weatherBusy, error:failure || weather.error});
     const sharedFailure = !weatherBusy && !!failure && values.size !== 'rail' && !!window.NotchEmpty;
     const revealResult = host.dataset.state === 'loading' && next.state === 'ready' && !weatherError && !weather.error && !document.hidden && host.getClientRects().length > 0;
     const condition = t(weather.condition || 'Conditions indisponibles'), locale = i18n.locale() === 'en' ? 'en-GB' : 'fr-FR';
@@ -2443,11 +2489,33 @@
     const signature = JSON.stringify([values, next, condition, freshness, weather.icon, weather.isDay, locale, interactive, interactive && weatherPickerOpen, failure]);
     if (host.dataset.weatherDesign === signature) return;
     host.dataset.weatherDesign = signature; host.dataset.size = values.size; host.dataset.state = next.state;
+    host.dataset.weatherView = interactive ? 'detail' : 'summary';
     const make = (className, value, tag = 'span') => {const node = document.createElement(tag); node.className = className; if (value !== undefined) node.textContent = value; return node;};
+    if (!interactive) {
+      const glyph = (className, path, viewBox = '0 0 24 24') => {const node = byId('weather-condition-icon').cloneNode(true); node.removeAttribute('id'); node.setAttribute('class', className); node.setAttribute('viewBox', viewBox); node.setAttribute('aria-hidden', 'true'); node.setAttribute('focusable', 'false'); node.querySelector('path').setAttribute('d', path); return node;};
+      const today = new Date(values.date + 'T12:00:00'), fullDate = new Intl.DateTimeFormat(locale, {dateStyle:'full'}).format(today);
+      const stack = make('weather-typography'), weekday = make('weather-typography-line weather-typography-weekday');
+      weekday.append(make('', new Intl.DateTimeFormat(locale, {weekday:'long'}).format(today)), glyph('weather-typography-sky', weatherConditionPath(weather.icon)));
+      const calendar = make('weather-typography-line weather-typography-date', undefined, 'button'); calendar.type = 'button'; calendar.dataset.weatherCommand = 'calendar'; calendar.dataset.hasEvents = String(values.calendarTodayCount !== null && values.calendarTodayCount > 0);
+      calendar.setAttribute('aria-haspopup', 'dialog'); calendar.setAttribute('aria-controls', 'calendar-player'); calendar.setAttribute('aria-expanded', 'false');
+      const appointments = values.calendarTodayCount > 0 ? t(values.calendarTodayCount === 1 ? '1 rendez-vous aujourd’hui' : '{count} rendez-vous aujourd’hui', {count:values.calendarTodayCount}) : '';
+      calendar.setAttribute('aria-label', t('Ouvrir l’agenda · {date}', {date:fullDate}) + (appointments ? ' · ' + appointments : '')); calendar.title = appointments || fullDate;
+      calendar.append(glyph('weather-typography-calendar', 'M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2ZM7 2v4M17 2v4M3 9h18M7 13h1m4 0h1m4 0h1M7 17h1m4 0h1m4 0h1'), make('', new Intl.DateTimeFormat(locale, {day:'numeric',month:'long'}).format(today)));
+      const city = make('weather-typography-line weather-typography-city weather-design-city', next.city, 'button'); city.type = 'button'; city.dataset.weatherCommand = 'details'; city.setAttribute('aria-label', t('Voir la météo à {city}', {city:next.city})); city.title = next.city;
+      const degrees = make('weather-typography-line weather-typography-degrees'); degrees.setAttribute('aria-label', t('Température en degrés Celsius et Fahrenheit'));
+      degrees.append(make('weather-design-temperature', values.celsius === null ? '—°C' : values.celsius + '°C'), glyph('weather-typography-thermometer', 'M9 5a3 3 0 0 1 6 0v9.5a5 5 0 1 1-6 0ZM12 8v10M12 18h.01', '5 0 14 26'), make('weather-typography-fahrenheit', values.fahrenheit === null ? '—°F' : values.fahrenheit + '°F'));
+      const description = make('weather-typography-line weather-typography-condition weather-design-condition'); description.title = condition;
+      description.append(make('weather-typography-condition-label', condition), glyph('weather-typography-cloud', weatherConditionPath('cloud')));
+      const fresh = make('weather-design-freshness', freshness); fresh.hidden = true;
+      stack.append(weekday, calendar, city, degrees, description); host.replaceChildren(stack, fresh);
+      host.dataset.condition = weather.icon || 'unknown'; host.dataset.day = String(weather.isDay !== false); host.dataset.calendarKnown = String(values.calendarTodayCount !== null); host.setAttribute('aria-busy', String(weatherBusy)); host.title = freshness;
+      if (revealResult) stack.classList.add('experience-weather-result');
+      return;
+    }
     const heading = make('weather-design-heading'), icon = byId('weather-condition-icon').cloneNode(true); icon.removeAttribute('id');
     icon.querySelector('path').setAttribute('d', weatherConditionPath(weather.icon));
-    const city = make('weather-design-city', next.city + (values.size === 'rail' ? '' : ' · ' + t(weather.isDay === false ? 'CE SOIR' : 'AUJOURD’HUI')), interactive ? 'button' : 'span');
-    if (interactive) {city.type = 'button'; city.id = 'weather-city-button'; city.dataset.weatherCommand = 'picker'; city.setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city})); city.setAttribute('aria-expanded', String(weatherPickerOpen)); city.setAttribute('aria-controls', 'weather-picker');}
+    const city = make('weather-design-city', next.city + (values.size === 'rail' ? '' : ' · ' + t(weather.isDay === false ? 'CE SOIR' : 'AUJOURD’HUI')));
+    const picker = make('weather-design-picker', t('Choisir une ville'), 'button'); picker.type = 'button'; picker.id = 'weather-city-button'; picker.dataset.weatherCommand = 'picker'; picker.setAttribute('aria-label', t('Changer de ville · {city}', {city: next.city})); picker.setAttribute('aria-expanded', String(weatherPickerOpen)); picker.setAttribute('aria-controls', 'weather-picker');
     if (values.size === 'rail') heading.append(make('weather-design-eyebrow',t('MÉTÉO')));
     if (values.size !== 'rail') heading.append(icon);
     heading.append(city);
@@ -2458,7 +2526,7 @@
     const description = make('weather-design-condition', condition);
     if (values.size === 'rail') description.prepend(icon);
     detail.append(description, meta); reading.append(temperature, detail);
-    const current = make('weather-design-current'); current.append(heading, reading);
+    const current = make('weather-design-current'); current.append(heading, picker, reading);
     const narrative = make('weather-design-narrative');
     const words = (value, emphasis = false) => narrative.append(make(emphasis ? 'weather-design-emphasis' : '', value, emphasis ? 'strong' : 'span'));
     if (values.narrative) {
@@ -2526,6 +2594,7 @@
     return Math.ceil(height);
   }
   function renderWeather() {
+    weather.calendarTodayCount = calendar?.todayCount ?? null;
     if (disposed) return;
     weatherPlayer.hidden = !builtinVisible('weather');
     const next = localizedWeatherNarrative({...weather, busy: weatherBusy, error: weather.error || (!weatherPickerOpen ? weatherError : '')});
@@ -2600,7 +2669,9 @@
     if (event.type === 'submit') { event.preventDefault(); if (!disposed && !document.hidden) void searchWeatherCity(); return; }
     const button = event.target.closest('[data-weather-command]'); if (!button || disposed || document.hidden) return;
     const command = button.dataset.weatherCommand;
-    if (command === 'search') { event.preventDefault(); void searchWeatherCity(); }
+    if (command === 'calendar') {event.preventDefault(); openCalendar(button);}
+    else if (command === 'details') {event.preventDefault(); openActivityDetail('weather');}
+    else if (command === 'search') { event.preventDefault(); void searchWeatherCity(); }
     else if (command === 'picker') { weatherPickerOpen = !weatherPickerOpen; renderWeather(); if (weatherPickerOpen) weatherCityInput.focus({preventScroll: true}); }
     else if (command === 'locate') { weatherAutomatic = true; void loadWeather('local'); }
     else if (command === 'refresh') void loadWeather('refresh');
@@ -2783,6 +2854,7 @@
     if (event.target.matches('[data-language-choice]')) i18n.setLocale(event.target.value);
   }
   function renderLanguage() {
+    calendar?.refreshLocale();
     refreshCommunityDefinitions(); moduleLibrary?.refresh();
     for(const button of document.querySelectorAll('[data-module-library]')) button.textContent=t('Bibliothèque');
     for(const button of document.querySelectorAll('[data-module-library-empty]')) button.textContent=t('Bibliothèque de modules');
@@ -2901,7 +2973,7 @@
     const playbackChanged = music.available && next.available && music.playing !== next.playing;
     const oldPlaybackIcon = playbackChanged && state === 'open' && motionEnabled() && !player.hidden && !document.hidden ? byId('music-play-icon').closest('svg').cloneNode(true) : null;
     if (track) { seekPreview = null; if (!seekDragging) seekTrack = null; }
-    const oldCopy = track && state === 'open' && !player.hidden ? player.querySelector('.music-copy').cloneNode(true) : null;
+    const oldCopy = track && !musicAnnouncementBlocked() && state === 'open' && !player.hidden ? player.querySelector('.music-copy').cloneNode(true) : null;
     const oldArt = oldCopy ? player.querySelector('.music-art').cloneNode(true) : null;
     music = next;
     musicAt = window.performance.now();
@@ -3214,7 +3286,7 @@
     const target = state === 'open' ? {width, height, band, shoulder: 0, radius: view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : ISLAND_CONFIG.states.expanded.radius + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
     protectLayoutResize(target.width, target.height);
     motion.setTarget(target, {snap: !motionEnabled() || document.hidden});
-    paint(); ia?.render(view,getModuleEditorActive()); renderLocalSend(); recheckCollapse();
+    paint(); ia?.render(view,getModuleEditorActive()); renderLocalSend(); syncCalendarLayer(); recheckCollapse();
   }
 
   function setState(next) {
@@ -3238,6 +3310,7 @@
   }
   function applyState(next) {
     if (disposed || !Object.hasOwn(sizes, next)) return false;
+    if (next !== 'open') calendar?.close({restoreFocus:false});
     const wasOpen = state === 'open', wasCompact = state === 'compact';
     const keyboardOpening = next === 'open' && !wasOpen && keyboardNavigation && document.activeElement === toggle;
     window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
@@ -3300,10 +3373,10 @@
     layoutResizeGraceUntil = click.at + 650;
     if (!pointerInside) scheduleCollapse();
   }
-  function protectedInteraction() {
+  function protectedInteraction({ignoreFeedback = false} = {}) {
     const focused = document.hasFocus() ? document.activeElement : null;
     const editing = focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]');
-    return awaitingPointerEntry || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
+    return awaitingPointerEntry || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || !ignoreFeedback && state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
   }
   function scheduleCollapse(deactivated = false) {
     window.clearTimeout(collapseTimer); collapseTimer = 0;
@@ -3322,6 +3395,7 @@
   function enter(event) {
     if (event && nativePointerPresence === false) return;
     pointerInside = true; awaitingPointerEntry = false; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
+    dismissMusicTrackFeedback();
     if (closingTo) { setState('open'); return; }
     window.clearTimeout(hoverTimer);
     if (state === 'rest') hoverTimer = window.setTimeout(() => {hoverTimer = 0; if (pointerInside && state === 'rest' && !disposed) setState('compact');}, ISLAND_CONFIG.delays.hover);
@@ -3353,7 +3427,7 @@
     selectViewButton({dataset: {view: transfer && transfer.stage !== 'ready' ? 'localsend' : 'nook'}});
     setState('open');
   }
-  function focusInteraction() { if (protectedInteraction()) { if (collapseTimer) collapseDeferred = true; window.clearTimeout(collapseTimer); collapseTimer = 0; } }
+  function focusInteraction() { if (protectedInteraction()) { dismissMusicTrackFeedback(); if (collapseTimer) collapseDeferred = true; window.clearTimeout(collapseTimer); collapseTimer = 0; } }
   function focusDeparture() {
     window.queueMicrotask(() => {
       if (!document.hasFocus()) scheduleCollapse(true);
@@ -3361,9 +3435,10 @@
       else recheckCollapse();
     });
   }
-  function keyboardInteraction(event) { if (event.target?.closest?.('input,textarea,select,[contenteditable="true"]') || ['Tab', 'Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {keyboardNavigation = true; focusInteraction();} }
+  function keyboardInteraction(event) { if (event.target?.closest?.('input,textarea,select,[contenteditable="true"]') || ['Tab', 'Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {keyboardNavigation = true; dismissMusicTrackFeedback(); focusInteraction();} }
   function pointerInteraction(event) {
     keyboardNavigation = false;
+    if (notch.contains(event.target)) dismissMusicTrackFeedback();
     layoutResizeClick = state === 'open' && notch.contains(event.target) ? {at: Date.now(), armed: false} : null;
   }
   function pointerPosition(event) {
@@ -3378,6 +3453,8 @@
   function closeFileChooser() { fileDialogOpen = false; desktop?.setDialogOpen?.(false); recheckCollapse(); }
   function outside(event) { if (state === 'open' && !notch.contains(event.target)) { if (welcome?.isActive()) { finishWelcome('rest'); return; } if (getModuleEditorActive()) closeModuleEditor(false); setState('rest'); } }
   function key(event) {
+    if (event.defaultPrevented) return;
+    if (calendar?.isOpen() && event.key === 'Escape') {event.preventDefault(); calendar.close(); return;}
     if ((event.ctrlKey || event.metaKey) && !event.altKey && (String(event.key).toLowerCase() === 'k' || !desktop && event.code === 'Space')) {
       event.preventDefault(); showSearch(); return;
     }
@@ -3398,6 +3475,7 @@
   }
   function selectViewButton(button) {
     if (!button) return;
+    calendar?.close({restoreFocus:false});
     if (view === 'module-library' && button.dataset.view !== 'module-library') moduleLibrary?.hide();
     if (view === 'search' && button.dataset.view !== 'search') search?.close({restoreFocus: false, notify: false});
     if (view === 'welcome' && button.dataset.view !== 'welcome' && welcome?.isActive()) {
@@ -3459,7 +3537,7 @@
   document.addEventListener('pointercancel', endMusicSeek);
   document.addEventListener('focusin', focusInteraction);
   document.addEventListener('focusout', focusDeparture);
-  byId('weather-player').addEventListener('click', weatherCommand);
+  panel.addEventListener('click', weatherCommand);
   byId('weather-player').addEventListener('input', weatherInput);
   byId('weather-player').addEventListener('submit', weatherCommand);
   document.addEventListener('visibilitychange', weatherLifecycle);
@@ -3518,6 +3596,7 @@
   }
 
   function dispose() {
+    calendar?.dispose();
     moduleLibrary?.dispose(); removeCommunityChange?.(); for (const cleanup of communityDisposers.values()) cleanup();
     search?.dispose(); byId('search-toggle').removeEventListener('click', showSearch);
     ia?.dispose();
@@ -3567,7 +3646,7 @@
     document.removeEventListener('pointercancel', endMusicSeek);
     document.removeEventListener('focusin', focusInteraction);
     document.removeEventListener('focusout', focusDeparture);
-    byId('weather-player').removeEventListener('click', weatherCommand);
+    panel.removeEventListener('click', weatherCommand);
     byId('weather-player').removeEventListener('input', weatherInput);
     byId('weather-player').removeEventListener('submit', weatherCommand);
     document.removeEventListener('visibilitychange', weatherLifecycle);
@@ -3646,6 +3725,7 @@
     getModuleEditorSlots,
     getModuleEditorOrder,
     getWeatherState,
+    getCalendar: () => calendar.snapshot(),
     showHealth: () => {selectViewButton({dataset:{view:'health'}}); setState('open');},
     showSearch,
     showModuleLibrary,
@@ -3655,6 +3735,14 @@
     }),
   });
   window.addEventListener('pagehide', dispose, {once: true});
+  const hasNativeSettings = typeof window.__TAURI__?.core?.invoke === 'function' || typeof window.__TAURI__?.invoke === 'function';
+  const calendarPersistence = window.NotchyCalendar.createPersistence({invoke:hasNativeSettings ? window.NotchyIA.invokeCore : undefined, storage:window.localStorage});
+  calendar = window.NotchyCalendar.create({host:byId('calendar-player'),locale:i18n.locale,
+    load:calendarPersistence.load, save:calendarPersistence.save,
+    onClose:calendarClosed,
+    onChange() {renderWeather(); syncCalendarLayer();}
+  });
+  void calendar.refresh();
   search = window.NotchySearch.create({host: byId('search-player'), invoke: invokeSearch, t,
     onOpen: searchOpening, onClose: searchClosed, onSend: searchSend});
   moduleLibrary = window.NotchyModuleLibrary.create({host:byId('module-library-player'), store:communityStore, language:i18n.locale, onClose:closeModuleLibrary, onPlace:placeCommunityModule,

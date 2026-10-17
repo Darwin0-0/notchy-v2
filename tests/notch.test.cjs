@@ -169,6 +169,7 @@ function interactionFixture() {
   const timers = new Map(), changes = [];
   let nextTimer = 0, focused = null, now = 1000, transfer = null, documentFocused=true;
   const scope = {
+    calendar:null,
     ISLAND_CONFIG, Date: {now: () => now},
     scenarioController: null,
     geometry: {width: 780, height: 480},
@@ -177,7 +178,7 @@ function interactionFixture() {
     // The browser may retain :hover after Windows cuts the native window region.
     notch: {matches: () => true, contains: element => element?.inside === true, getBoundingClientRect: () => ({top: 0})},
     getModuleEditorActive: () => false, changes,
-    localSendBand: () => transfer, desktop: null, clearModuleFeedback() {},
+    localSendBand: () => transfer, desktop: null, clearModuleFeedback() {}, dismissMusicTrackFeedback() {},
   };
   require('node:vm').runInNewContext(`
     let disposed=false,state='compact',view='nook',collapseTimer=0,hoverTimer=0,collapseDeferred=false,pointerInside=true,welcomeReady=false,
@@ -398,7 +399,7 @@ test('the real exit controller fades for 150 ms and cancels closing when the poi
   const timers=new Map(), movements=[], applied=[]; let nextTimer=0,now=0;
   const scope={ISLAND_CONFIG,movements,applied,document:{hidden:false},expandedLayer:{id:'expanded'},islandFooter:{inert:false},
     window:{clearTimeout:id=>timers.delete(id),setTimeout:(callback,delay)=>{timers.set(++nextTimer,{callback,at:now+delay});return nextTimer;}},
-    animateIslandLayer:(node,entering)=>movements.push({id:node.id,entering}),renderIslandNavigation(){},update(){}};
+    animateIslandLayer:(node,entering)=>movements.push({id:node.id,entering}),renderIslandNavigation(){},update(){},dismissMusicTrackFeedback(){}};
   require('node:vm').runInNewContext(`let disposed=false,state='open',closingTo=null,contentExitTimer=0,hoverTimer=0,collapseTimer=0,collapseDeferred=false,pointerInside=false,keyboardNavigation=false,awaitingPointerEntry=false;
     const sizes={rest:{},compact:{},open:{}};
     function applyState(next){state=next;applied.push(next);return true;}
@@ -436,7 +437,7 @@ test('applying discreet state cancels pending hover and cannot revive keyboard p
   assert(applyStart>0&&applyEnd>applyStart&&focusStart>applyEnd&&focusEnd>focusStart);
   const timers=new Map(),changes=[],scope={changes};let nextTimer=0;
   for(const name of ['renderScenarios','renderMenuSelection','renderIslandNavigation','renderLiveActivities','update','musicLifecycle','renderFocus','nearbyLifecycle','filesLifecycle','weatherLifecycle','renderModuleFeedback','animateIslandLayer']) scope[name]=()=>{};
-  Object.assign(scope,{window:{clearTimeout:id=>timers.delete(id),setTimeout:callback=>{timers.set(++nextTimer,callback);return nextTimer;}},
+  Object.assign(scope,{calendar:null,window:{clearTimeout:id=>timers.delete(id),setTimeout:callback=>{timers.set(++nextTimer,callback);return nextTimer;}},
     document:{activeElement:{id:'focus-task-input'},body:{dataset:{}}},notch:{dataset:{}},panel:{setAttribute(){}},
     menu:{contains:()=>true},expandedLayer:{contains:()=>false},toggle:{setAttribute(){},focus(){scope.api.toggleFocus();}},
     compactContent:{},restContent:{},t:value=>value,isModuleEnabled:()=>false,getModuleEditorActive:()=>false,scenarioController:null});

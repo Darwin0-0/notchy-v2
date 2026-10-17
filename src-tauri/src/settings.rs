@@ -3,7 +3,7 @@ use crate::ApiError;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-pub const KEYS: [&str; 9] = [
+pub const KEYS: [&str; 10] = [
     "notchy-minimal-appearance-v1",
     "notchy-minimal-modules-v1",
     "notchy-minimal-focus-v1",
@@ -13,6 +13,7 @@ pub const KEYS: [&str; 9] = [
     "notchy-module-order-v1",
     "notchy-peer-favorites-v1",
     "notchy-community-modules-v1",
+    "notchy-calendar-v1",
 ];
 pub fn valid_module_order(text: &str) -> bool {
     if text.len() > 512 {
@@ -55,6 +56,8 @@ pub fn valid_peer_favorites(text: &str) -> bool {
 
 pub fn restore_preferences(preferences: BTreeMap<String, String>) -> BTreeMap<String, String> {
     preferences.into_iter().filter(|(key, value)| {
+        // Retain a damaged calendar as inert recovery data; snapshot exposes an error sentinel.
+        if key == "notchy-calendar-v1" { return value.len() <= 1_048_576; }
         KEYS.contains(&key.as_str()) && value.len() <= 262144 && match key.as_str() {
             "notchy-language-v1" => valid_language(value),
             "notchy-scenarios-v1" => valid_scenarios(value),
@@ -82,9 +85,50 @@ pub fn preference_input(value: &Value) -> Result<(&str, Option<&str>), ApiError>
         "notchy-module-order-v1" => valid_module_order(text),
         "notchy-peer-favorites-v1" => valid_peer_favorites(text),
         "notchy-community-modules-v1" => valid_community_modules(text),
+        "notchy-calendar-v1" => valid_calendar(text),
         _ => serde_json::from_str::<Value>(text).is_ok(),
     }).ok_or_else(|| ApiError::new(400, "Préférence invalide."))?;
     Ok((key, Some(text)))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalCalendar {
+    version: u8,
+    events: Vec<LocalAppointment>,
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalAppointment {
+    id: String,
+    title: String,
+    date: String,
+    start: String,
+    end: String,
+}
+
+/// Appointments are inert local data; malformed entries cannot be saved or used by the renderer.
+pub fn valid_calendar(text: &str) -> bool {
+    if text.len() > 262_144 { return false; }
+    let Ok(calendar) = serde_json::from_str::<LocalCalendar>(text) else { return false; };
+    if calendar.version != 1 || calendar.events.len() > 200 { return false; }
+    let mut ids = std::collections::HashSet::new();
+    let time = |value: &str| value.len() == 5 && value.as_bytes()[2] == b':'
+        && value.bytes().enumerate().all(|(index, byte)| index == 2 || byte.is_ascii_digit())
+        && value[..2].parse::<u8>().is_ok_and(|hour| hour < 24)
+        && value[3..].parse::<u8>().is_ok_and(|minute| minute < 60);
+    calendar.events.iter().all(|event| {
+        !event.id.is_empty() && event.id.len() <= 64
+            && event.id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            && ids.insert(&event.id)
+            && !event.title.is_empty() && event.title.trim() == event.title && event.title.chars().count() <= 120
+            && !event.title.chars().any(|value| matches!(value as u32, 0..=0x1f | 0x7f..=0x9f))
+            && event.date.len() == 10
+            && event.date.bytes().enumerate().all(|(index, byte)| if index == 4 || index == 7 { byte == b'-' } else { byte.is_ascii_digit() })
+            && event.date[..4].parse::<u16>().is_ok_and(|year| (1900..=2199).contains(&year))
+            && chrono::NaiveDate::parse_from_str(&event.date, "%Y-%m-%d").is_ok()
+            && time(&event.start) && time(&event.end) && event.start < event.end
+    })
 }
 
 // This stores JSON data only; the renderer separately validates the full declarative contract.
@@ -146,7 +190,8 @@ pub fn valid_language(value: &str) -> bool {
 
 pub fn snapshot(preferences: &BTreeMap<String, String>) -> Value {
     Value::Object(preferences.iter().filter(|(key, _)| KEYS.contains(&key.as_str())).map(|(key, text)| {
-        let value = serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.clone()));
+        let value = if key == "notchy-calendar-v1" && !valid_calendar(text) { Value::Null }
+            else { serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.clone())) };
         (key.clone(), value)
     }).collect())
 }
@@ -186,6 +231,47 @@ pub fn favorites_add(preferences: &BTreeMap<String, String>, favorite: &Value) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn appointment() -> Value {
+        json!({"id":"appointment-1","title":"Design review","date":"2028-02-29","start":"09:00","end":"09:30"})
+    }
+    #[test]
+    fn calendar_validates_real_dates_times_and_inert_bounded_entries() {
+        let event = appointment();
+        assert!(valid_calendar(&json!({"version":1,"events":[]}).to_string()));
+        assert!(valid_calendar(&json!({"version":1,"events":[event.clone()]}).to_string()));
+        for (field, value) in [("id",json!("../file")),("id",json!("")),("title",json!(" ")),
+            ("title",json!(" leading")),("title",json!("x\nvalue")),("title",json!("x\u{0085}value")),
+            ("title",json!("x".repeat(121))),("date",json!("2027-02-29")),("date",json!("2200-01-01")),
+            ("date",json!("2028-2-29")),("start",json!("24:00")),("start",json!("09:60")),
+            ("start",json!("09:30")),("start",json!("10:00")),("end",json!("9:30")),("script",json!("alert(1)"))] {
+            let mut invalid = event.clone(); invalid[field] = value;
+            assert!(!valid_calendar(&json!({"version":1,"events":[invalid]}).to_string()), "{field}");
+        }
+        for invalid in [json!({"version":2,"events":[]}),json!({"version":1,"events":[],"extra":true}),
+            json!({"version":1,"events":[event.clone(),event.clone()]}),json!({"version":1,"events":vec![event;201]})] {
+            assert!(!valid_calendar(&invalid.to_string()));
+        }
+        assert!(!valid_calendar(&" ".repeat(262_145)));
+    }
+    #[test]
+    fn calendar_profile_patch_is_atomic_and_preserves_timer_and_other_settings() {
+        let before = BTreeMap::from([("notchy-language-v1".into(),"fr".into()),
+            ("notchy-minimal-focus-v1".into(),r#"{"state":{"deadline":123}}"#.into())]);
+        let events = json!({"version":1,"events":[appointment()]});
+        let saved = merge(&before,&json!({"notchy-calendar-v1":events})).unwrap();
+        assert_eq!(restore_preferences(saved.clone()),saved);
+        assert_eq!(snapshot(&saved)["notchy-calendar-v1"]["events"].as_array().unwrap().len(),1);
+        assert_eq!(saved["notchy-minimal-focus-v1"],before["notchy-minimal-focus-v1"]);
+        assert!(merge(&saved,&json!({"notchy-calendar-v1":{"version":1,"events":[{}]},"notchy-language-v1":"en"})).is_err());
+        assert_eq!(saved["notchy-language-v1"],"fr");
+        let mut invalid = before.clone(); invalid.insert("notchy-calendar-v1".into(),"{}".into());
+        let retained = restore_preferences(invalid);
+        assert_eq!(retained["notchy-calendar-v1"],"{}");
+        assert_eq!(snapshot(&retained)["notchy-calendar-v1"],Value::Null);
+        let other_change = merge(&retained,&json!({"notchy-language-v1":"en"})).unwrap();
+        assert_eq!(other_change["notchy-calendar-v1"],"{}", "unrelated writes preserve recovery data");
+        assert!(!merge(&saved,&json!({"notchy-calendar-v1":null})).unwrap().contains_key("notchy-calendar-v1"));
+    }
     #[test]
     fn community_registry_is_bounded_and_persists_only_inert_local_data() {
         let module=json!({"manifest":{"id":"community.reading","manifestVersion":2,"permissions":[]},"state":{"completed":2}});

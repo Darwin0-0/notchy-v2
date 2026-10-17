@@ -35,7 +35,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 - **Music within reach.** Notchy automatically follows compatible Windows media players, with artwork, playback controls, track progress and a softly animated spectrum. Everyday playback needs no personal API key. Add **Up next** with the optional Spotify connection.
 - **One place for tasks and Pomodoro.** Keep your next task beside your session, work in focused intervals, and take a short or long break when it is time.
 - **A panel for each moment.** Choose Focus, Ambience, Day, Complete or Minimal from Scenarios in Settings. Optional rules follow your work and breaks; manual choices and ongoing interactions stay protected.
-- **Weather you can read at a glance.** A short forecast for your current location or a city you choose.
+- **Your day at a glance.** Read the weather, open detailed forecasts from the city, and keep appointments in a local calendar. Its icon changes color when you have something planned today.
 - **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
 - **Ready to receive.** LocalSend starts with Notchy. Accept incoming files, send to nearby devices, and follow the transfer without leaving the notch.
 - **Find it, keep your flow.** Open local search from the magnifying glass or **Ctrl+Space**. Find a file or folder by name, reveal it in Explorer, or choose a nearby device to send it with LocalSend. Your search stays on your PC.

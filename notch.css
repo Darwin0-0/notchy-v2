@@ -2436,3 +2436,44 @@ body[data-motion="false"] #music-player .music-main,body[data-motion="false"] .m
  #notch-panel[data-music-queue="true"] #music-player .music-queue { min-height: var(--measure-180-px); padding: var(--space-2) 0 0; border-left: 0; border-top: var(--measure-1-px) solid var(--color-ffffff18); }
  #notch-panel[data-music-queue="true"] #music-player .music-empty { inset: 0 0 auto; height: var(--measure-164-px); }
 }
+
+/* Weather follows the same five typographic lines at each Nook card size. */
+#weather-player { background:var(--color-1c1c1e); }
+#nook-layout :is(.activity-main,.activity-module-summary)[data-activity="weather"] { background:var(--color-1c1c1e); }
+#nook-layout .weather-design[data-weather-view="summary"] { --weather-type-size:clamp(24px,7cqw,36px); display:block; width:100%; height:100%; padding:0; font-size:var(--weather-type-size); font-weight:400; line-height:1.05; letter-spacing:-.045em; color:var(--color-f5f5f7); }
+#nook-layout .weather-design[data-weather-view="summary"][data-size="scene"] { --weather-type-size:clamp(16px,12cqw,30px); }
+#nook-layout .weather-design[data-weather-view="summary"][data-size="rail"] { --weather-type-size:15px; }
+#nook-layout .weather-typography { display:flex; flex-direction:column; justify-content:center; gap:var(--space-1); width:100%; height:100%; min-width:0; min-height:0; }
+#nook-layout .weather-typography-line { display:flex; align-items:center; flex:0 0 auto; gap:var(--space-2); width:fit-content; max-width:100%; min-width:0; margin:0; padding:0; font:inherit; line-height:inherit; letter-spacing:inherit; text-transform:none; }
+#nook-layout .weather-typography-line > span { min-width:0; }
+#nook-layout .weather-typography-weekday { font-size:.95em; text-transform:capitalize; }
+#nook-layout .weather-design[data-weather-view="summary"] button { min-height:0; padding:0; border:0; border-radius:var(--measure-4-px); background:transparent; color:inherit; font:inherit; line-height:inherit; letter-spacing:inherit; text-align:left; cursor:pointer; }
+#nook-layout .weather-design[data-weather-view="summary"] .weather-typography-date { font-size:.95em; }
+#nook-layout .weather-design[data-weather-view="summary"] .weather-typography-city { display:block; width:fit-content; max-width:100%; padding:0; font-size:1.08em; line-height:1.05; letter-spacing:inherit; font-weight:400; text-transform:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#nook-layout .weather-typography-degrees { font-size:1.02em; white-space:nowrap; }
+#nook-layout .weather-design[data-weather-view="summary"] .weather-design-temperature { position:static; display:inline; width:auto; padding:0; font:inherit!important; letter-spacing:inherit; }
+#nook-layout .weather-design[data-weather-view="summary"] .weather-typography-condition { display:flex; gap:var(--space-2); margin:0; font-size:.9em!important; font-weight:400; line-height:1.05; overflow:hidden; }
+#nook-layout .weather-typography-condition-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#nook-layout .weather-typography svg { display:block; flex:0 0 auto; width:.9em; height:.9em; min-width:var(--measure-14-px); min-height:var(--measure-14-px); fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+#nook-layout .weather-typography .weather-typography-sky { width:1.05em; height:1.05em; min-width:var(--measure-16-px); min-height:var(--measure-16-px); color:#9abfce; fill:currentColor; }
+#nook-layout .weather-design:is([data-condition="sun"],[data-condition="cloud-sun"],[data-condition="thunder"]) .weather-typography-sky { color:#ff9f0a; }
+#nook-layout .weather-design:is([data-condition="moon"],[data-condition="cloud-moon"]) .weather-typography-sky { color:#b7c7e9; }
+#nook-layout .weather-typography .weather-typography-calendar { color:#8e8e93; }
+#nook-layout .weather-typography-date[data-has-events="true"] .weather-typography-calendar { color:#ff9f0a; }
+#nook-layout .weather-typography .weather-typography-thermometer { width:.6em; height:1.05em; min-width:var(--measure-10-px); min-height:var(--measure-16-px); color:#ff453a; stroke-width:2.2; }
+#nook-layout .weather-typography .weather-typography-cloud { color:#9abfce; fill:currentColor; stroke:none; }
+#nook-layout .weather-design[data-weather-view="summary"] button:hover { background:var(--color-ffffff0a); }
+#nook-layout .weather-design[data-weather-view="summary"] button:focus-visible { outline:var(--measure-2-px) solid var(--color-fff); outline-offset:var(--measure-2-px); }
+#nook-layout .weather-design[data-weather-view="summary"][data-size="rail"] .weather-typography { gap:var(--measure-2-px); }
+#nook-layout .weather-design[data-weather-view="summary"][data-size="rail"] .weather-typography-line { gap:var(--measure-5-px); }
+.weather-player #weather-city-button.weather-design-picker { align-self:flex-start; min-height:var(--measure-28-px); padding:var(--space-1) var(--space-2); border-radius:var(--radius-control); background:var(--color-ffffff0c); color:var(--color-fff); font-size:var(--text-xs); letter-spacing:0; text-transform:none; }
+
+/* A secondary Focus scene places the ring before its transport controls. */
+#nook-layout .focus-summary[data-presentation="scene"] { grid-template-rows:var(--measure-24-px) var(--measure-28-px) minmax(0,1fr) var(--measure-14-px) var(--measure-4-px) var(--measure-40-px); }
+#nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-heading { grid-row:1; }
+#nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-task { grid-row:2; }
+#nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-reference-ring { grid-row:3; align-self:center; justify-self:center; width:auto; height:min(100%,var(--measure-72-px)); max-width:100%; aspect-ratio:1; }
+#nook-layout .focus-summary[data-presentation="scene"] .focus-summary-reference-ring .focus-summary-clock { justify-content:center; font-size:var(--measure-16-px)!important; }
+#nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-link-label { grid-row:4; text-align:center; }
+#nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-progress { grid-row:5; }
+#nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-controls { grid-row:6; }

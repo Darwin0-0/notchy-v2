@@ -14,7 +14,7 @@ function fixture({motion=true}={}){
   isModuleEnabled:()=>true,motionEnabled:()=>motion,t:value=>value,text:(target,value)=>target.textContent=value,
   localizedFeedback:value=>value,byId:id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);},
   window:{setTimeout(callback,delay){const id=++nextTimer;timers.set(id,{callback,at:now+delay});return id;},clearTimeout:id=>timers.delete(id)},
-  protectedInteraction:()=>scope.state==='compact'&&scope.moduleFeedback?.restoreQuiet===true,
+  protectedInteraction:()=>scope.state==='compact'&&scope.moduleFeedback?.restoreQuiet===true,musicAnnouncementBlocked:()=>false,dismissMusicTrackFeedback(){},
   setState:value=>scope.state=value,renderLiveActivities(){},renderModuleFeedback(){},update(){},animateModuleChange(){},getModuleEditorActive:()=>false,
   recheckCollapse(){collapseChecks++;},settleIslandLayers(){}};
  vm.runInNewContext(section('  function localSendPresentation()','  function localSendSize(')+section('  function localSendBand()','  function renderLocalSendBand(')+
@@ -49,7 +49,7 @@ test('a track-change notification captures the new artwork rather than the previ
  let renderedCover='data:image/png;base64,b2xk',announcedCover='';
  const scope={disposed:false,normalizeMusic,moduleActivityChange,moduleActivitySnapshot,music:{available:true,title:'Old song',cover:renderedCover},state:'rest',
   motionEnabled:()=>false,document:{hidden:false},player:{hidden:true},window:{performance:{now:()=>0}},scenarioController:null,musicAt:0,musicError:'',connectionLost:false,seekDragging:false,seekPreview:null,seekTrack:null,
-  observeModuleActivity(){announcedCover=renderedCover;},renderMusic(){renderedCover=scope.music.cover;},update(){},syncStream(){},getModuleEditorActive:()=>false};
+  observeModuleActivity(){announcedCover=renderedCover;},renderMusic(){renderedCover=scope.music.cover;},update(){},syncStream(){},getModuleEditorActive:()=>false,musicAnnouncementBlocked:()=>false};
  vm.runInNewContext(section('  function setMusic(','  function animateMusicPlayback(')+'this.run=setMusic;',scope);
  const nextCover='data:image/png;base64,bmV3';scope.run({available:true,title:'New song',cover:nextCover});
  assert.equal(announcedCover,nextCover,'feedback must receive the current image after rendering the new media snapshot');
