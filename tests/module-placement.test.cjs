@@ -7,22 +7,48 @@ const {modulePlacementPlan, normalizeModules, assignModuleSlot, createActivitySc
 
 const ids = ['music', 'focus', 'weather', 'shelf'];
 
+test('community placement requires an explicit valid slot and preserves all other home modules', () => {
+  const source=fs.readFileSync(require.resolve('../notch.js'),'utf8'), begin=source.indexOf('  function placeCommunityModule('), end=source.indexOf('  function renderCommunityCard(',begin);
+  const calls=[], scope={Number,assignModuleSlot,communityStore:{get:id=>id==='weather'?{}:null},moduleLibrary:{hide(){calls.push('hide');}},
+    getModules:()=>({enabled:ids.filter(id=>id!=='weather'),slots:['music','focus','shelf']}),setModules(value){calls.push(value);},selectViewButton(){},openFromOutside(){}};
+  vm.runInNewContext(source.slice(begin,end)+'this.place=placeCommunityModule;',scope);
+  for(const slot of [undefined,null,-1,3,'0',.5])assert.throws(()=>scope.place('weather',slot));
+  assert.throws(()=>scope.place('missing',0));assert.deepEqual(calls,[]);
+  scope.place('weather',1);assert.equal(calls[0],'hide');assert.deepEqual(Array.from(calls[1].slots.slice(0,3)),['music','weather','shelf']);assert(calls[1].enabled.includes('focus'));assert(calls[1].enabled.includes('weather'));
+});
+
 test('each catalogue module receives its template and share from its actual placement', () => {
-  for (const id of [...ids,'tasks']) {
-    const enabled = [...ids,'tasks'];
+  for (const id of ids) {
+    const enabled = ids;
     const others = ids.filter(value => value !== id);
     const single = modulePlacementPlan({enabled, slots: [id]});
     assert.deepEqual(single.items, [{id, slot: 0, index: 0, presentation: 'full', share: 100, heightShare: 1}]);
     const pair = modulePlacementPlan({enabled, slots: [id, others[0]]});
-    const equal = pair.slots.includes('weather') && pair.slots.includes('music');
-    assert.equal(pair.primary, id); assert.equal(pair.items[0].presentation, 'scene'); assert.equal(pair.items[0].share, equal ? 50 : 64);
-    assert.equal(pair.items[1].presentation, 'scene'); assert.equal(pair.items[1].share, equal ? 50 : 36); assert.equal(pair.items[1].heightShare, 1);
+    assert.equal(pair.primary, id); assert.equal(pair.items[0].presentation, 'scene'); assert.equal(pair.items[0].share,65);
+    assert.equal(pair.items[1].presentation, 'scene'); assert.equal(pair.items[1].share,35); assert.equal(pair.items[1].heightShare, 1);
     const triple = modulePlacementPlan({enabled, slots: [others[0], id, others[1]]});
     assert.deepEqual(triple.items.map(item => item.presentation), ['scene','rail','rail']);
     assert.deepEqual(triple.items.map(item => item.heightShare), [1,.5,.5]);
     assert.deepEqual(triple.items.map(item => item.share), [64,36,36]);
     assert.equal(triple.items.reduce((area,item) => area + item.share * item.heightShare,0),100);
   }
+});
+
+test('legacy Tasks and Focus merge into the active visible slot without moving other modules', () => {
+  const cases = [
+    [{enabled:['tasks','music'],slots:['focus','tasks','music']}, ['focus','music'], [null,'focus','music',null]],
+    [{enabled:['focus','tasks','music'],slots:['tasks','music','focus']}, ['focus','music'], ['focus','music',null,null]],
+    [{enabled:['focus','music'],slots:['tasks','music','focus']}, ['focus','music'], [null,'music','focus',null]],
+    [{enabled:['music'],slots:['tasks','music','focus']}, ['music'], ['focus','music',null,null]],
+    [{enabled:['tasks','music'],slots:[null,'tasks','music','focus']}, ['focus','music'], [null,'focus','music',null]],
+  ];
+  for (const [input, enabled, slots] of cases) {
+    const before=structuredClone(input), result=normalizeModules(input);
+    assert.deepEqual(result,{enabled,slots}); assert.deepEqual(input,before);
+    assert.deepEqual(normalizeModules(result),result,'migration is idempotent');
+    assert.equal(modulePlacementPlan(input).items.filter(item=>item.id==='focus').length,enabled.includes('focus')?1:0);
+  }
+  assert.deepEqual(assignModuleSlot({enabled:['focus','music'],slots:['focus','music']},1,'tasks').slots,['music','focus',null,null]);
 });
 
 test('three visible slots retain holes and the fourth saved module stays enabled in reserve', () => {

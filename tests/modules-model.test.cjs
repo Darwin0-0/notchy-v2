@@ -3,8 +3,8 @@ const assert=require('node:assert/strict');
 const {getModuleDefinitions,normalizeModules,assignModuleSlot,moduleEditorPresentation,FocusModel,moduleActivitySnapshot:snapshot,moduleActivityChange:change}=require('../notch.js');
 
 test('module contracts have unique routes, bounded sizes and declared band capabilities',()=>{
- const definitions=getModuleDefinitions(); assert.equal(definitions.length,5);
- for(const key of['id','view','element'])assert.equal(new Set(definitions.map(item=>item[key])).size,5);
+ const definitions=getModuleDefinitions(); assert.equal(definitions.length,4);
+ for(const key of['id','view','element'])assert.equal(new Set(definitions.map(item=>item[key])).size,4);
  for(const item of definitions){assert(item.size.minWidth>0&&item.size.minWidth<=item.size.width);assert(item.size.minHeight<=item.size.height&&item.size.height<=item.size.maxHeight);assert(['progress','status','none'].includes(item.band.discreet));assert(Array.isArray(item.band.changes));}
  for(const {id,editor,layout,size} of definitions){assert(layout.minWidth>0&&layout.minWidth<=layout.basis&&layout.basis<=layout.maxWidth);assert.equal(editor.basis,layout.basis+24);assert.equal(editor.maxWidth,layout.maxWidth+24);assert(editor.basis<=editor.maxWidth);assert.equal(editor.height,id==='focus'?180:layout.height+24);assert(editor.height<=300);assert.equal(layout.minHeight,layout.height);assert.equal(size.maxHeight,id==='focus'?420:300);assert(Number.isFinite(editor.grow)&&editor.grow>=0);}
  assert(definitions.find(item=>item.id==='focus').layout.minWidth>=definitions.find(item=>item.id==='music').layout.minWidth,'compact Focus keeps enough room for its aligned timer controls');
@@ -35,7 +35,7 @@ test('base catalogue preserves supported placements, holes and deliberate empty 
  assert.deepEqual(normalizeModules({enabled:[],slots:[]}),{enabled:[],slots:[null,null,null,null]});
  const cleaned=normalizeModules({enabled:['shelf','shelf','unknown'],slots:['shelf','shelf','unknown','focus','music']});
  assert.deepEqual(cleaned,{enabled:['shelf'],slots:['shelf',null,null,'focus']});
- assert.deepEqual(normalizeModules().enabled,['music','focus','tasks','shelf','weather']);
+ assert.deepEqual(normalizeModules().enabled,['music','focus','shelf','weather']);
  assert.deepEqual(normalizeModules().slots,['music','focus','weather',null]);
  const placed=assignModuleSlot({enabled:['weather','focus'],slots:['weather','focus',null,null]},1,'weather');assert.deepEqual(placed.slots,['focus','weather',null,null]);
  assert.deepEqual(assignModuleSlot(old,1,'notices'),normalizeModules(old));

@@ -10,10 +10,11 @@ using Windows.Media;
 class MediaBridge {
  static readonly object outputLock = new object();
  static readonly List<GlobalSystemMediaTransportControlsSession> watched = new List<GlobalSystemMediaTransportControlsSession>();
+ static long mediaRevision;
 
  static void Write(string value) { lock(outputLock) { Console.WriteLine(value); Console.Out.Flush(); } }
  static void Changed() { Write("{\"event\":\"changed\"}"); }
- static void MediaChanged(GlobalSystemMediaTransportControlsSession s, MediaPropertiesChangedEventArgs e) { Changed(); }
+ static void MediaChanged(GlobalSystemMediaTransportControlsSession s, MediaPropertiesChangedEventArgs e) { Interlocked.Increment(ref mediaRevision); Changed(); }
  static void PlaybackChanged(GlobalSystemMediaTransportControlsSession s, PlaybackInfoChangedEventArgs e) { Changed(); }
  static void TimelineChanged(GlobalSystemMediaTransportControlsSession s, TimelinePropertiesChangedEventArgs e) { Changed(); }
  static void SessionsChanged(GlobalSystemMediaTransportControlsSessionManager s, SessionsChangedEventArgs e) { Changed(); }
@@ -83,6 +84,9 @@ class MediaBridge {
  static bool SeekSourceMatches(string expected, string actual) {
   return !String.IsNullOrEmpty(expected) && String.Equals(expected, actual, StringComparison.Ordinal);
  }
+ static bool ShouldReadCover(string key, string nextKey, string cover, long cachedRevision, long revision, DateTime attempted, DateTime now) {
+  return key != nextKey || cachedRevision != revision || String.IsNullOrEmpty(cover) && (now-attempted).TotalSeconds > 30;
+ }
  static T Await<T>(IAsyncOperation<T> op) {
   int n=0;
   while(op.Status == AsyncStatus.Started) { Thread.Sleep(5); if(++n > 1200) throw new TimeoutException(); }
@@ -102,6 +106,7 @@ class MediaBridge {
   GlobalSystemMediaTransportControlsSessionManager manager = null;
   GlobalSystemMediaTransportControlsSession previous = null;
   string key=null, cover=null, sent=null, line;
+  long coverRevision=-1;
   DateTime coverAttempt = DateTime.MinValue;
   while((line=Console.ReadLine()) != null) {
    int id=0;
@@ -169,14 +174,16 @@ class MediaBridge {
       break;
      default: throw new ArgumentException();
     }
+    // Capture before the async read: a newer event during the read must remain pending.
+    long revision=Interlocked.Read(ref mediaRevision);
     var props=Await(session.TryGetMediaPropertiesAsync()); var info=session.GetPlaybackInfo(); var timeline=session.GetTimelineProperties();
     bool playing=info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
     double duration=Math.Max(0, (timeline.EndTime-timeline.StartTime).TotalSeconds), position=(timeline.Position-timeline.StartTime).TotalSeconds;
     if(playing) position+=Math.Max(0, (DateTimeOffset.UtcNow-timeline.LastUpdatedTime).TotalSeconds);
     position=Math.Max(0, Math.Min(duration, position));
     string nextKey=sourceId+"|"+props.Title+"|"+props.Artist+"|"+props.AlbumTitle;
-    if(nextKey != key || cover == null && (DateTime.UtcNow-coverAttempt).TotalSeconds > 30) {
-     key=nextKey; cover=null; sent=null; coverAttempt=DateTime.UtcNow;
+    if(ShouldReadCover(key, nextKey, cover, coverRevision, revision, coverAttempt, DateTime.UtcNow)) {
+     key=nextKey; cover=null; sent=null; coverAttempt=DateTime.UtcNow; coverRevision=revision;
      try { if(props.Thumbnail != null) cover=CoverReader.Read(props.Thumbnail); } catch { }
     }
     var reply=new Dictionary<string,object> {

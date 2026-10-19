@@ -10,7 +10,8 @@ function fixture() {
   const scope={view:'nook',islandPage:'music',document:{activeElement:trigger},focusToolReturn:null,detailReturn:null,detailView:'',
     focusToolBack:back('focus-return'),detailBack:back('detail-return'),
     selectViewButton(button){scope.view=button.dataset.view;},setState(state){scope.state=state;}};
-  vm.runInNewContext(source.slice(begin,end)+'this.openActivityDetail=openActivityDetail;',scope);
+  const origin=source.slice(source.indexOf('  function captureRouteOrigin('),source.indexOf('  function returnFromDetail('));
+  vm.runInNewContext(origin+source.slice(begin,end)+'this.openActivityDetail=openActivityDetail;',scope);
   return{scope,trigger,focused};
 }
 
@@ -27,6 +28,14 @@ test('Focus detail moves keyboard focus to its own Return without changing the s
   const f=fixture();f.scope.openActivityDetail('focus');
   assert.equal(f.scope.focusToolReturn.control,f.trigger);assert.equal(f.scope.focusToolReturn.view,'nook');
   assert.deepEqual(f.focused.map(item=>item.name),['focus-return']);assert.equal(f.scope.detailReturn,null);
+});
+
+test('details entered from settings and tasks retain their actual initiating view',()=>{
+  for(const [origin,route] of [['settings','weather'],['health','weather'],['tasks','focus'],['tray','music']]) {
+    const f=fixture();f.scope.view=origin;f.scope.openActivityDetail(route);
+    const saved=route==='focus'?f.scope.focusToolReturn:f.scope.detailReturn;
+    assert.equal(saved.view,origin);assert.equal(saved.control,f.trigger);assert.equal(f.scope.state,'open');
+  }
 });
 
 test('hidden or inert Return controls are never focused',()=>{
@@ -46,4 +55,15 @@ test('keyboard return stays anchored in the persistent toolbar until its origina
   vm.runInNewContext(source.slice(start,stop)+'this.restoreFocusRoute=restoreFocusRoute;',scope);
   scope.restoreFocusRoute({view:'nook',page:'music',control:original});
   assert.deepEqual(calls,['toolbar-focus','route-nook','state-open','origin-focus']);assert.equal(scope.islandPage,'music');assert.equal(document.activeElement,original);
+});
+
+test('returning from Settings restores the earlier Weather detail origin rather than losing Nook',()=>{
+  const home={view:'nook',page:'music'}, control={isConnected:true,closest:()=>null,focus(){}}, seen=[];
+  const scope={view:'weather',islandPage:'music',detailReturn:home,detailView:'weather',focusToolReturn:null,keyboardNavigation:false,
+    document:{activeElement:control},selectViewButton(button){seen.push(button.restoring);scope.view=button.dataset.view;},setState(){}};
+  const capture=source.slice(source.indexOf('  function captureRouteOrigin('),source.indexOf('  function returnFromDetail('));
+  const restore=source.slice(source.indexOf('  function restoreFocusRoute('),source.indexOf('  function openActivityDetail('));
+  vm.runInNewContext(capture+restore+'this.capture=captureRouteOrigin;this.restore=restoreFocusRoute;',scope);
+  const origin=scope.capture();scope.detailReturn={view:'settings'};scope.detailView='weather';scope.view='settings';scope.restore(origin);
+  assert.equal(scope.view,'weather');assert.equal(scope.detailReturn,home);assert.equal(scope.detailView,'weather');assert.deepEqual(seen,[true]);
 });

@@ -17,7 +17,7 @@ function fixture() {
   const properties = {}, targets = [], options = [], homeProperties = {};
   const home = {dataset: {}, style: {setProperty(name, value) {homeProperties[name] = value;}}};
   const context = {
-    syncCalendarLayer() {},
+    syncCalendarLayer() {}, calendar: null, calendarHeightLimit: 0,
     ISLAND_CONFIG, closedBandSize, homeModuleLayout, nookGridPlan, shape, islandPage:'music',
     disposed: false, state: 'open', view: 'music', closingTo: null, fileDragging: false, editorActive: false, ia: {render() {}},
     musicActive: false, focusActive: false, transferActive: false, animations: false,
@@ -89,6 +89,25 @@ test('Compact, Standard and Large formats change only the bounded content width'
     f.context.window.innerWidth=1280;
     assertOpenSize(f.run(),'restored ' + format,width);
   }
+});
+test('the weekly agenda expands for appointments and returns to its original home scene', () => {
+  const f=fixture(); let opened=true;
+  f.context.view='nook'; f.context.calendar={isOpen:()=>opened,preferredHeight:228};
+  f.context.scene={mode:'activities',items:[{id:'music'},{id:'weather'}]};
+  assert.equal(f.run().height,292);
+  assert.equal(f.properties['--panel-height'],'228px');
+  assert.equal(f.context.notch.dataset.activityScene,'false');
+  f.context.calendar.preferredHeight=346;
+  assert.equal(f.run().height,410);
+  assert.equal(f.context.calendarHeightLimit,410);
+  f.useProductionPaint(); f.context.motion.isActive=()=>true;
+  f.context.sample={width:567,height:390,band:48,shoulder:0,radius:14,progress:1};
+  opened=false; f.run(); f.context.paint();
+  assert.equal(f.context.geometry.height,390,'closing retains the moving calendar height until the surface settles');
+  assert.equal(f.properties['--calendar-body-height'],'326px');
+  f.context.motion.isActive=()=>false;
+  f.context.sample={...f.context.sample,height:324}; f.context.paint();
+  assert.equal(f.context.calendarHeightLimit,0);
 });
 
 test('header, content, bottom inset and core navigation share one explicit height budget', () => {

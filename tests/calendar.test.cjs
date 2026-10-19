@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {KEY, LIMITS, validDate, validTime, dayKey, dayOffset, shiftMonth, monthDays, validateData, createPersistence, createStore} = require('../calendar.js');
+const {KEY, LIMITS, validDate, validTime, dayKey, dayOffset, shiftMonth, monthDays, weekDays, validateData, createPersistence, createStore} = require('../calendar.js');
 const appointment = (overrides = {}) => ({id: 'appointment-1', title: 'Dentist', date: '2026-10-17', start: '09:00', end: '10:00', ...overrides});
 const data = (...events) => ({version: 1, events});
 const now = () => new Date(2026, 9, 17, 12).getTime();
@@ -30,6 +30,14 @@ test('month grid has six Monday-first weeks including adjacent dates', () => {
   const days = monthDays('2026-10-17'); assert.equal(days.length, 42);
   assert.equal(days[0], '2026-09-28'); assert.equal(days.at(-1), '2026-11-08');
   assert.equal(new Set(days).size, 42); assert.equal(dayOffset('2026-12-31', 1), '2027-01-01');
+});
+test('the compact calendar exposes one complete week across month and year boundaries', () => {
+  assert.deepEqual(weekDays('2026-10-17'), ['2026-10-12','2026-10-13','2026-10-14','2026-10-15','2026-10-16','2026-10-17','2026-10-18']);
+  assert.deepEqual(weekDays('2027-01-01'), ['2026-12-28','2026-12-29','2026-12-30','2026-12-31','2027-01-01','2027-01-02','2027-01-03']);
+  assert.equal(weekDays('2024-02-29')[3], '2024-02-29');
+  assert.equal(weekDays('1900-01-01').length, 7);
+  assert.equal(weekDays('2199-12-31').filter(validDate).at(-1), '2199-12-31');
+  assert.throws(() => weekDays('2026-02-29'), {code:'date'});
 });
 test('persisted calendar rejects extra properties, invalid fields and duplicate IDs', () => {
   for (const value of [null, [], {version: 2, events: []}, {...data(), tasks: []}, data({...appointment(), note: 'extra'}), data(appointment(), appointment()), data(appointment({id: '../escape'})), data(appointment({id: ''})), data(appointment({id: 'a'.repeat(65)}))]) assert.throws(() => validateData(value));
@@ -137,4 +145,70 @@ test('dispose prevents a slow load from publishing later state changes', async (
   let finish, changes = 0; const store = createStore({load: () => new Promise(resolve => {finish = resolve;}), save: async () => {}});
   store.subscribe(() => changes++); const loading = store.refresh(); await Promise.resolve(); store.dispose(); finish(data(appointment()));
   assert.equal(await loading, false); assert.equal(changes, 1); assert.equal(await store.refresh(), false);
+});
+
+test('editing persists title, date and times while preserving the appointment identity and other events', async () => {
+  let saved;
+  const other = appointment({id: 'other', start: '13:00', end: '14:00'});
+  const store = createStore({now, load: async () => data(appointment(), other), save: async value => {saved = value;}});
+  await store.refresh();
+  await store.update('appointment-1', {title: '  Updated meeting  ', date: '2026-10-18', start: '15:30', end: '16:15'});
+  const updated = appointment({title: 'Updated meeting', date: '2026-10-18', start: '15:30', end: '16:15'});
+  assert.deepEqual(saved, data(other, updated));
+  assert.deepEqual(store.snapshot().events, [other, updated]);
+  assert.equal(store.snapshot().todayCount, 1); store.dispose();
+});
+
+test('failed edits preserve the original event and the same values can be retried', async () => {
+  let fail = true;
+  const store = createStore({now, load: async () => data(appointment()), save: async () => {if (fail) throw Error('disk full');}});
+  await store.refresh(); const changes = {title: 'Changed', date: '2026-10-17', start: '11:00', end: '12:00'};
+  await assert.rejects(store.update('appointment-1', changes), {code: 'storage'});
+  assert.deepEqual(store.snapshot().events, [appointment()]);
+  fail = false; await store.update('appointment-1', changes);
+  assert.deepEqual(store.snapshot().events, [appointment(changes)]); store.dispose();
+});
+
+test('editing rejects missing events and invalid replacements without a persistence call', async () => {
+  let writes = 0;
+  const store = createStore({load: async () => data(appointment()), save: async () => {writes++;}});
+  await store.refresh();
+  await assert.rejects(store.update('missing', appointment()), {code: 'missing'});
+  for (const changes of [null, {...appointment(), title: ''}, {...appointment(), date: '2026-02-30'}, {...appointment(), start: '11:00'}]) await assert.rejects(store.update('appointment-1', changes));
+  assert.equal(writes, 0); assert.deepEqual(store.snapshot().events, [appointment()]); store.dispose();
+});
+
+test('Undo restores the exact deleted event through persistent storage and survives reload', async () => {
+  let saved = data(appointment(), appointment({id: 'other', date: '2026-10-18'}));
+  const options = {now, load: async () => saved, save: async value => {saved = value;}};
+  const store = createStore(options); await store.refresh();
+  const deleted = store.snapshot().events[0]; await store.remove(deleted.id); assert.equal(store.snapshot().todayCount, 0);
+  await store.restore(deleted); assert.equal(store.snapshot().todayCount, 1);
+  assert.deepEqual(store.snapshot().events[0], deleted); store.dispose();
+  const reloaded = createStore(options); await reloaded.refresh();
+  assert.deepEqual(reloaded.snapshot().events[0], deleted); reloaded.dispose();
+});
+
+test('Undo never overwrites an appointment with the same ID', async () => {
+  let writes = 0;
+  const store = createStore({load: async () => data(appointment({title: 'Existing meeting'})), save: async () => {writes++;}});
+  await store.refresh(); await assert.rejects(store.restore(appointment()), {code: 'collision'});
+  assert.equal(writes, 0); assert.equal(store.snapshot().events[0].title, 'Existing meeting'); store.dispose();
+});
+
+test('a failed Undo preserves the saved deletion and permits restoring the same snapshot later', async () => {
+  let fail = false, saved = data(appointment());
+  const store = createStore({load: async () => saved, save: async value => {if (fail) throw Error('unavailable'); saved = value;}});
+  await store.refresh(); const deleted = store.snapshot().events[0]; await store.remove(deleted.id);
+  fail = true; await assert.rejects(store.restore(deleted), {code: 'storage'});
+  assert.deepEqual(store.snapshot().events, []); assert.deepEqual(saved, data());
+  fail = false; await store.restore(deleted); assert.deepEqual(saved, data(deleted)); store.dispose();
+});
+
+test('an existing appointment can be edited at the event limit, while Undo enforces the limit', async () => {
+  const events = Array.from({length: LIMITS.events}, (_, index) => appointment({id: 'event-' + index}));
+  const store = createStore({load: async () => data(...events), save: async () => {}}); await store.refresh();
+  await store.update('event-0', {...events[0], title: 'Corrected'});
+  assert.equal(store.snapshot().events.find(event => event.id === 'event-0').title, 'Corrected');
+  await assert.rejects(store.restore(appointment()), {code: 'limit'}); store.dispose();
 });

@@ -17,7 +17,7 @@
 .notch #notch-panel > #search-player { height: 100%; min-height: 0; max-height: 100%; overflow: hidden; }
 #notch-menu #search-toggle { order: 2; margin-inline-start: auto; width: var(--space-8); padding: 0; }
 #notch-menu #search-toggle svg { width: var(--measure-18-px); height: var(--measure-18-px); fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
-#notch-menu:has(#search-toggle) [data-view="settings"] { order: 3 !important; margin-inline-start: 0; }
+#notch-menu:has(#search-toggle) [data-view="settings"] { order: 4 !important; margin-inline-start: 0; }
 .search-heading { display: flex; flex: none; align-items: center; gap: var(--space-2); }
 .search-field {
   display: flex;

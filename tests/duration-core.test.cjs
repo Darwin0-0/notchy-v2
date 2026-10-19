@@ -53,3 +53,42 @@ test('corrupt state cannot be silently overwritten and invalid earned counts are
   let writes=0;const store=Core.createStore({load:()=>'{broken',save:()=>writes++});await assert.rejects(store.ready);await assert.rejects(store.add('No overwrite',20));assert.equal(writes,0);store.dispose();
   for(const earnedCycles of [-1,1.5,'2',NaN,10000]){const state=Core.fresh();state.tasks=[{id:'one',title:'Actual task',totalMinutes:90,elapsedMs:0,done:false,settings:{...Core.DEFAULT_SETTINGS},earnedCycles}];assert.throws(()=>Core.normalize(state));}
 });
+
+test('renaming a running task preserves its clock, plan, credit and identity',async()=>{
+  const x=setup();await x.store.ready;await x.store.add('Typo',90);await x.store.toggleTimer('test-1');x.advance(26*60000);
+  await x.store.update('test-1','Corrected title',90);const state=x.store.snapshot(),task=state.tasks[0];
+  assert.equal(task.id,'test-1');assert.equal(task.title,'Corrected title');assert.equal(task.elapsedMs,26*60000);assert.equal(task.earnedCycles,1);assert.equal(state.startedAt,1000+26*60000);assert.equal(task.settings.work,25);x.store.dispose();
+});
+
+test('changing a progressed duration requires explicit restart and keeps that task paused',async()=>{
+  const x=setup();await x.store.ready;await x.store.add('Actual work',90);await x.store.toggleTimer('test-1');x.advance(26*60000);
+  await assert.rejects(x.store.update('test-1','Updated work',60),/Confirm restarting/);assert.equal(x.store.snapshot().tasks[0].totalMinutes,90);
+  await x.store.configure({work:45,rest:10,longRest:20,interval:3});
+  await x.store.update('test-1','Updated work',60,{restart:true});const state=x.store.snapshot(),task=state.tasks[0];
+  assert.equal(task.totalMinutes,60);assert.equal(task.title,'Updated work');assert.equal(task.elapsedMs,0);assert.equal(task.earnedCycles,undefined);assert.equal(task.settings.work,25);assert.equal(state.startedAt,null);x.store.dispose();
+});
+
+test('invalid edits and rejected writes never replace a task or its progress',async()=>{
+  let reject=false;const x=setup({save:()=>{if(reject)throw Error('Disk full');}});await x.store.ready;await x.store.add('Original',90);await x.store.skip('test-1');const original=x.store.snapshot();
+  for(const [title,duration]of [['',90],['\u0001bad',90],['valid',0],['x'.repeat(501),90]])await assert.rejects(x.store.update('test-1',title,duration,{restart:true}));
+  assert.deepEqual(x.store.snapshot(),original);reject=true;await assert.rejects(x.store.update('test-1','Lost update',60,{restart:true}));assert.deepEqual(x.store.snapshot(),original);x.store.dispose();
+});
+
+test('undo deletion restores exact task data, list position and selection with progress paused',async()=>{
+  const x=setup();await x.store.ready;await x.store.add('Before',5);await x.store.add('Restore me',90);await x.store.add('After',10);await x.store.toggleTimer('test-2');x.advance(26*60000);
+  const deleted=x.store.snapshot().tasks[1];await x.store.remove('test-2');assert.equal(x.store.canUndoRemove(),true);x.advance(60000);await x.store.undoRemove();const state=x.store.snapshot();
+  assert.deepEqual(state.tasks.map(task=>task.id),['test-1','test-2','test-3']);assert.deepEqual(state.tasks[1],deleted);assert.equal(state.activeId,'test-2');assert.equal(state.startedAt,null);assert.equal(x.store.canUndoRemove(),false);await assert.rejects(x.store.undoRemove());x.store.dispose();
+});
+
+test('undo preserves other edits and never interrupts a timer started after deletion',async()=>{
+  const x=setup();await x.store.ready;await x.store.add('First',90);await x.store.add('Second',20);await x.store.toggleTimer('test-1');x.advance(5000);await x.store.remove('test-1');
+  await x.store.update('test-2','Other work',20);await x.store.toggleTimer('test-2');x.advance(3000);await x.store.undoRemove();const state=x.store.snapshot();
+  assert.equal(state.tasks[0].elapsedMs,5000);assert.equal(state.tasks[1].title,'Other work');assert.equal(state.activeId,'test-2');assert.notEqual(state.startedAt,null);assert.equal(state.tasks[1].elapsedMs,3000);x.store.dispose();
+});
+
+test('failed deletion or undo retain the previous recovery and allow retry without data loss',async()=>{
+  let reject=false;const x=setup({save:()=>{if(reject)throw Error('Disk full');}});await x.store.ready;await x.store.add('Recover',20);await x.store.add('Keep',30);await x.store.remove('test-1');reject=true;
+  await assert.rejects(x.store.remove('test-2'));assert.equal(x.store.canUndoRemove(),true);assert.equal(x.store.snapshot().tasks[0].id,'test-2');
+  await assert.rejects(x.store.undoRemove());assert.equal(x.store.canUndoRemove(),true);assert.equal(x.store.snapshot().tasks.length,1);
+  reject=false;await x.store.undoRemove();assert.deepEqual(x.store.snapshot().tasks.map(task=>task.id),['test-1','test-2']);assert.equal(x.store.canUndoRemove(),false);x.store.dispose();
+});

@@ -39,7 +39,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 - **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
 - **Ready to receive.** LocalSend starts with Notchy. Accept incoming files, send to nearby devices, and follow the transfer without leaving the notch.
 - **Find it, keep your flow.** Open local search from the magnifying glass or **Ctrl+Space**. Find a file or folder by name, reveal it in Explorer, or choose a nearby device to send it with LocalSend. Your search stays on your PC.
-- **Make space for your own ideas.** Browse the included module selection, preview three layouts, or import a local JSON module from **Settings → Modules → Library**. Your module data stays on this device.
+- **Make space for your own ideas.** Open **Market** to find Music, Tasks & Focus, Weather and Shelf, with their real installed state. Preview local community examples or import your own JSON module. Your module data stays on this device.
 
 ![Local search inside Notchy, with sample files and keyboard controls](assets/previews/search.png)
 
@@ -53,7 +53,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 
 1. [Download the Windows installer](https://github.com/Darwin0-0/notchy-v2/releases/latest) and run setup. No build tools are needed; setup downloads WebView2 if it is missing.
 2. Hover over the notch for a quick preview, then click to open the controls. Move away to return to the discreet view. Keyboard editing, file dialogs and active drags stay protected while you use them.
-3. Open **Settings → Modules** to arrange Music, Focus, Tasks, Weather and Shelf. Open **Tray** for files and LocalSend; save a copy to Downloads whenever you need one.
+3. Open **Settings → Modules** to arrange Music, Tasks & Focus, Weather and Shelf. **Market** lets you install or remove modules; removing a built-in module keeps its data and saved placement. Open **Tray** for files and LocalSend; save a copy to Downloads whenever you need one.
 4. Choose your city and add a task: enter its title, set hours and minutes, review the interval plan, then choose **Add task**. A 90-minute budget includes three 25-minute focus intervals and three 5-minute breaks with the default settings. Pomodoro settings apply to new task plans; existing plans keep their timings and progress. Back or Escape cancels an unsaved form.
 5. Use **Ctrl+Space** for local search. Navigate with the arrow keys, press **Enter** to open a result or **Ctrl+Enter** to reveal it, and **Escape** to return. If the global shortcut is busy, Notchy tries **Ctrl+Shift+Space**; **Ctrl+K** also works inside Notchy.
 
@@ -69,11 +69,11 @@ You do not need to know the whole codebase to make Notchy better. A clear bug re
 
 The [project backlog](docs/ROADMAP.md) lists the remaining decisions, release checks and product improvements, with a clear finish line for each.
 
-Have an idea for a module? Start on the [blank island in the module SDK](sdk/README.md), then follow the [detailed JSON manifest reference](docs/MODULES.md). The same renderer powers the SDK and imported modules. The current library ships with Notchy; an online community marketplace is not connected yet.
+Have an idea for a module? Start on the [blank island in the module SDK](sdk/README.md), then follow the [detailed JSON manifest reference](docs/MODULES.md). The same renderer powers the SDK and imported modules. Market ships with the built-in modules and local examples; an online community catalog is not connected yet.
 
 ## Architecture
 
-Notchy has three main places: **Nook** for your activities, **Tray** for files and nearby sharing, and **Settings** for General, Modules, Scenarios and Health. Buttons and clickable titles open detailed controls; the card background does not navigate. Return to Nook without losing the current song, task or timer.
+Use **Nook** for your activities, **Tray** for files and nearby sharing, and **Market** to manage modules. **Settings** groups General, Appearance, Notch, Modules, Scenarios, Health and About in one sidebar. Buttons and clickable titles open detailed controls; the card background does not navigate. Return to Nook without losing the current song, task or timer.
 
 Focus has four automatic presentations, from a compact timer to a timer beside the task list. The available width and height choose the format; there are no size arrows to cycle through, and opening a detail does not change your saved module placement.
 

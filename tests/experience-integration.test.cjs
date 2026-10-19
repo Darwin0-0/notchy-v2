@@ -80,18 +80,20 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
   const {document, downloads, descendants} = dom();
   const nodes = new Map();
   function make(id, tag = 'section') {const node = document.createElement(tag); node.id = id; nodes.set(id, node); document.body.append(node); return node;}
-  for (const id of ['health-player', 'sharing-experience', 'modules-experience', 'settings-player', 'welcome-player', 'music-queue', 'startup-windows', 'notch-panel', 'notch-menu', 'notch-toggle', 'weather-city-input', 'search-player', 'search-toggle', 'module-library-player']) make(id);
+  for (const id of ['health-player', 'sharing-experience', 'modules-experience', 'settings-player', 'welcome-player', 'music-queue', 'startup-windows', 'notch-panel', 'notch-menu', 'notch-toggle', 'weather-city-input', 'search-player', 'search-toggle', 'module-library-player', 'market-toolbar']) make(id);
+  nodes.get('market-toolbar').hidden = true;
   for (const id of ['shelf-player', 'shelf-nearby-peers', 'shelf-incoming', 'shelf-nearby', 'shelf-incoming-sender', 'shelf-incoming-files', 'shelf-incoming-accept', 'shelf-incoming-reject', 'shelf-nearby-status', 'shelf-nearby-toggle', 'shelf-transfer-cancel', 'shelf-share']) make(id);
   const nearbyHint = document.createElement('p'); nearbyHint.className = 'shelf-nearby-hint'; nodes.get('shelf-nearby').append(nearbyHint);
   const remove = make('shelf-remove', 'button'); remove.dataset.shelfCommand = 'remove';
   const connect = document.createElement('button'); connect.dataset.musicQueueCommand = 'connect'; nodes.get('music-queue').append(connect);
   const settingsHealth = document.createElement('button'); settingsHealth.dataset.settingsCommand = 'health'; nodes.get('settings-player').append(settingsHealth);
+  const settingsClose = document.createElement('button'); settingsClose.dataset.settingsCommand = 'close'; nodes.get('settings-player').append(settingsClose);
   const calls = {requests: [], health: [], sharing: [], music: [], picker: [], modules: []};
   const pending = [];
   let backendFiles = plain(files);
   const translate = (value, values = {}) => String(value ?? '').replace(/\{(\w+)\}/g, (match, key) => Object.hasOwn(values, key) ? values[key] : match);
   const scope = {
-    calendar:null,
+    calendar:null, settingsReturn:null, detailReturn:null, detailView:'', focusToolReturn:null, keyboardNavigation:false,
     console, document, Set, Map, Number, JSON, Object, Array, Promise,
     disposed: false, shelfItems: plain(files), shelfLoaded: true, shelfBusy: false, shelfError: '', shelfDownloadError: false, shelfEpoch: 0, selectedFiles: new Set(), fileDragging: false,
     nearby: {available: true, status: 'discovering', peers: plain(peers), transfer: null, incoming: null}, nearbyBusy: false, nearbyError: '', nearbyActionError: false, nearbyMutation: 0,
@@ -135,6 +137,9 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
     },
   };
   const code = [
+    production('  const settingsRoute =', '  function returnLabel('),
+    production('  function captureRouteOrigin(', '  function returnFromDetail('),
+    production('  function restoreFocusRoute(', '  function openActivityDetail('),
     production('  function renderSearchRoute() {', '  async function invokeSearch('),
     production('  function renderExperience() {', '  function settingsNaturalPanelHeight() {'),
     production('  function acceptedFile(', '  async function fileRequest('),
@@ -165,7 +170,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
   };
   scope.renderExperience();
   return {
-    scope, calls, storage, document, downloads, nodes, find, sharingControl, clickSharing, clickHealth, settingsHealth,
+    scope, calls, storage, document, downloads, nodes, find, sharingControl, clickSharing, clickHealth, settingsHealth, settingsClose,
     async flush() {while (pending.length) await Promise.all(pending.splice(0));},
     nearbyReply(callback) {nearbyReply = callback;}, nearbyReadReply(callback) {nearbyReadReply = callback;}, response,
     failNextShelfRequest(error) {shelfFailure = error;},
@@ -368,6 +373,67 @@ test('Health routes through Settings and returning to Nook preserves its existin
   f.dispose();
 });
 
+test('Settings X returns to the open originating route, page and focus without collapsing', () => {
+  for (const [view, page] of [['nook', 'essential'], ['tray', 'music'], ['music', 'music']]) {
+    const f = fixture({view});
+    const originControl = f.document.createElement('button'); f.document.body.append(originControl); originControl.focus();
+    const nestedOrigin = {view:'nook', page:'essential'}, focusOrigin = {view:'tasks', page:'tasks'};
+    Object.assign(f.scope, {islandPage:page, detailReturn:nestedOrigin, detailView:'music', focusToolReturn:focusOrigin});
+    f.scope.selectViewButton({dataset:{view:'settings'}});
+    assert.equal(f.scope.view, 'settings');
+    assert.equal(f.scope.settingsReturn.control, originControl);
+    f.scope.islandPage = 'tasks';
+    const stateChanges = []; f.scope.setState = value => {stateChanges.push(value); f.scope.state=value;};
+    f.scope.settingsCommand({target:f.settingsClose});
+    assert.equal(f.scope.view, view);
+    assert.equal(f.scope.islandPage, page);
+    assert.equal(f.scope.settingsReturn, null);
+    assert.equal(f.scope.state, 'open');
+    assert.deepEqual(stateChanges, ['open']);
+    assert.equal(f.document.activeElement, originControl);
+    assert.equal(f.scope.detailReturn, nestedOrigin);
+    assert.equal(f.scope.focusToolReturn, focusOrigin);
+    assert.deepEqual(f.calls.modules, []);
+    f.dispose();
+  }
+});
+
+test('Settings X without an origin opens Nook on its existing page', () => {
+  const f = fixture({view:'settings'});
+  f.scope.islandPage = 'tasks';
+  const stateChanges = []; f.scope.setState = value => {stateChanges.push(value); f.scope.state=value;};
+  f.scope.settingsCommand({target:f.settingsClose});
+  assert.equal(f.scope.view, 'nook');
+  assert.equal(f.scope.islandPage, 'tasks');
+  assert.equal(f.scope.settingsReturn, null);
+  assert.equal(f.scope.state, 'open');
+  assert.deepEqual(stateChanges, ['open']);
+  f.dispose();
+});
+
+test('Settings X cancels a module draft once and preserves the saved return destination', () => {
+  for (const withOrigin of [false, true]) {
+    const f = fixture({view:'settings'});
+    const originControl = f.document.createElement('button'); f.document.body.append(originControl);
+    f.scope.moduleEditing = true;
+    f.scope.settingsReturn = withOrigin ? {view:'tray', page:'music', control:originControl} : null;
+    const stateChanges = []; f.scope.setState = value => {stateChanges.push(value); f.scope.state=value;};
+    f.scope.settingsCommand({target:f.settingsClose});
+    assert.deepEqual(f.calls.modules, [false], 'the draft is cancelled once, never applied');
+    assert.equal(f.scope.moduleEditing, false);
+    assert.equal(f.scope.settingsReturn, null);
+    assert.equal(f.scope.view, withOrigin ? 'tray' : 'nook');
+    assert.equal(f.scope.state, 'open');
+    assert(!stateChanges.includes('rest'), 'closing settings never collapses the origin');
+    if (withOrigin) {
+      assert.equal(f.scope.islandPage, 'music');
+      assert.equal(f.document.activeElement, originControl);
+      assert.deepEqual(stateChanges, ['open']);
+    } else assert.deepEqual(stateChanges, [], 'module cancellation already performs its own return');
+    f.dispose();
+  }
+});
+
 test('an incoming LocalSend request during search returns to the previous usable route', () => {
   const f = fixture({view: 'search'});
   const closed = [];
@@ -381,4 +447,21 @@ test('an incoming LocalSend request during search returns to the previous usable
   assert.equal(f.scope.view, 'tray');
   assert.equal(f.scope.localSendContext, null);
   f.dispose();
+});
+
+test('returning from LocalSend keeps its origin open while explicit Close collapses it',()=>{
+  const f=fixture({view:'tray'}), item=f.scope.shelfItems[0];
+  f.scope.openLocalSend('send',[item]);f.scope.closeLocalSend(false,false);
+  assert.equal(f.scope.view,'tray');assert.equal(f.scope.state,'open');
+  f.scope.openLocalSend('send',[item]);f.scope.closeLocalSend();
+  assert.equal(f.scope.view,'tray');assert.equal(f.scope.state,'rest');f.dispose();
+});
+
+test('reopened received transfers track their own progress and completion by identity',()=>{
+  const scope={nearby:{incoming:null,transfer:{id:'received-1',direction:'receive',status:'receiving',progress:45,totalBytes:1024}},
+    localSendContext:{transferId:'received-1',direction:'receive',requested:true,files:[file('a')],totalBytes:1024}};
+  vm.runInNewContext(production('  function localSendPresentation() {','  function localSendSize(')+'this.present=localSendPresentation;',scope);
+  assert.equal(scope.present().stage,'progress');assert.equal(scope.present().progress,45);
+  scope.nearby.transfer.status='complete';assert.equal(scope.present().stage,'complete');
+  scope.nearby.transfer.id='unrelated-send';scope.nearby.transfer.direction='send';assert.equal(scope.present().transfer,null);
 });

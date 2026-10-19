@@ -1,8 +1,9 @@
 #notch-menu > [data-view] { order: initial!important; }
 #notch-menu > [data-view="nook"] { order: 0!important; }
 #notch-menu > [data-view="tray"] { order: 1!important; }
-#notch-menu > [data-view="settings"] { order: 2!important; margin-left:auto; }
-#notch-menu > [data-view]:not([data-view="nook"]):not([data-view="tray"]):not([data-view="settings"]) { display:none!important; }
+#notch-menu > [data-view="module-library"] { order: 2!important; }
+#notch-menu > [data-view="settings"] { order: 4!important; margin-left:auto; }
+#notch-menu > [data-view]:not([data-view="nook"]):not([data-view="tray"]):not([data-view="module-library"]):not([data-view="settings"]) { display:none!important; }
 #notch #notch-panel > #settings-player.ia-settings { display:flex; flex-direction:column; gap:var(--space-2); height:100%; min-height:0; padding:0; overflow:hidden; }
 #notch #notch-panel > #settings-player.ia-settings[hidden] { display:none; }
 .ia-tabs { display:flex; align-items:center; flex:none; gap:var(--space-1); padding:var(--space-1); background:var(--color-161618); border-radius:var(--radius-control); }
@@ -30,3 +31,102 @@
 .ia-settings-body #health-player { display:flex; flex-direction:column; min-height:100%; height:auto; }
 .ia-settings-body #health-player[hidden] { display:none; }
 .ia-settings-body #health-player .experience-health-grid { flex:none; }
+
+/* Bloom's composition with Notchy's existing black surface and activity accent. */
+.notch[data-settings-open="true"] #notch-surface > use:first-of-type { fill:var(--color-000); }
+.notch[data-settings-open="true"] #notch-menu { display:none; }
+.notch[data-settings-open="true"] #notch-panel > .activity-detail-back { display:none; }
+.notch[data-settings-open="true"] #notch-panel { top:0; left:0; width:100%; height:100%; padding:0; overflow:hidden; }
+#notch #notch-panel > #settings-player.ia-settings {
+  --settings-accent:var(--activity-focus); display:flex; flex-direction:column; gap:0; height:100%; min-height:0;
+  padding:0; overflow:hidden; background:transparent; color:#fff; font:13px/1.35 var(--font-ui);
+  container:settings-panel / inline-size;
+}
+#settings-player .ia-titlebar { display:flex; align-items:center; justify-content:space-between; flex:none; height:48px; padding:10px 18px; box-sizing:border-box; }
+#settings-player .ia-titlebar h2 { margin:0; color:#b5b5b5; font:700 13px/18px var(--font-ui); letter-spacing:-.1px; }
+#settings-player .ia-close { display:grid; place-items:center; flex:none; width:24px; height:24px; padding:0; border:0; border-radius:50%; background:#ffffff10; color:#ddd; font:400 18px/1 var(--font-ui); cursor:pointer; transition:background-color 150ms,transform 200ms cubic-bezier(.4,0,.2,1); }
+#settings-player .ia-close:hover { background:#ffffff20; transform:scale(1.05); }
+#settings-player .ia-settings-layout { display:flex; flex:1; min-height:0; min-width:0; }
+#settings-player .ia-tabs { position:relative; display:flex; flex-direction:column; align-items:stretch; flex:0 0 170px; gap:4px; padding:8px; border-right:1px solid #ffffff12; border-radius:0; background:transparent; overflow-y:auto; scrollbar-width:thin; }
+#settings-player .ia-tabs button { display:flex; align-items:center; flex:none; gap:10px; width:100%; min-height:30px; margin:0; padding:7px 12px; border:0; border-radius:8px; background:transparent; color:#ccc; text-align:left; font:500 13px/18px var(--font-ui); cursor:pointer; transition:background-color 150ms,color 150ms; }
+#settings-player .ia-tabs button > svg { flex:none; width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+#settings-player .ia-tabs button:hover { background:#ffffff0d; }
+#settings-player .ia-tabs button[aria-selected="true"] { background:#ffffff14; color:#fff; font-weight:600; }
+#settings-player .ia-tabs button:active { background:#ffffff20; }
+#settings-player .ia-settings-body { flex:1; min-width:0; min-height:0; padding:0 16px 20px; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#ffffff20 transparent; scroll-padding:12px; }
+#settings-player .ia-settings-body > :not([hidden]) { min-height:0; }
+#settings-player .ia-page { display:flex; flex-direction:column; gap:0; }
+#settings-player .ia-caption { margin:14px 6px 8px; color:#aaa; font:600 11px/15px var(--font-ui); letter-spacing:.5px; }
+#settings-player .ia-section:first-child .ia-caption { margin-top:8px; }
+#settings-player .ia-group { overflow:hidden; border:1px solid #ffffff12; border-radius:12px; background:var(--color-161618,#161618); }
+#settings-player .ia-row { position:relative; display:flex; align-items:center; gap:0; box-sizing:border-box; width:100%; min-width:0; min-height:55px; height:auto; margin:0; padding:10px 14px; border:0; border-radius:0; background:transparent; color:#fff; font-family:var(--font-ui); text-align:left; }
+#settings-player .ia-row[hidden] { display:none; }
+#settings-player .ia-row + .ia-row::after { content:''; position:absolute; top:0; left:52px; right:0; height:1px; background:#ffffff12; pointer-events:none; }
+#settings-player button.ia-row { cursor:pointer; transition:background-color 150ms; }
+#settings-player button.ia-row:hover { background:#ffffff08; }
+#settings-player button.ia-row:active { background:#ffffff12; }
+#settings-player [data-settings-command="reset-appearance"] .ia-row-copy strong { color:#ff6860; }
+#settings-player .ia-row-icon,#settings-player .ia-row > .settings-icon { display:grid; place-items:center; flex:0 0 20px; width:20px; height:24px; margin:0 12px 0 0; padding:0; border-radius:0; background:transparent; color:#aaa; }
+#settings-player .ia-row-icon svg,#settings-player .settings-icon svg { display:block; width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+#settings-player .ia-row-copy,#settings-player .settings-row-copy { display:flex; flex:1; flex-direction:column; gap:1px; min-width:0; }
+#settings-player .ia-row-copy strong,#settings-player .settings-row-copy strong { overflow:visible; color:#fff; font:500 14px/18px var(--font-ui); white-space:normal; }
+#settings-player .ia-row-copy small,#settings-player .settings-row-copy small { overflow:visible; color:#a6a6a6; font:400 11px/15px var(--font-ui); white-space:normal; }
+#settings-player .ia-row-control { flex:none; margin-left:12px; }
+#settings-player .ia-row-control:is(select) { max-width:118px; min-width:80px; width:auto; height:26px; padding:3px 6px; border:1px solid #ffffff1a; border-radius:6px; background:#ffffff06; color:#fff; font:400 11px/16px var(--font-ui); }
+#settings-player select option { background:var(--color-161618,#161618); color:#fff; }
+#settings-player .settings-format-segment { gap:0; width:auto; padding:2px; border:1px solid #ffffff1a; border-radius:6px; background:#ffffff06; }
+#settings-player .settings-format-segment button { flex:none; width:auto; height:24px; min-height:24px; padding:0 6px; border-radius:4px; font:500 10px/16px var(--font-ui); }
+#settings-player .settings-format-segment button[aria-pressed="true"] { background:#ffffff18; }
+#settings-player .ia-range-control { display:flex; flex-direction:column; align-items:flex-end; gap:3px; width:100px; }
+#settings-player #appearance-radius-value { color:#aaa; font:400 10px/12px var(--font-ui); }
+#settings-player #appearance-radius { width:100px; min-width:0; height:18px; margin:0; padding:0; accent-color:#fff; }
+#settings-player :is(#appearance-motion,#startup-windows) { appearance:none; position:relative; flex:0 0 42px; box-sizing:border-box; width:42px!important; min-width:42px; height:24px!important; padding:0; margin:0 0 0 12px; border:1px solid #ffffff1a; border-radius:14px; background:#ffffff08; cursor:pointer; transition:background-color 180ms; }
+#settings-player :is(#appearance-motion,#startup-windows)::before { content:''; position:absolute; left:2px; top:2px; width:18px; height:18px; border-radius:50%; background:white; box-shadow:0 1px 3px #0003; transform:translateX(0); transition:transform 300ms cubic-bezier(.4,0,.2,1); }
+#settings-player :is(#appearance-motion,#startup-windows):checked { background:var(--settings-accent); border-color:transparent; }
+#settings-player :is(#appearance-motion,#startup-windows):checked::before { transform:translateX(18px); }
+#settings-player .settings-arrow { flex:none; width:14px; height:14px; margin-left:8px; fill:none; stroke:#888; stroke-width:1.5; }
+#settings-player .settings-startup-status { margin:8px 6px; color:#ff8a84; font-size:11px; }
+#settings-player .ia-about-brand { display:flex; flex-direction:column; align-items:center; padding:16px 0 6px; text-align:center; }
+#settings-player .ia-about-logo { width:56px; height:56px; }
+#settings-player .ia-about-logo svg { display:block; width:56px; height:56px; }
+#settings-player .ia-about-name { margin:8px 0 10px; font:800 38px/1.05 var(--font-ui); letter-spacing:-1.5px; }
+#settings-player .ia-version { padding:3px 9px; border-radius:20px; background:#ffffff0a; color:#aaa; font:600 10px/14px var(--font-ui); letter-spacing:.5px; }
+#settings-player .ia-about-tagline { max-width:250px; margin:14px 0 0; color:#aaa; font:400 11px/17px var(--font-ui); }
+#settings-player .ia-settings-body :is(#modules-player,#scenarios-player,#health-player) { width:100%; height:auto; min-height:100%; min-width:0; background:transparent; padding:8px 0 0; }
+#settings-player .ia-settings-body #modules-player { min-height:240px; }
+#settings-player .ia-settings-body .experience-heading h2 { font-size:14px; }
+#settings-player .ia-settings-body .experience-health-grid { grid-template-columns:1fr; }
+#settings-player :is(.experience-module-list,.experience-module-preview,.experience-health-card,.ia-diagnostics) { border:1px solid #ffffff12; border-radius:12px; background:var(--color-161618,#161618); }
+#settings-player .experience-switch[aria-checked="true"] { background:var(--settings-accent); }
+#settings-player .experience-switch > span { transition:transform 300ms cubic-bezier(.4,0,.2,1); }
+#settings-player .ia-settings-body .scenarios-layout { display:flex; flex-direction:column; align-items:stretch; gap:12px; }
+#settings-player .ia-settings-body .scenarios-divider { display:none; }
+#settings-player .ia-settings-body .scenarios-options { flex-wrap:wrap; }
+#settings-player .ia-settings-body .scenarios-footer { flex-wrap:wrap; }
+#settings-player .scenarios-mode { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); width:100%; }
+#settings-player .scenarios-mode label > span { height:100%; padding:6px; font-size:12px; line-height:16px; text-align:center; }
+#settings-player :is(.scenarios-rule-heading,.scenarios-guard) { gap:8px; }
+#settings-player :is(.scenarios-rule-heading > strong,.scenarios-guard > span:first-child) { flex:1; overflow-wrap:anywhere; }
+#settings-player :is(button,input,select):focus-visible { outline:2px solid #8ac8ff; outline-offset:2px; }
+@container settings-panel (max-width:480px) {
+  #settings-player .ia-tabs { flex-basis:122px; padding:8px 5px; }
+  #settings-player .ia-tabs button { padding:7px 8px; gap:7px; font-size:11px; }
+  #settings-player .ia-settings-body { padding:0 10px 16px; }
+  #settings-player .ia-row { flex-wrap:wrap; padding:10px; }
+  #settings-player .ia-row-control { margin-left:32px; margin-top:8px; }
+  #settings-player .ia-row-copy { flex-basis:calc(100% - 32px); }
+  #settings-player #modules-experience { display:flex; flex-direction:column; }
+  #settings-player #modules-experience .experience-heading { flex-wrap:wrap; height:auto; min-height:32px; gap:6px; }
+  #settings-player #modules-experience .experience-heading-actions { flex:1 1 100%; min-width:0; flex-wrap:wrap; justify-content:flex-start; }
+  #settings-player #modules-experience .experience-module-hint { max-width:none; margin-left:auto; }
+}
+@media (prefers-reduced-motion:reduce) {
+  #settings-player *,#settings-player *::before { transition:none!important; animation:none!important; }
+}
+body[data-motion="false"] #settings-player *,body[data-motion="false"] #settings-player *::before { transition:none!important; animation:none!important; }
+@media (forced-colors:active) {
+  .notch[data-settings-open="true"] #notch-surface > use:first-of-type { fill:Canvas; }
+  #settings-player { color:CanvasText; }
+  #settings-player :is(.ia-group,.ia-tabs,.ia-row-control) { border-color:ButtonText; }
+  #settings-player .ia-tabs [aria-selected="true"] { outline:1px solid Highlight; }
+}

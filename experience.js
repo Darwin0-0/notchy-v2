@@ -5,16 +5,17 @@
   if (root?.document) root.NotchyExperience = api;
 })(typeof window === 'object' ? window : null, function () {
   'use strict';
-  const MODULE_IDS = Object.freeze(['music', 'focus', 'weather', 'tasks', 'shelf']);
-  const META = Object.freeze({music: ['Musique', 'var(--activity-music)'], focus: ['Focus', 'var(--activity-focus)'], weather: ['Météo', 'var(--activity-weather)'], tasks: ['Tâches', 'var(--activity-tasks)'], shelf: ['Étagère', 'var(--activity-shelf)']});
+  const MODULE_IDS = Object.freeze(['music', 'focus', 'weather', 'shelf']);
+  const META = Object.freeze({music: ['Musique', 'var(--activity-music)'], focus: ['Tâches & Focus', 'var(--activity-focus)'], weather: ['Météo', 'var(--activity-weather)'], shelf: ['Étagère', 'var(--activity-shelf)']});
   const ICON_PATHS = Object.freeze({health: 'M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5z M9 12l2 2 4-4', back: 'm14 6-6 6 6 6', up: 'm6 15 6-6 6 6', down: 'm6 9 6 6 6-6', ready: 'm5 12 4 4L19 6', attention: 'M12 5v9 M12 19h.01', unknown: 'M6 12h12', busy: 'M12 3a9 9 0 0 1 9 9'});
   const list = value => Array.isArray(value) ? value : [];
   const known = (id, ids = MODULE_IDS) => typeof id === 'string' && ids.includes(id);
   const copy = state => ({enabled: [...state.enabled], order: [...state.order]});
+  const canonical = (id, ids) => id === 'tasks' && ids.includes('focus') ? 'focus' : id;
 
   function normalizeModuleState(value = {}, ids = MODULE_IDS) {
-    const order = [...new Set([...list(value?.order).filter(id => known(id, ids)), ...ids])];
-    const selected = new Set(list(value?.enabled).filter(id => known(id, ids)));
+    const order = [...new Set([...list(value?.order).map(id => canonical(id, ids)).filter(id => known(id, ids)), ...ids])];
+    const selected = new Set(list(value?.enabled).map(id => canonical(id, ids)).filter(id => known(id, ids)));
     return {enabled: order.filter(id => selected.has(id)), order};
   }
   function modulePreviewPlan(value, ids = MODULE_IDS) {
@@ -25,6 +26,7 @@
   }
   function updateModuleState(value, id, command, ids = MODULE_IDS) {
     const state = normalizeModuleState(value, ids);
+    id = canonical(id, ids);
     if (!known(id, ids)) return state;
     if (command === 'toggle') state.enabled = state.enabled.includes(id) ? state.enabled.filter(item => item !== id) : [...state.enabled, id];
     else if (command === 'up' || command === 'down') {

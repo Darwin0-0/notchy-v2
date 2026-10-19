@@ -39,6 +39,11 @@
     const first = value.slice(0, 8) + '01', weekday = (new Date(first + 'T12:00:00Z').getUTCDay() + 6) % 7;
     return Array.from({length: 42}, (_, index) => dayOffset(first, index - weekday));
   }
+  function weekDays(value) {
+    if (!validDate(value)) throw fault('date');
+    const weekday = (new Date(value + 'T12:00:00Z').getUTCDay() + 6) % 7;
+    return Array.from({length: 7}, (_, index) => dayOffset(value, index - weekday));
+  }
   function validateEvent(value) {
     if (!exact(value, ['id', 'title', 'date', 'start', 'end'])) throw fault('invalid');
     if (typeof value.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(value.id)) throw fault('invalid');
@@ -96,28 +101,44 @@
         const event = validateEvent({id: id(), title: typeof value.title === 'string' ? value.title.trim() : value.title, date: value.date, start: value.start, end: value.end});
         return commit({version: 1, events: [...data.events, event]});
       },
+      async update(eventId, value) {
+        if (!data.events.some(event => event.id === eventId)) throw fault('missing');
+        if (!plain(value)) throw fault('invalid');
+        const event = validateEvent({id: eventId, title: typeof value.title === 'string' ? value.title.trim() : value.title, date: value.date, start: value.start, end: value.end});
+        return commit({version: 1, events: data.events.map(current => current.id === eventId ? event : current)});
+      },
       async remove(eventId) {if (!data.events.some(event => event.id === eventId)) throw fault('missing'); return commit({version: 1, events: data.events.filter(event => event.id !== eventId)});},
+      async restore(value) {
+        const event = validateEvent(value);
+        if (data.events.some(current => current.id === event.id)) throw fault('collision');
+        if (data.events.length >= LIMITS.events) throw fault('limit');
+        return commit({version: 1, events: [...data.events, event]});
+      },
       tick: announce,
       dispose() {disposed = true; listeners.clear();},
     });
   }
-  function create({host, locale = () => 'fr', load, save, onClose = () => {}, onChange = () => {}, now = Date.now} = {}) {
+  function create({host, locale = () => 'fr', load, save, onClose = () => {}, onChange = () => {}, onLayout = () => {}, now = Date.now, motion = () => true, reflow} = {}) {
     if (!host?.ownerDocument || typeof load !== 'function' || typeof save !== 'function') throw new TypeError('Calendar requires a host and persistent load/save callbacks.');
     const document = host.ownerDocument, window = document.defaultView, store = createStore({load, save, now});
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)'), animations = new Set();
+    let selectionFrame = 0, selectionFlight = null, selectionTarget = null, selectionPosition = null, weekKey = '', listKey = '', lastFormOpen = false, exitGhost = null;
     let opened = false, disposed = false, selected = dayKey(now()), trigger = null, formOpen = false, formError = '', notice = '', previousToday = dayKey(now());
+    let editingId = null, formOrigin = null, formReturnDate = selected, undoEvent = null;
+    let preferredHeight = 228;
     let draft = {title: '', date: selected, start: '09:00', end: '10:00'};
     const en = () => (typeof locale === 'function' ? locale() : locale) === 'en';
     const say = (fr, english) => en() ? english : fr;
     const format = (date, options) => new Intl.DateTimeFormat(en() ? 'en-GB' : 'fr-FR', {...options, timeZone: 'UTC'}).format(new Date(date + 'T12:00:00Z'));
     function make(tag, className = '', text = '') {const node = document.createElement(tag); node.className = className; node.textContent = text; return node;}
     function button(label, action, className = '') {const node = make('button', className, label); node.type = 'button'; node.addEventListener('click', action); return node;}
-    const header = make('header', 'calendar-header'), back = button('', () => close({reason: 'back'}), 'calendar-back'), title = make('h2'), today = button('', () => choose(dayKey(now())), 'calendar-today');
+    const header = make('header', 'calendar-header'), back = button('', () => formOpen ? cancelForm() : close({reason: 'back'}), 'calendar-back'), title = make('h2'), today = button('', () => choose(dayKey(now())), 'calendar-today');
     header.append(back, title, today);
     const body = make('div', 'calendar-body'), month = make('section', 'calendar-month'), monthHeader = make('div', 'calendar-month-heading');
-    const previous = button('‹', () => choose(shiftMonth(selected, -1))), monthTitle = make('h3'), next = button('›', () => choose(shiftMonth(selected, 1)));
+    const previous = button('‹', () => choose(dayOffset(selected, -7))), monthTitle = make('h3'), next = button('›', () => choose(dayOffset(selected, 7)));
     monthHeader.append(previous, monthTitle, next);
-    const weekdays = make('div', 'calendar-weekdays'), grid = make('div', 'calendar-grid'); grid.setAttribute('role', 'grid');
-    month.append(monthHeader, weekdays, grid);
+    const grid = make('div', 'calendar-grid'), selection = make('span', 'calendar-selection'); grid.setAttribute('role', 'grid'); selection.setAttribute('aria-hidden', 'true');
+    month.append(monthHeader, grid);
     const agenda = make('section', 'calendar-agenda'), agendaHeader = make('div', 'calendar-agenda-heading'), dayTitle = make('h3'), add = button('+', () => showForm(), 'calendar-add');
     agendaHeader.append(dayTitle, add);
     const list = make('div', 'calendar-events'), form = make('form', 'calendar-form'), fields = {};
@@ -128,78 +149,206 @@
       if (name === 'title') {input.maxLength = 240; input.placeholder = '';}
       if (name === 'date') {input.min = '1900-01-01'; input.max = '2199-12-31';}
       if (type === 'time') input.step = '60';
-      input.addEventListener('input', () => {draft[name] = input.value; if (formError) {formError = ''; showStatus();}});
+      input.addEventListener('input', () => {draft[name] = input.value; if (formError) {formError = ''; showStatus(); reportLayout();}});
       label.append(caption, input); form.append(label); fields[name] = {label, caption, input};
     }
-    const formActions = make('div', 'calendar-form-actions'), cancel = button('', () => {formOpen = false; formError = ''; render(); add.focus({preventScroll: true});}), submit = make('button', 'calendar-submit'); submit.type = 'submit'; formActions.append(cancel, submit); form.append(formActions);
+    const formActions = make('div', 'calendar-form-actions'), cancel = button('', cancelForm), submit = make('button', 'calendar-submit'); submit.type = 'submit'; formActions.append(cancel, submit); form.append(formActions);
     const status = make('p', 'calendar-status'), retry = button('', () => void store.refresh(), 'calendar-retry'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+    const undo = button('', () => void undoRemove(), 'calendar-undo');
     const agendaScroll = make('div', 'calendar-agenda-scroll'); agendaScroll.append(list, form);
-    agenda.append(agendaHeader, agendaScroll, status, retry); body.append(month, agenda);
+    const eventsHeading = make('p', 'calendar-events-heading', say('Rendez-vous', 'Appointments'));
+    agenda.append(eventsHeading, agendaScroll, status, undo, retry); body.append(agendaHeader, agenda, month);
     host.classList.add('notchy-calendar'); host.setAttribute('role', 'dialog'); host.setAttribute('aria-modal', 'false'); host.tabIndex = -1; host.hidden = true; host.replaceChildren(header, body);
+    const moving = () => opened && !disposed && !document.hidden && motion() && !reduced.matches && document.body?.dataset.motion !== 'false';
+    function animate(node, frames, options = {}) {
+      if (!moving() || typeof node.animate !== 'function') return;
+      const animation = node.animate(frames, {duration: 320, easing: 'cubic-bezier(.22,1,.36,1)', ...options});
+      animations.add(animation);
+      animation.onfinish = animation.oncancel = () => {animations.delete(animation); animation.onfinish = animation.oncancel = null; animation.cancel(); if (node.classList.contains('calendar-agenda-exit')) {node.remove(); if (exitGhost === node) exitGhost = null;}};
+    }
+    function stopAnimations() {
+      for (const animation of animations) {animation.onfinish = animation.oncancel = null; animation.cancel();}
+      animations.clear(); window.cancelAnimationFrame(selectionFrame); selectionFrame = 0; selectionFlight = null;
+      exitGhost?.remove(); exitGhost = null;
+      delete grid.dataset.traveling;
+      if (selectionTarget) {selectionPosition = {...selectionTarget}; selection.style.translate = selectionTarget.x + 'px ' + selectionTarget.y + 'px';}
+    }
+    function updateTitle(node, text) {
+      if (node.dataset.calendarTitle === text) return;
+      for (const animation of animations) if (node.contains(animation.effect?.target)) {animation.cancel();}
+      const previousText = node.dataset.calendarTitle;
+      const letters = Array.from(text, letter => {const span = make('span', 'calendar-title-letter', letter); span.setAttribute('aria-hidden', 'true'); return span;});
+      node.dataset.calendarTitle = text; node.setAttribute('aria-label', text); node.replaceChildren(...letters);
+      if (previousText) letters.forEach((letter, index) => animate(letter, [{opacity: 0, transform: 'translateY(4px)', filter: 'blur(2px)'}, {opacity: 1, transform: 'translateY(0)', filter: 'blur(0)'}], {duration: 280, delay: Math.min(index * 14, 98), fill: 'both'}));
+    }
+    function positionSelection(immediate = false) {
+      if (!opened || !grid.getClientRects().length) return;
+      const node = grid.querySelector('[data-calendar-date="' + selected + '"]'); if (!node) return;
+      // Layout coordinates exclude the button's temporary press compression.
+      const target = {x: node.offsetLeft, y: node.offsetTop};
+      const changed = !selectionTarget || Math.abs(target.x - selectionTarget.x) > .1 || Math.abs(target.y - selectionTarget.y) > .1;
+      selection.style.width = node.offsetWidth + 'px'; selection.style.height = node.offsetHeight + 'px'; grid.dataset.indicator = 'true';
+      if (!changed && !immediate) return;
+      const now = window.performance.now(), current = selectionFlight?.spring.sample(now);
+      const from = current ? {x: selectionFlight.target.x + current.values.x, y: selectionFlight.target.y + current.values.y} : selectionPosition;
+      window.cancelAnimationFrame(selectionFrame); selectionFrame = 0; selectionTarget = target;
+      if (immediate || !from || !moving() || typeof reflow !== 'function') {delete grid.dataset.traveling; selectionPosition = {...target}; selectionFlight = null; selection.style.translate = target.x + 'px ' + target.y + 'px'; return;}
+      selectionFlight = {target, spring: reflow({x: from.x - target.x, y: from.y - target.y}, {now, velocity: current?.velocity})};
+      function step(time) {
+        selectionFrame = 0;
+        if (!moving()) {stopAnimations(); return;}
+        const value = selectionFlight.spring.sample(time);
+        selectionPosition = {x: target.x + value.values.x, y: target.y + value.values.y};
+        selection.style.translate = selectionPosition.x + 'px ' + selectionPosition.y + 'px';
+        if (!value.done) {grid.dataset.traveling = 'true'; selectionFrame = window.requestAnimationFrame(step);} else {delete grid.dataset.traveling; selectionFlight = null;}
+      }
+      step(now);
+    }
+    function reportLayout() {
+      if (!opened || !host.getClientRects().length) return;
+      const style = window.getComputedStyle(host), number = value => parseFloat(value) || 0;
+      const sections = [...body.children].filter(node => !node.hidden);
+      const bodyHeight = sections.reduce((height, node) => height + node.offsetHeight, 0) + Math.max(0, sections.length - 1) * number(window.getComputedStyle(body).rowGap);
+      const height = Math.ceil(header.offsetHeight + bodyHeight + number(style.rowGap) + number(style.paddingTop) + number(style.paddingBottom));
+      if (height === preferredHeight) return;
+      preferredHeight = height; onLayout(height);
+    }
+    function stopContentMotion() {
+      for (const animation of [...animations]) if (animation.effect?.target === list || list.contains(animation.effect?.target) || animation.effect?.target === form || animation.effect?.target === month || animation.effect?.target === exitGhost) animation.cancel();
+      exitGhost?.remove(); exitGhost = null;
+    }
+    function animateContent(previousRows, previousMonthTop) {
+      if (!moving()) return;
+      const scale = host.getBoundingClientRect().width / host.offsetWidth || 1;
+      if (previousMonthTop !== null) animate(month, [{transform: 'translateY(' + ((previousMonthTop - month.getBoundingClientRect().top) / scale) + 'px)'}, {transform: 'translateY(0)'}], {duration: 460});
+      const rows = formOpen ? [form] : [...list.children];
+      rows.forEach((node, index) => {
+        const prior = previousRows.get(node.dataset.calendarEvent), rect = node.getBoundingClientRect();
+        const scale = host.getBoundingClientRect().width / host.offsetWidth || 1;
+        animate(node, [{opacity: prior?.opacity ?? 0, transform: 'translateY(' + (prior ? (prior.top - rect.top) / scale : 6) + 'px)'}, {opacity: 1, transform: 'translateY(0)'}], {delay: prior ? 0 : Math.min(index * 36 + 30, 138), fill: 'both'});
+      });
+    }
+    function fadeAgendaOut() {
+      if (!moving() || agenda.hidden || !list.getClientRects().length) return;
+      const rect = agenda.getBoundingClientRect(), frame = host.getBoundingClientRect(), scale = frame.width / host.offsetWidth || 1;
+      exitGhost = agenda.cloneNode(true); exitGhost.classList.add('calendar-agenda-exit'); exitGhost.inert = true; exitGhost.setAttribute('aria-hidden', 'true');
+      for (const node of exitGhost.querySelectorAll('[id],[data-calendar-edit]')) {node.removeAttribute('id'); node.removeAttribute('data-calendar-edit');}
+      Object.assign(exitGhost.style, {left:(rect.left-frame.left)/scale+'px',top:(rect.top-frame.top)/scale+'px',width:rect.width/scale+'px',height:rect.height/scale+'px'});
+      host.append(exitGhost); animate(exitGhost, [{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-6px)'}], {duration:160});
+    }
     function message(code) {
-      return ({title: say('Écris un titre de 120 caractères maximum.', 'Write a title of up to 120 characters.'), date: say('Choisis une date valide.', 'Choose a valid date.'), time: say('La fin doit être après le début, le même jour.', 'The end must be after the start on the same day.'), limit: say('200 rendez-vous maximum. Supprime-en un pour continuer.', 'Up to 200 appointments. Remove one to continue.'), busy: say('Patiente pendant l’enregistrement.', 'Wait while the calendar is saving.'), invalid: say('Les données du calendrier sont invalides.', 'The calendar data is invalid.'), storage: say('Enregistrement impossible. Tes modifications ne sont pas enregistrées.', 'Could not save. Your changes have not been saved.'), missing: say('Ce rendez-vous n’existe plus.', 'This appointment no longer exists.')})[code] || say('Calendrier indisponible. Réessaie.', 'Calendar unavailable. Try again.');
+      return ({title: say('Écris un titre de 120 caractères maximum.', 'Write a title of up to 120 characters.'), date: say('Choisis une date valide.', 'Choose a valid date.'), time: say('La fin doit être après le début, le même jour.', 'The end must be after the start on the same day.'), limit: say('200 rendez-vous maximum. Supprime-en un pour continuer.', 'Up to 200 appointments. Remove one to continue.'), busy: say('Patiente pendant l’enregistrement.', 'Wait while the calendar is saving.'), invalid: say('Les données du calendrier sont invalides.', 'The calendar data is invalid.'), storage: say('Enregistrement impossible. Tes modifications ne sont pas enregistrées.', 'Could not save. Your changes have not been saved.'), missing: say('Ce rendez-vous n’existe plus.', 'This appointment no longer exists.'), collision: say('Ce rendez-vous existe déjà. Aucun rendez-vous n’a été remplacé.', 'This appointment already exists. No appointment was replaced.')})[code] || say('Calendrier indisponible. Réessaie.', 'Calendar unavailable. Try again.');
     }
     function showStatus() {
       const value = store.snapshot();
       status.textContent = formError ? message(formError) : value.status === 'loading' ? say('Chargement du calendrier…', 'Loading calendar…') : value.status === 'saving' ? say('Enregistrement…', 'Saving…') : value.status === 'error' ? value.loaded ? message(value.error) : say('Impossible de charger le calendrier. Réessaie sans modifier les données enregistrées.', 'Could not load the calendar. Try again without changing saved data.') : notice;
       status.dataset.error = String(!!formError || value.status === 'error'); status.hidden = !status.textContent;
-      retry.hidden = value.status !== 'error' || value.busy; retry.textContent = say('Réessayer', 'Try again');
+      retry.hidden = value.status !== 'error' || value.busy || value.loaded; retry.textContent = say('Réessayer', 'Try again');
+      undo.hidden = !undoEvent; undo.disabled = value.busy; undo.textContent = say('Annuler la suppression', 'Undo deletion');
+      undo.setAttribute('aria-label', undo.textContent + (undoEvent ? ' : ' + undoEvent.title : ''));
     }
     function render() {
       if (disposed) return;
       const value = store.snapshot(), focusDate = grid.contains(document.activeElement) ? document.activeElement.dataset.calendarDate : null;
+      const previousMonthTop = opened && month.getClientRects().length ? month.getBoundingClientRect().top : null;
+      const previousRows = new Map([...list.querySelectorAll('[data-calendar-event]')].map(node => [node.dataset.calendarEvent, {top: node.getBoundingClientRect().top, opacity: Number(window.getComputedStyle(node).opacity)}]));
       host.setAttribute('aria-label', say('Calendrier local', 'Local calendar')); host.setAttribute('aria-busy', String(value.busy));
-      back.textContent = '← ' + say('Retour', 'Back'); back.setAttribute('aria-label', say('Fermer le calendrier et revenir', 'Close calendar and return'));
+      host.dataset.form = String(formOpen);
+      back.textContent = '← ' + say('Retour', 'Back');
+      back.disabled = value.busy; back.setAttribute('aria-label', formOpen ? say('Annuler les modifications et revenir aux rendez-vous', 'Cancel changes and return to appointments') : say('Fermer le calendrier et revenir', 'Close calendar and return'));
       title.textContent = say('Calendrier', 'Calendar'); today.textContent = say('Aujourd’hui', 'Today');
-      monthTitle.textContent = format(selected, {month: 'long', year: 'numeric'}); grid.setAttribute('aria-label', monthTitle.textContent);
-      previous.setAttribute('aria-label', say('Mois précédent', 'Previous month')); next.setAttribute('aria-label', say('Mois suivant', 'Next month'));
-      previous.disabled = selected.startsWith('1900-01'); next.disabled = selected.startsWith('2199-12');
-      weekdays.replaceChildren(...Array.from({length: 7}, (_, i) => {const label = make('span', '', format(dayOffset('2026-10-12', i), {weekday: 'narrow'})); label.setAttribute('aria-hidden', 'true'); return label;}));
+      const monthLabel = format(selected, {month: 'long', year: 'numeric'});
+      updateTitle(monthTitle, monthLabel[0].toLocaleUpperCase() + monthLabel.slice(1)); grid.setAttribute('aria-label', monthTitle.textContent);
+      previous.setAttribute('aria-label', say('Semaine précédente', 'Previous week')); next.setAttribute('aria-label', say('Semaine suivante', 'Next week'));
+      previous.disabled = !validDate(dayOffset(selected, -7)); next.disabled = !validDate(dayOffset(selected, 7));
       const counts = new Map(); if (value.loaded) for (const event of value.events) counts.set(event.date, (counts.get(event.date) || 0) + 1);
-      grid.replaceChildren(); const days = monthDays(selected);
-      for (let week = 0; week < 6; week++) {
+      const days = weekDays(selected), changedWeek = weekKey !== days[0];
+      if (changedWeek) {
+        weekKey = days[0]; grid.replaceChildren(selection);
         const row = make('div', 'calendar-week'); row.setAttribute('role', 'row');
-        for (const date of days.slice(week * 7, week * 7 + 7)) {
-          const cell = make('div', 'calendar-cell'), node = button(String(Number(date.slice(-2))), () => choose(date), 'calendar-day'); cell.setAttribute('role', 'gridcell'); cell.setAttribute('aria-selected', String(date === selected));
-          node.dataset.calendarDate = date; node.dataset.outside = String(date.slice(0, 7) !== selected.slice(0, 7)); node.tabIndex = date === selected ? 0 : -1;
-          node.disabled = !validDate(date); if (date === value.today) node.setAttribute('aria-current', 'date');
-          const count = counts.get(date) || 0; node.setAttribute('aria-label', format(date, {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'}) + (count ? say(' · ' + count + ' rendez-vous', ' · ' + count + ' appointments') : ''));
-          if (count) {const dot = make('span', 'calendar-day-dot'); dot.setAttribute('aria-hidden', 'true'); node.append(dot);}
-          cell.append(node); row.append(cell);
+        for (const date of days) {
+          const cell = make('div', 'calendar-cell'), node = button('', () => choose(date), 'calendar-day'); cell.setAttribute('role', 'gridcell');
+          const month = make('span', 'calendar-day-month'), number = make('span', 'calendar-day-number', String(Number(date.slice(-2)))), weekday = make('span', 'calendar-day-weekday');
+          node.append(month, number, weekday);
+          node.dataset.calendarDate = date; node.disabled = !validDate(date); cell.append(node); row.append(cell);
         }
         grid.append(row);
       }
+      for (const node of grid.querySelectorAll('[data-calendar-date]')) {
+          const date = node.dataset.calendarDate, cell = node.parentElement; cell.setAttribute('aria-selected', String(date === selected));
+          node.dataset.calendarDate = date; node.dataset.outside = String(date.slice(0, 7) !== selected.slice(0, 7)); node.tabIndex = date === selected ? 0 : -1;
+          node.querySelector('.calendar-day-month').textContent = format(date, {month:'short'}).replace(/\.$/, '');
+          node.querySelector('.calendar-day-weekday').textContent = format(date, {weekday:'short'}).replace(/\.$/, '');
+          if (date === value.today) node.setAttribute('aria-current', 'date'); else node.removeAttribute('aria-current');
+          const count = counts.get(date) || 0; node.setAttribute('aria-label', format(date, {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'}) + (count ? say(' · ' + count + ' rendez-vous', ' · ' + count + ' appointments') : ''));
+          const dot = node.querySelector('.calendar-day-dot');
+          if (count && !dot) {const dot = make('span', 'calendar-day-dot'); dot.setAttribute('aria-hidden', 'true'); node.append(dot);} else if (!count) dot?.remove();
+      }
+      positionSelection(changedWeek);
       if (focusDate) (grid.querySelector('[data-calendar-date="' + focusDate + '"]') || grid.querySelector('[tabindex="0"]'))?.focus({preventScroll: true});
-      dayTitle.textContent = format(selected, {weekday: 'short', day: 'numeric', month: 'short'}); add.setAttribute('aria-label', say('Ajouter un rendez-vous', 'Add appointment')); add.title = add.getAttribute('aria-label'); add.disabled = value.busy || !value.loaded || value.events.length >= LIMITS.events;
+      const dayLabel = formOpen ? editingId ? say('Modifier le rendez-vous', 'Edit appointment') : say('Nouveau rendez-vous', 'New appointment') : format(selected, {weekday:'long'});
+      updateTitle(dayTitle, dayLabel[0].toLocaleUpperCase() + dayLabel.slice(1)); add.setAttribute('aria-label', say('Ajouter un rendez-vous', 'Add appointment')); add.title = add.getAttribute('aria-label'); add.disabled = formOpen || value.busy || !value.loaded || value.events.length >= LIMITS.events;
       list.hidden = formOpen; form.hidden = !formOpen;
-      if (!formOpen) {
-        const events = value.events.filter(event => event.date === selected);
+      const events = value.events.filter(event => event.date === selected), nextListKey = JSON.stringify([selected, value.loaded, en(), events]);
+      const contentChanged = !formOpen && nextListKey !== listKey || formOpen !== lastFormOpen;
+      if (contentChanged) {stopContentMotion(); if (!formOpen && !lastFormOpen && !events.length && previousRows.size) fadeAgendaOut();}
+      eventsHeading.textContent = say('Rendez-vous', 'Appointments'); eventsHeading.hidden = formOpen || !events.length;
+      if (!formOpen && nextListKey !== listKey) {
+        listKey = nextListKey;
         list.replaceChildren();
-        if (value.loaded && !events.length) {list.append(make('p', 'calendar-empty', say('Aucun rendez-vous ce jour.', 'No appointments on this day.'))); if (value.events.length < LIMITS.events) list.append(button(say('Ajouter un rendez-vous', 'Add appointment'), () => showForm(), 'calendar-empty-add'));}
+        if (value.loaded && !events.length) list.append(make('p', 'calendar-empty', say('Aucun rendez-vous ce jour. Utilise le bouton Ajouter pour en créer un.', 'No appointments on this day. Use Add to create one.')));
         for (const event of events) {
-          const item = make('article', 'calendar-event'), time = make('time', '', event.start + ' – ' + event.end), name = make('strong', '', event.title), remove = button('×', () => void removeEvent(event.id), 'calendar-remove');
-          time.dateTime = event.date + 'T' + event.start; remove.disabled = value.busy; remove.setAttribute('aria-label', say('Supprimer : ', 'Delete: ') + event.title); remove.title = remove.getAttribute('aria-label'); item.append(time, name, remove); list.append(item);
+          const item = make('article', 'calendar-event'), edit = button('', () => showForm(event.id), 'calendar-edit'), time = make('time', '', event.start + ' – ' + event.end), name = make('strong', '', event.title), remove = button('×', () => void removeEvent(event.id), 'calendar-remove');
+          item.dataset.calendarEvent = event.id;
+          edit.dataset.calendarEdit = event.id; edit.disabled = value.busy; edit.setAttribute('aria-label', say('Modifier : ', 'Edit: ') + event.title); edit.title = edit.getAttribute('aria-label');
+          time.dateTime = event.date + 'T' + event.start; remove.disabled = value.busy; remove.setAttribute('aria-label', say('Supprimer : ', 'Delete: ') + event.title); remove.title = remove.getAttribute('aria-label'); edit.append(name, time); item.append(edit, remove); list.append(item);
         }
       }
+      for (const button of list.querySelectorAll('button')) button.disabled = value.busy || !value.loaded;
       const labels = {title: say('Titre', 'Title'), date: say('Date', 'Date'), start: say('Début', 'Start'), end: say('Fin', 'End')};
       for (const [name, field] of Object.entries(fields)) {field.caption.textContent = labels[name]; field.input.value = draft[name]; field.input.disabled = value.busy;}
-      fields.title.input.placeholder = say('Nom du rendez-vous', 'Appointment title'); submit.textContent = say('Ajouter', 'Add'); submit.disabled = value.busy || !value.loaded; cancel.textContent = say('Annuler', 'Cancel'); cancel.disabled = value.busy;
+      fields.title.input.placeholder = say('Nom du rendez-vous', 'Appointment title'); form.setAttribute('aria-label', editingId ? say('Modifier le rendez-vous', 'Edit appointment') : say('Ajouter un rendez-vous', 'Add appointment')); submit.textContent = editingId ? say('Enregistrer', 'Save') : say('Ajouter', 'Add'); submit.disabled = value.busy || !value.loaded; cancel.textContent = say('Annuler', 'Cancel'); cancel.disabled = value.busy;
       showStatus();
+      agenda.hidden = !formOpen && !events.length && !status.textContent && undo.hidden && retry.hidden;
+      reportLayout();
+      if (contentChanged) animateContent(previousRows, previousMonthTop);
+      lastFormOpen = formOpen;
     }
     function choose(date, focus = false) {if (!validDate(date)) return; selected = date; if (!formOpen) draft.date = selected; notice = ''; render(); if (focus) grid.querySelector('[tabindex="0"]')?.focus({preventScroll: true});}
-    function showForm() {if (store.snapshot().busy || !store.snapshot().loaded) return; formOpen = true; formError = ''; notice = ''; draft = {title: '', date: selected, start: '09:00', end: '10:00'}; render(); fields.title.input.focus({preventScroll: true});}
+    function focusAppointment(id) {const node = id ? [...list.querySelectorAll('[data-calendar-edit]')].find(item => item.dataset.calendarEdit === id) : null; (node || add).focus({preventScroll: true});}
+    function cancelForm() {
+      if (store.snapshot().busy) return;
+      const id = editingId; selected = formReturnDate; formOpen = false; editingId = null; formError = ''; render();
+      if (formOrigin?.isConnected && !formOrigin.hidden) formOrigin.focus({preventScroll: true}); else focusAppointment(id);
+      formOrigin = null;
+    }
+    function showForm(eventId = null) {
+      const value = store.snapshot(); if (value.busy || !value.loaded || formOpen) return;
+      const event = eventId ? value.events.find(item => item.id === eventId) : null; if (eventId && !event) return;
+      formOrigin = document.activeElement; formReturnDate = selected; editingId = eventId; formOpen = true; formError = ''; notice = '';
+      draft = event ? {title: event.title, date: event.date, start: event.start, end: event.end} : {title: '', date: selected, start: '09:00', end: '10:00'};
+      render(); fields.title.input.focus({preventScroll: true});
+    }
     async function submitEvent(event) {
       event.preventDefault(); if (store.snapshot().busy) return;
-      try {await store.add(draft); if (disposed) return; selected = draft.date; formOpen = false; formError = ''; notice = say('Rendez-vous enregistré.', 'Appointment saved.'); render(); add.focus({preventScroll: true});}
+      const id = editingId;
+      try {await (id ? store.update(id, draft) : store.add(draft)); if (disposed) return; selected = draft.date; formOpen = false; editingId = null; formOrigin = null; formError = ''; notice = say('Rendez-vous enregistré.', 'Appointment saved.'); render(); if (opened) focusAppointment(id);}
       catch (error) {if (!disposed) {formError = error.code || 'storage'; render(); const name = error.code === 'title' ? 'title' : error.code === 'date' ? 'date' : error.code === 'time' ? 'end' : null; if (opened) {(name ? fields[name].input : submit).focus({preventScroll: true}); status.scrollIntoView({block: 'nearest'});}}}
     }
     async function removeEvent(id) {
-      try {await store.remove(id); if (!disposed) {notice = say('Rendez-vous supprimé.', 'Appointment deleted.'); render(); add.focus({preventScroll: true});}}
+      const event = store.snapshot().events.find(item => item.id === id); if (!event) return;
+      try {await store.remove(id); if (!disposed) {undoEvent = event; formError = ''; notice = say('Rendez-vous supprimé.', 'Appointment deleted.'); render(); if (opened) undo.focus({preventScroll: true});}}
       catch (error) {if (!disposed) {formError = error.code || 'storage'; render(); if (opened) status.scrollIntoView({block: 'nearest'});}}
+    }
+    async function undoRemove() {
+      if (!undoEvent || store.snapshot().busy) return;
+      const event = undoEvent;
+      try {await store.restore(event); if (disposed) return; undoEvent = null; formError = ''; notice = say('Rendez-vous restauré.', 'Appointment restored.'); if (!formOpen) selected = event.date; render(); if (opened) {if (formOpen) fields.title.input.focus({preventScroll: true}); else focusAppointment(event.id);}}
+      catch (error) {if (!disposed) {formError = error.code || 'storage'; render(); if (opened) undo.focus({preventScroll: true});}}
     }
     function key(event) {
       if (!opened) return;
-      if (event.key === 'Escape') {event.preventDefault(); event.stopImmediatePropagation(); if (formOpen && !store.snapshot().busy) {formOpen = false; formError = ''; render(); add.focus({preventScroll: true});} else close({reason: 'escape'}); return;}
+      if (event.key === 'Escape') {event.preventDefault(); event.stopImmediatePropagation(); if (store.snapshot().busy) return; if (formOpen) cancelForm(); else close({reason: 'escape'}); return;}
       const date = event.target.dataset?.calendarDate; if (!date) return;
       let target = null;
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) target = dayOffset(date, {ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7}[event.key]);
@@ -209,23 +358,29 @@
     }
     function open(options = {}) {
       if (disposed) return false;
-      if (!opened) {trigger = options.trigger || document.activeElement; selected = dayKey(now()); formOpen = false; formError = ''; notice = ''; opened = true; host.hidden = false;}
-      render(); if (options.keyboard) grid.querySelector('[tabindex="0"]')?.focus({preventScroll: true}); return true;
+      const entering = !opened;
+      if (entering) {trigger = options.trigger || document.activeElement; selected = dayKey(now()); formOpen = false; editingId = null; formOrigin = null; formError = ''; notice = ''; opened = true; host.hidden = false;}
+      render(); if (entering) {positionSelection(true); animate(host, [{opacity: 0, transform: 'translateY(6px)'}, {opacity: 1, transform: 'translateY(0)'}], {duration: 260});}
+      if (options.keyboard) grid.querySelector('[tabindex="0"]')?.focus({preventScroll: true}); return true;
     }
     function close({restoreFocus = true, notify = true, reason = 'close'} = {}) {
-      if (!opened) return false; opened = false; host.hidden = true;
+      if (!opened || store.snapshot().busy && notify) return false; stopAnimations(); opened = false; host.hidden = true;
       if (restoreFocus && trigger?.isConnected && trigger.getClientRects().length) trigger.focus({preventScroll: true});
       if (notify) onClose({reason, trigger, restoreFocus}); return true;
     }
     const unsubscribe = store.subscribe(value => {render(); onChange(value);});
     form.addEventListener('submit', submitEvent); host.addEventListener('keydown', key);
-    const tick = () => {const next = dayKey(now()); if (next !== previousToday) {previousToday = next; store.tick();}};
+    const tick = () => {if (document.hidden) stopAnimations(); const next = dayKey(now()); if (next !== previousToday) {previousToday = next; store.tick();}};
+    const syncMotion = () => {if (!moving()) stopAnimations();};
+    const motionObserver = new window.MutationObserver(syncMotion); motionObserver.observe(document.body, {attributes: true, attributeFilter: ['data-motion']}); reduced.addEventListener('change', syncMotion);
+    const resizeObserver = new window.ResizeObserver(() => {positionSelection(true); reportLayout();}); resizeObserver.observe(grid);
     document.addEventListener('visibilitychange', tick); const timer = window.setInterval(tick, 60000);
     render(); void store.refresh();
     return Object.freeze({open, close, isOpen: () => opened, isBusy: () => store.snapshot().busy, refreshLocale: render, refresh: () => store.refresh(), snapshot: store.snapshot,
       get todayCount() {return store.snapshot().todayCount;},
-      dispose() {if (disposed) return; close({restoreFocus: false, notify: false}); disposed = true; unsubscribe(); store.dispose(); window.clearInterval(timer); form.removeEventListener('submit', submitEvent); host.removeEventListener('keydown', key); document.removeEventListener('visibilitychange', tick); host.replaceChildren();},
+      get preferredHeight() {return preferredHeight;},
+      dispose() {if (disposed) return; close({restoreFocus: false, notify: false}); stopAnimations(); disposed = true; undoEvent = null; formOrigin = null; unsubscribe(); store.dispose(); window.clearInterval(timer); motionObserver.disconnect(); resizeObserver.disconnect(); reduced.removeEventListener('change', syncMotion); form.removeEventListener('submit', submitEvent); host.removeEventListener('keydown', key); document.removeEventListener('visibilitychange', tick); host.replaceChildren();},
     });
   }
-  return Object.freeze({KEY, LIMITS, validDate, validTime, dayKey, dayOffset, shiftMonth, monthDays, validateEvent, validateData, createPersistence, createStore, create});
+  return Object.freeze({KEY, LIMITS, validDate, validTime, dayKey, dayOffset, shiftMonth, monthDays, weekDays, validateEvent, validateData, createPersistence, createStore, create});
 });

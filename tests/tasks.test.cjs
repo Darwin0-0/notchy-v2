@@ -41,19 +41,21 @@ test('task estimation, selection and unlinking preserve both running and paused 
   }
 });
 
-test('Tasks has its own placeable host without adding a second timer or changing saved slots', () => {
-  const tasks=getModuleDefinitions().find(item=>item.id==='tasks');
-  assert.equal(tasks.element,'tasks-player'); assert.equal(tasks.view,'tasks');
+test('Tasks is an internal view of the single placeable Tasks & Focus module', () => {
+  const definitions=getModuleDefinitions(), focus=definitions.find(item=>item.id==='focus');
+  assert.equal(definitions.some(item=>item.id==='tasks'),false);
+  assert.equal(focus.element,'focus-player'); assert.equal(focus.label,'Tâches & Focus');
   assert.equal(typeof createTasks,'function'); assert.throws(()=>createTasks({}),TypeError);
   const old={enabled:['music','focus'],slots:['music','focus',null,null]};
   assert.deepEqual(normalizeModules(old),old);
   const alone=modulePlacementPlan({enabled:['tasks'],slots:['tasks']});
+  assert.equal(alone.items[0].id,'focus');
   assert.equal(alone.items[0].presentation,'full'); assert.equal(alone.items[0].share,100);
   assert.equal(modulePlacementPlan({enabled:['tasks','music'],slots:['tasks','music']}).items[0].presentation,'scene');
   assert.equal(modulePlacementPlan({enabled:['tasks','music'],slots:['music','tasks']}).items[1].presentation,'scene');
   const scene=createActivityScene();
-  assert.equal(scene.update([{id:'tasks',key:'tasks',label:'Tasks'}],{preserveOrder:true}).primary,'tasks');
-  assert.deepEqual(scene.update([{id:'music',key:'music'},{id:'tasks',key:'tasks'}],{preserveOrder:true}).items.map(item=>item.id),['tasks','music']);
+  assert.equal(scene.update([{id:'focus',key:'focus',label:'Tasks & Focus'}],{preserveOrder:true}).primary,'focus');
+  assert.deepEqual(scene.update([{id:'music',key:'music'},{id:'focus',key:'focus'}],{preserveOrder:true}).items.map(item=>item.id),['focus','music']);
 });
 
 test('the real Tasks start handler starts idle Focus, resumes paused Focus and preserves a running deadline', () => {

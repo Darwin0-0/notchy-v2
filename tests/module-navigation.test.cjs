@@ -30,11 +30,12 @@ test('the same live Focus component is used in a secondary placement and its siz
   assert.equal(scope.card('focus'),player); assert.equal(scope.card('focus'),player);
   for(const parent of ['activity-main','activity-rail-cards','notch-panel']) {
     player.dataset.presentation='rail'; player.parentElement={classList:{contains:value=>value===parent}};
-    const lifecycle=[], context={disposed:false,focusPlayer:player,focusCoreEnabled:()=>true,document:{hidden:false},state:'open',getModuleEditorActive:()=>false,
+    const lifecycle=[], tasksPlayer={hidden:false,dataset:{}}, context={disposed:false,focusPlayer:player,tasksPlayer,builtinVisible:id=>id==='tasks'&&context.view==='tasks',focusCoreEnabled:()=>true,document:{hidden:false},state:'open',getModuleEditorActive:()=>false,
       focusComponent:{lifecycle:value=>lifecycle.push(value)},view:'nook',tasksComponent:{render(){}},renderFocusRouteBack(){},renderFocusTaskPrompt(){}};
     const begin=app.indexOf('  function renderFocus() {'),finish=app.indexOf('  function renderFocusTaskPrompt()',begin);
     vm.runInNewContext(app.slice(begin,finish)+'this.render=renderFocus;',context);context.render();
     assert.equal(player.dataset.presentation,parent==='notch-panel'?'full':'rail');assert.equal(lifecycle[0].visible,true);
+    assert.equal(tasksPlayer.hidden,true,'the internal task detail cannot duplicate the home module');context.view='tasks';context.render();assert.equal(tasksPlayer.hidden,false);assert.equal(tasksPlayer.dataset.presentation,'full');
   }
 });
 

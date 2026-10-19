@@ -52,19 +52,16 @@
       }
     };
   }
-  function presentationForPlacement({presentation,width,height}={}){
+  function presentationForPlacement({width,height}={}){
     if(!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)return null;
     if(width<240)return 'quarter';
-    if(presentation==='full')return height<155?'half':height<210?'details':'full';
-    if(presentation==='rail'||presentation==='scene'&&width<250)return height<170?'quarter':'half';
-    if(presentation==='scene')return height<155?'half':'details';
-    return width<250?(height<170?'quarter':'half'):height<155?'half':height<210||width<400?'details':'full';
+    return height<155?'half':height<210?'details':'full';
   }
   function resizeView(host,component){
     const width=host.clientWidth,height=host.clientHeight;if(!width||!height)return;
     const current=component.inspect();
     if(!['settings','create-title','create-duration','pomodoro'].includes(current.view)){
-      const size=presentationForPlacement({presentation:host.dataset.presentation,width,height});
+      const size=current.view==='tasks'&&height<155?'quarter':presentationForPlacement({presentation:host.dataset.presentation,width,height});
       if(size&&current.size!==size)component.setPresentation(size);
     }
     component.fit();
@@ -98,13 +95,13 @@
     let initial=Core.fresh();try{initial=migrate(JSON.parse(win.localStorage.getItem(KEY)||'null'));}catch{}
     const state=()=>loaded?store.snapshot():copy(initial),locale=()=>win.NotchyI18n?.locale()||'fr';
     let renderedLanguage=locale();
-    const component=win.NotchyDuration.mount(mount,{store,embedded:true,view:'timer',language:renderedLanguage,onViewChange({view}){editView('focus',view);}});views.add(component);
+    const component=win.NotchyDuration.mount(mount,{store,embedded:true,view:'tasks',language:renderedLanguage,onViewChange({view}){editView('focus',view);resize();}});views.add(component);
     function summary(){const value=project(state());return Legacy.focusCardValues(value.state,value.settings,Date.now(),source=>win.NotchyI18n?.t(source)||source);}
-    function emit(){if(!loaded||disposed||emitting)return;emitting=true;try{const current=state(),value=project(current),card=Legacy.focusCardValues(value.state,value.settings),event=elapsedPhaseEvent(previousObservation,current,Date.now());previousObservation=current;options.changed?.({...value,card,event});}finally{emitting=false;}}
+    function emit(){if(!loaded||disposed||emitting)return;emitting=true;try{const current=state(),value=project(current),card=Legacy.focusCardValues(value.state,value.settings),event=elapsedPhaseEvent(previousObservation,current,Date.now());host.dataset.durationEmpty=String(!current.tasks.length);previousObservation=current;options.changed?.({...value,card,event});}finally{emitting=false;}}
     function resize(){if(!disposed&&loaded)resizeView(host,component);}
     const observer=new win.ResizeObserver(resize);observer.observe(host);
     const unsubscribe=store.subscribe(()=>{resize();emit();});const languageUnsubscribe=win.NotchyI18n?.onChange(()=>{const language=locale();if(language===renderedLanguage)return;renderedLanguage=language;for(const view of views)view.setLanguage(language);});
-    const ready=store.ready.then(async()=>{loaded=true;await component.ready;resize();win.setTimeout(emit,0);tick=win.setInterval(emit,1000);return true;}).catch(error=>{console.error('Duration module:',error);return false;});
+    const ready=store.ready.then(async()=>{loaded=true;await component.ready;const saved=store.snapshot(),active=saved.tasks.find(task=>task.id===saved.activeId&&!task.done);if(active&&(saved.startedAt!==null||active.elapsedMs>0))await component.showTimer();resize();win.setTimeout(emit,0);tick=win.setInterval(emit,1000);return true;}).catch(error=>{console.error('Duration module:',error);return false;});
     const run=operation=>{void ready.then(ok=>ok&&operation()).catch(error=>console.error('Duration operation:',error));return true;};
     function command(value){
       if(['prepare','configure','pause-edit'].includes(value))return run(()=>component.showSettings());
@@ -112,7 +109,7 @@
       if(value==='link-task')return run(()=>component.showTasks());
       return run(async()=>{let s=store.snapshot(),task=s.tasks.find(t=>t.id===s.activeId&&!t.done)||s.tasks.find(t=>!t.done);
         if(!task){component.startCreate();return;}
-        if(['start','toggle','pause'].includes(value)){if(value==='pause'&&s.startedAt===null||value==='start'&&s.startedAt!==null&&s.activeId===task.id)return;await store.toggleTimer(task.id);}
+        if(['start','toggle','pause'].includes(value)){if(value==='pause'&&s.startedAt===null||value==='start'&&s.startedAt!==null&&s.activeId===task.id)return;await store.toggleTimer(task.id);if(value!=='pause')await component.showTimer();}
         else if(value==='stop')await store.restart(task.id);
         else if(value==='skip')await store.skip(task.id);
         else if(value==='complete-task')await store.complete(task.id);
@@ -131,7 +128,7 @@
     if(!host?.ownerDocument||!focus?.durationStore)throw new TypeError('A task host and shared Focus store are required');
     const doc=host.ownerDocument,win=doc.defaultView,mount=doc.createElement('div');mount.className='duration-mount';host.append(mount);host.dataset.durationModule='true';
     let disposed=false,loaded=false;
-    const component=win.NotchyDuration.mount(mount,{store:focus.durationStore,embedded:true,view:'tasks',language:win.NotchyI18n?.locale()||'fr',onViewChange({view}){focus.editView('tasks',view);}});
+    const component=win.NotchyDuration.mount(mount,{store:focus.durationStore,embedded:true,view:'tasks',language:win.NotchyI18n?.locale()||'fr',onViewChange({view}){focus.editView('tasks',view);render();}});
     focus.views.add(component);
     function render(){if(!disposed&&loaded)resizeView(host,component);}
     const observer=new win.ResizeObserver(render);observer.observe(host);

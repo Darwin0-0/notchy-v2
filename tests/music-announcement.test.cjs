@@ -52,9 +52,9 @@ test('interaction can dismiss an existing music announcement without clearing an
   f.scope.moduleFeedback={id:'shelf',kind:'received',title:'Received'};f.api.dismissMusicTrackFeedback();assert.equal(f.scope.moduleFeedback.id,'shelf');
 });
 
-test('only an open calendar with an in-flight save protects an otherwise unfocused island',()=>{
+test('a calendar opened by click remains open while its content contracts under the pointer',()=>{
   const f=fixture();f.scope.pointerInside=false;
-  for(const [opened,busy,protectedValue] of [[true,true,true],[true,false,false],[false,true,false],[false,false,false]]){
+  for(const [opened,busy,protectedValue] of [[true,true,true],[true,false,true],[false,true,false],[false,false,false]]){
     f.scope.calendar={isOpen:()=>opened,isBusy:()=>busy};
     assert.equal(!!f.api.protectedInteraction(),protectedValue,JSON.stringify({opened,busy}));
   }

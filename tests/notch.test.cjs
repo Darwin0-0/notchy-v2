@@ -63,7 +63,7 @@ test('the painted spring sends valid native geometry on every large-panel closin
   motion.setTarget({...opened, height: 480, band: 40}); motion.step(0); motion.setTarget(closed);
   const node = () => ({attributes: {}, setAttribute(name, value) {this.attributes[name] = value;}});
   const scope = {
-    ISLAND_CONFIG, motion, shape, document: {hidden: false}, motionEnabled: () => true, desktopPointer() {},
+    ISLAND_CONFIG, motion, shape, calendar: null, calendarHeightLimit: 0, document: {hidden: false}, motionEnabled: () => true, desktopPointer() {},
     window: {innerWidth: 960, cancelAnimationFrame() {}, requestAnimationFrame: () => 1},
     notch: {style: {values: {}, setProperty(name, value) {this.values[name] = value;}}},
     surface: node(), contour: node(), bandCut: node(), panelCut: node(),
@@ -184,9 +184,12 @@ function interactionFixture() {
     let disposed=false,state='compact',view='nook',collapseTimer=0,hoverTimer=0,collapseDeferred=false,pointerInside=true,welcomeReady=false,
       keyboardNavigation=false,closingTo=null,
       fileDialogOpen=false,fileDragging=false,seekDragging=false,queueOpen=false,queueBusy=false,queueOperation='',
-      welcome=null,moduleFeedback=null,localSendContext=null,nearby={},queueState={},searchReturnView='nook',searchReturnState='rest',desktopMaxHeight=700;
+      welcome=null,moduleFeedback=null,localSendContext=null,nearby={},queueState={},searchReturnView='nook',searchReturnState='rest',desktopMaxHeight=700,
+      detailReturn=null,detailView='',settingsReturn=null,focusToolReturn=null,weatherPickerOpen=false,weatherInlineDetail=false;
     function setState(next) {state=next;closingTo=null;if(next==='rest')awaitingPointerEntry=false;changes.push(next);}
     function selectViewButton(button) {view=button.dataset.view;}
+    function restoreFocusRoute(origin){selectViewButton({dataset:{view:origin.view}});setState('open');}
+    ${source.slice(source.indexOf('  const settingsRoute ='),source.indexOf('  let calendar ='))}
     function update() {}
     ${source.slice(start, end)}${source.slice(closeStart, closeEnd)}
     ${source.slice(source.indexOf('  function searchOpening() {'), source.indexOf('  function searchClosed() {'))}
@@ -338,7 +341,7 @@ test('settings keep their short resize grace and then close if the pointer remai
   f.api.state='open';f.api.scheduleCollapse(true);f.advance(280);assert.equal(f.api.state,'rest','deactivation does not pin settings open');
 });
 
-test('settings can still close explicitly with Escape, an outside click, or the toggle', () => {
+test('Escape returns from Settings before collapsing; outside clicks and toggle close explicitly', () => {
   for (const close of ['escape', 'outside', 'toggle']) {
     const f = interactionFixture(); f.api.state = 'open'; f.api.view = 'settings';
     f.focus({closest:selector=>selector==='#notch-toggle,#notch-panel,#notch-menu,#island-footer'?{}:null});f.api.keyboardInteraction({key:'Tab'});
@@ -346,6 +349,7 @@ test('settings can still close explicitly with Escape, an outside click, or the 
     if (close === 'escape') f.api.key({key: 'Escape', preventDefault() {}});
     else if (close === 'outside') f.api.outside({target: {inside: false}});
     else f.api.open();
+    if (close === 'escape') {assert.equal(f.api.state,'open');assert.equal(f.api.view,'nook');f.api.key({key:'Escape',preventDefault(){}});}
     assert.equal(f.api.state, 'rest', close);
   }
 });
@@ -397,7 +401,7 @@ test('the real exit controller fades for 150 ms and cancels closing when the poi
   const enterStart=source.indexOf('  function enter('), enterEnd=source.indexOf('  function leave(',enterStart);
   assert(setStart>0 && setEnd>setStart && enterStart>setEnd && enterEnd>enterStart);
   const timers=new Map(), movements=[], applied=[]; let nextTimer=0,now=0;
-  const scope={ISLAND_CONFIG,movements,applied,document:{hidden:false},expandedLayer:{id:'expanded'},islandFooter:{inert:false},
+  const scope={ISLAND_CONFIG,movements,applied,calendar:null,document:{hidden:false},expandedLayer:{id:'expanded'},islandFooter:{inert:false},
     window:{clearTimeout:id=>timers.delete(id),setTimeout:(callback,delay)=>{timers.set(++nextTimer,{callback,at:now+delay});return nextTimer;}},
     animateIslandLayer:(node,entering)=>movements.push({id:node.id,entering}),renderIslandNavigation(){},update(){},dismissMusicTrackFeedback(){}};
   require('node:vm').runInNewContext(`let disposed=false,state='open',closingTo=null,contentExitTimer=0,hoverTimer=0,collapseTimer=0,collapseDeferred=false,pointerInside=false,keyboardNavigation=false,awaitingPointerEntry=false;
@@ -413,6 +417,11 @@ test('the real exit controller fades for 150 ms and cancels closing when the poi
   advance(1000); assert.equal(scope.api.state,'open'); assert.deepEqual(applied,[],'the cancelled exit cannot close the reopened island');
   scope.api.setState('rest'); advance(149); assert.equal(scope.api.state,'open');
   advance(1); assert.equal(scope.api.state,'rest'); assert.deepEqual(applied,['rest']); assert.equal(scope.api.closing,null);
+  scope.api.setState('open');
+  scope.calendar={isOpen:()=>true,isBusy:()=>true};
+  const before=movements.length;
+  assert.equal(scope.api.setState('rest'),false); assert.equal(scope.api.state,'open');
+  assert.equal(movements.length,before,'saving does not start an exit that would leave the agenda logically open');
 });
 
 test('pointer reentry interrupts an already fading open panel', () => {

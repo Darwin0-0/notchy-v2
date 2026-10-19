@@ -85,7 +85,7 @@ test('Nook uses configured placements while Tasks opens its full card and Essent
   require('node:vm').runInNewContext(`${source.slice(begin,end)}this.read=getHomeSlots;`,scope);
   const read=()=>{const before=JSON.stringify(moduleSettings),result=Array.from(scope.read());assert.equal(JSON.stringify(moduleSettings),before,'navigation preserves installed modules and saved placements');return result;};
   scope.islandPage='focus'; assert.deepEqual(read(),['music','focus','weather']);
-  scope.islandPage='tasks'; assert.deepEqual(read(),['tasks',null,null]);
+  scope.islandPage='tasks'; assert.deepEqual(read(),['focus',null,null]);
   scope.islandPage='essential'; assert.deepEqual(read(),['weather','shelf',null]);
   moduleSettings.enabled=['focus','weather','shelf']; scope.islandPage='music';
   assert.deepEqual(read(),[null,'focus','weather']); assert.equal(scope.islandPage,'music');
@@ -134,7 +134,7 @@ function scenarioFixture({page='music',value,enabled=[...installed],state='rest'
 }
 
 test('manual scenarios choose a Nook template without waking a closed island or changing enabled modules', () => {
-  const cases=[['focus','focus'],['ambience','music'],['day','essential'],['complete','essential'],['minimal','music']];
+  const cases=[['focus','focus'],['ambience','music'],['day','music'],['complete','music'],['minimal','music']];
   for(const [scenario,page] of cases) {
     const enabled=[...installed], before=JSON.stringify(enabled), f=scenarioFixture({page:'tasks',enabled});
     assert.equal(f.controller.pick(scenario),true);
@@ -142,7 +142,7 @@ test('manual scenarios choose a Nook template without waking a closed island or 
     assert.equal(f.scope.state,'rest'); assert.equal(JSON.stringify(enabled),before);
     f.controller.dispose();
   }
-  for(const [enabled,page] of [[['focus','weather'],'focus'],[['weather','shelf'],'essential']]) {
+  for(const [enabled,page] of [[['focus','weather'],'focus'],[['weather','shelf'],'music']]) {
     const f=scenarioFixture({enabled}); assert.equal(f.controller.pick('minimal'),true); assert.equal(f.scope.islandPage,page); f.controller.dispose();
   }
 });
@@ -161,25 +161,32 @@ test('automatic Focus and Undo restore the actual prior Nook page even when the 
 test('a manual scenario supersedes an automatic return page and preference-only updates preserve the current template', () => {
   const f=scenarioFixture({page:'tasks'});
   f.activity({focusActive:true,focusRunning:true}); assert.equal(f.scope.scenarioReturnPage,'tasks');
-  assert.equal(f.controller.pick('day'),true); assert.equal(f.scope.islandPage,'essential');
+  assert.equal(f.controller.pick('day'),true); assert.equal(f.scope.islandPage,'music');
   assert.equal(f.scope.scenarioReturnPage,null); assert.equal(f.controller.undo(),false);
   const preferences=f.controller.getPreferences(), renderCount=f.renders.length;
   preferences.mode='manual'; f.controller.configure(preferences);
-  assert.equal(f.scope.islandPage,'essential'); assert.equal(f.renders.length,renderCount,'changing mode alone does not replace the displayed template');
+  assert.equal(f.scope.islandPage,'music'); assert.equal(f.renders.length,renderCount,'changing mode alone does not replace the displayed template');
   assert.equal(f.scope.state,'rest'); f.controller.dispose();
 });
 
-test('a persisted scenario is mapped before the first Nook render without opening or rewriting preferences', () => {
-  for(const [selected,page] of [['focus','focus'],['ambience','music'],['day','essential'],['complete','essential'],['minimal','music'],[null,'music']]) {
+test('restored scenarios use current activity slots on the first render without rewriting preferences', () => {
+  for(const mode of ['manual','auto']) for(const [selected,page,slots] of [
+    ['focus','focus',['music','focus',null]],['ambience','music',['music','weather',null]],
+    ['day','music',['music','focus','weather']],['complete','music',['music','focus','weather']],
+    ['minimal','music',['music',null,null]],[null,'music',['music','focus','weather']],
+  ]) {
     const renders=[],saves=[],timers=new Map();let serial=0;
-    const scope={createScenarioController,scenarioPreferences:{mode:'manual',selected},scenarioController:null,islandPage:'music',state:'rest',
+    const moduleSettings={enabled:[...installed],slots:['music','focus','weather',null]},before=JSON.stringify(moduleSettings);
+    const scope={createScenarioController,scenarioPreferences:{mode,selected},scenarioController:null,islandPage:'music',state:'rest',view:'nook',
+      moduleSettings,modulePlacementPlan,nookGridPlan,scenarioModulePlan,moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),getModuleEditorActive:()=>false,
       scenarioStorageKey:'test-scenario-preferences',scenarioActivity:()=>({}),configuredModuleOrder:()=>[...installed],scenarioInteracting:()=>false,
       isModuleEnabled:id=>installed.includes(id),scenarioChanged(){assert.fail('restoration does not apply a new scenario');},
       window:{setTimeout(callback,delay){timers.set(++serial,{callback,delay});return serial;},clearTimeout:id=>timers.delete(id),localStorage:{setItem:(key,value)=>saves.push([key,value])}},
-      renderScenarios(){},renderAppearance(){},renderHomeLayout(){renders.push(scope.islandPage);},renderModules(){},renderFocus(){},renderFiles(){},renderWeather(){}};
-    vm.runInNewContext(productionSection('  function scenarioNookPage(','  function scenarioChanged(')+
+      renderScenarios(){},renderAppearance(){},renderHomeLayout(){renders.push({page:scope.islandPage,slots:JSON.parse(JSON.stringify(scope.getHomeSlots()))});},renderModules(){},renderFocus(){},renderFiles(){},renderWeather(){}};
+    vm.runInNewContext(productionSection('  function getHomeSlots(','  function getModuleOrder(')+productionSection('  function scenarioNookPage(','  function scenarioChanged(')+
       productionSection('  scenarioController = createScenarioController({value: scenarioPreferences,',"  setState('rest');"),scope);
-    assert.deepEqual(renders,[page]); assert.equal(scope.state,'rest'); assert.equal(scope.scenarioController.getPreferences().selected,selected);
+    assert.deepEqual(renders,[{page,slots}]); assert.equal(scope.state,'rest'); assert.equal(scope.scenarioController.getPreferences().selected,selected);
+    assert.equal(scope.scenarioController.getPreferences().mode,mode);assert.equal(JSON.stringify(moduleSettings),before);
     assert.deepEqual(saves,[]); assert.equal(timers.size,0); scope.scenarioController.dispose();
   }
 });
@@ -199,10 +206,10 @@ test('the LocalSend tile opens pending consent or the real file picker route ins
 });
 
 function headerNavigationFixture({view='nook',page='tasks'}={}) {
-  const moduleSettings={enabled:[...installed,'tasks'],slots:['music','focus','weather',null]},renders=[],left=[];
-  const button={dataset:{view:'nook'}},scope={calendar:null,view,state:'open',islandPage:page,disposed:false,moduleSettings,
+  const moduleSettings={enabled:[...installed,'tasks'],slots:['music','focus','weather',null]},renders=[],left=[],marketToolbar={hidden:true};
+  const button={dataset:{view:'nook'}},scope={calendar:null,moduleLibrary:null,notch:{dataset:{}},view,state:'open',islandPage:page,disposed:false,moduleSettings,
     shelfLoaded:true,shelfBusy:false,fileDragging:false,moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),
-    welcome:null,t:value=>value,toggle:{},menu:{hidden:false,contains:element=>element===button},panel:{setAttribute(){}},byId:()=>({}),
+    welcome:null,t:value=>value,toggle:{},menu:{hidden:false,contains:element=>element===button},panel:{setAttribute(){}},byId:id=>id==='market-toolbar'?marketToolbar:{},
     focusConfigurationReturn:null,focusComponent:{leaveRoute(){left.push('focus');}},tasksComponent:{leaveRoute(){left.push('tasks');}},
     getModuleEditorActive:()=>false,builtinVisible:()=>false,isModuleEnabled:id=>moduleSettings.enabled.includes(id),scenarioController:null,
     modulePlacementPlan,scenarioModulePlan,nookGridPlan,
@@ -214,28 +221,37 @@ function headerNavigationFixture({view='nook',page='tasks'}={}) {
   vm.runInNewContext(productionSection('  function getHomeSlots() {','  function getModuleOrder()')+
     productionSection('  function islandNavigation(','  let homeLayout =')+
     productionSection('  function selectView(','  function renderMenuSelection('),scope);
-  return {scope,moduleSettings,renders,left,clickNook:()=>scope.selectView({target:{closest:()=>button}})};
+  return {scope,moduleSettings,renders,left,marketToolbar,clickNook:()=>scope.selectView({target:{closest:()=>button}})};
 }
 
 test('clicking Nook returns from Tasks or Focus, closes its editor and preserves the saved home', () => {
   for (const view of ['nook','tasks','focus']) {
     const f=headerNavigationFixture({view}),before=JSON.stringify(f.moduleSettings);
-    assert.deepEqual(Array.from(f.scope.getHomeSlots()),view==='nook'?['tasks',null,null]:['music','focus','weather']);
+    assert.deepEqual(Array.from(f.scope.getHomeSlots()),view==='nook'?['focus',null,null]:['music','focus','weather']);
     f.clickNook();
     assert.equal(f.scope.view,'nook');
     assert.equal(f.scope.islandPage,'music','an explicit Nook click leaves the full Tasks destination');
     assert.deepEqual(f.renders.at(-1),['music','focus','weather'],'the saved home scene is rendered');
     assert.equal(JSON.stringify(f.moduleSettings),before,'navigation does not rewrite enabled modules or saved placements');
     assert.equal(f.scope.state,'open');
+    assert.equal(f.scope.notch.dataset.marketOpen,'false');assert.equal(f.marketToolbar.hidden,true);
     assert.deepEqual(f.left,view==='nook'?[]:[view]);
   }
+});
+test('header navigation waits for a pending calendar save before changing its route', () => {
+  const f=headerNavigationFixture({view:'tasks'}); let busy=true,opened=true,closed=0;
+  f.scope.calendar={isOpen:()=>opened,isBusy:()=>busy,close(){closed++;opened=false;return true;}};
+  f.clickNook();
+  assert.equal(f.scope.view,'tasks'); assert.equal(f.scope.islandPage,'tasks'); assert.equal(closed,0); assert.equal(f.renders.length,0);
+  busy=false; f.clickNook();
+  assert.equal(f.scope.view,'nook'); assert.equal(closed,1); assert.equal(opened,false);
 });
 
 test('the Tasks navigation destination and internal Nook returns retain their explicit page', () => {
   const f=headerNavigationFixture({page:'music'});
   f.scope.islandNavigation({target:{closest:()=>({dataset:{islandPage:'tasks'},disabled:false})}});
   assert.equal(f.scope.view,'nook');assert.equal(f.scope.islandPage,'tasks');
-  assert.deepEqual(f.renders.at(-1),['tasks',null,null]);
+  assert.deepEqual(f.renders.at(-1),['focus',null,null]);
   f.scope.view='settings';f.scope.selectViewButton({dataset:{view:'nook'}});
   assert.equal(f.scope.islandPage,'tasks','an internal return restores its prior Tasks page');
   f.scope.islandPage='essential';f.scope.view='tray';f.scope.selectViewButton({dataset:{view:'nook'}});
@@ -245,9 +261,9 @@ test('the Tasks navigation destination and internal Nook returns retain their ex
 });
 
 test('returning to a visible Shelf summary reloads an invalidated file cache once instead of showing stale files', () => {
-  const loads=[],scope={calendar:null,view:'files',state:'open',islandPage:'essential',disposed:false,shelfLoaded:false,shelfBusy:false,fileDragging:false,
+  const loads=[],marketToolbar={hidden:true},scope={calendar:null,moduleLibrary:null,notch:{dataset:{}},view:'files',state:'open',islandPage:'essential',disposed:false,shelfLoaded:false,shelfBusy:false,fileDragging:false,
     moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),welcome:null,t:value=>value,
-    toggle:{},menu:{},panel:{setAttribute(){}},byId:()=>({}),getModuleEditorActive:()=>false,builtinVisible:()=>false,
+    toggle:{},menu:{},panel:{setAttribute(){}},byId:id=>id==='market-toolbar'?marketToolbar:{},getModuleEditorActive:()=>false,builtinVisible:()=>false,
     getHomeSlots:()=>['weather','shelf',null,null],scenarioController:null,
     renderIslandNavigation(){},renderMenuSelection(){},renderHomeLayout(){},musicLifecycle(){},renderFocus(){},renderShelf(){},renderFiles(){},filesLifecycle(){},
     renderWeather(){},weatherLifecycle(){},renderExperience(){},renderSettings(){},renderScenarios(){},renderModules(){},nearbyLifecycle(){},renderModuleFeedback(){},renderLocalSend(){},update(){},

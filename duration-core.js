@@ -69,7 +69,7 @@
     return result;
   }
   function createStore({storage = null, key = STORAGE_KEY, load, save, now = Date.now, makeId} = {}) {
-    let state = fresh(), disposed = false, loaded = false;
+    let state = fresh(), disposed = false, loaded = false, lastRemoval = null;
     const listeners = new Set();
     const read = load || (() => storage ? storage.getItem(key) : null);
     const write = save || (encoded => {if (storage) storage.setItem(key, encoded);});
@@ -86,7 +86,7 @@
       if (!loaded) throw Error('Module is not ready');
       return materialize(state, now());
     }
-    function commit(change) {
+    function commit(change, afterCommit) {
       const operation = queue.then(async () => {
         await ready;
         if (disposed) throw Error('Module is disposed');
@@ -96,6 +96,7 @@
         if (new TextEncoder().encode(encoded).length > LIMITS.bytes) throw Error('Module storage limit reached');
         await write(encoded);
         state = normalized;
+        afterCommit?.();
         for (const listener of listeners) {try {listener(snapshot());} catch (error) {console.error(error);}}
         return snapshot();
       });
@@ -115,6 +116,17 @@
           if (!next.activeId) next.activeId = id;
         });
       },
+      update(id, title, totalMinutes, {restart = false} = {}) {return commit(next => {
+        const task = taskAt(next, id), clean = typeof title === 'string' ? title.trim() : '';
+        if (!clean || [...clean].length > LIMITS.title || /[\u0000-\u001f\u007f]/.test(clean)) throw Error('Enter a valid task title');
+        plan(totalMinutes, task.settings);
+        if (task.totalMinutes !== totalMinutes) {
+          if (!restart && (task.elapsedMs > 0 || next.activeId === id && next.startedAt !== null)) throw Error('Confirm restarting this task before changing its duration');
+          task.totalMinutes = totalMinutes; task.elapsedMs = 0; delete task.earnedCycles;
+          if (next.activeId === id) next.startedAt = null;
+        }
+        task.title = clean;
+      });},
       select(id) {return commit(next => {taskAt(next, id); if (next.activeId !== id) {next.activeId = id; next.startedAt = null;}});},
       toggleTimer(id) {return commit(next => {
         const task = taskAt(next, id); if (task.done) throw Error('Reopen the task before starting it');
@@ -124,7 +136,23 @@
       complete(id) {return commit(next => {const task = taskAt(next, id); task.done = !task.done; if (task.done && next.activeId === id) next.startedAt = null;});},
       restart(id) {return commit(next => {const task=taskAt(next,id); task.elapsedMs=0; delete task.earnedCycles; if (next.activeId === id) next.startedAt = null;});},
       skip(id) {return commit(next => {const task = taskAt(next, id), value = phase(task); task.elapsedMs = value.current.startMs + value.current.durationMs; if (phase(task).finished && next.activeId === id) next.startedAt = null;});},
-      remove(id) {return commit(next => {taskAt(next, id); next.tasks = next.tasks.filter(t => t.id !== id); if (next.activeId === id) {next.activeId = next.tasks.find(t => !t.done)?.id || null; next.startedAt = null;}});},
+      remove(id) {
+        let removal;
+        return commit(next => {
+          const index = next.tasks.findIndex(task => task.id === id), task = taskAt(next, id), wasActive = next.activeId === id;
+          removal = {task: copy(task), index, wasActive}; next.tasks.splice(index, 1);
+          if (wasActive) {next.activeId = next.tasks.find(t => !t.done)?.id || null; next.startedAt = null;}
+          removal.fallbackId = next.activeId;
+        }, () => {lastRemoval = removal;});
+      },
+      canUndoRemove() {return lastRemoval !== null;},
+      undoRemove() {return commit(next => {
+        if (!lastRemoval) throw Error('No deleted task to restore');
+        if (next.tasks.length >= LIMITS.tasks || next.tasks.some(task => task.id === lastRemoval.task.id)) throw Error('Cannot restore this task');
+        next.tasks.splice(Math.min(lastRemoval.index, next.tasks.length), 0, copy(lastRemoval.task));
+        // Restoration keeps the deleted progress paused and never interrupts another running task.
+        if (lastRemoval.wasActive && next.activeId === lastRemoval.fallbackId && next.startedAt === null) next.activeId = lastRemoval.task.id;
+      }, () => {lastRemoval = null;});},
       configure(value) {return commit(next => {next.settings = settings(value);});},
       settle() {if (!loaded || state.startedAt === null) return Promise.resolve(null); const current = snapshot().tasks.find(t => t.id === state.activeId); if (!phase(current).finished) return Promise.resolve(null); return commit(next => {next.startedAt = null;});},
       dispose() {disposed = true; listeners.clear();}

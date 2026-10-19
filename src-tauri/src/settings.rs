@@ -19,11 +19,16 @@ pub fn valid_module_order(text: &str) -> bool {
     if text.len() > 512 {
         return false;
     }
-    let Ok(order) = serde_json::from_str::<[String; 5]>(text) else {
+    let Ok(order) = serde_json::from_str::<Vec<String>>(text) else {
         return false;
     };
+    // Read the original five-module order while saving the unified four-module catalog.
+    if order.len() != 4 && order.len() != 5 {
+        return false;
+    }
     order.iter().enumerate().all(|(index, id)| {
-        matches!(id.as_str(), "music" | "focus" | "weather" | "tasks" | "shelf")
+        (matches!(id.as_str(), "music" | "focus" | "weather" | "shelf")
+            || order.len() == 5 && id == "tasks")
             && !order[..index].contains(id)
     })
 }

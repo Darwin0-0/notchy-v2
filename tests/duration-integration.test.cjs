@@ -55,12 +55,13 @@ test('failed native acknowledgement never falls back to browser storage',async()
 test('oversized or malformed persisted envelopes are rejected before any write',async()=>{
   for(const value of ['x'.repeat(262145),'{broken','[]']){let writes=0;const io=persistence({localStorage:{getItem:()=>value,setItem(){writes++;}}});await assert.rejects(io.load());assert.equal(writes,0);}
 });
-test('placement AUTO exposes four real formats, including a compact narrow rail',()=>{
-  for(const [presentation,width,height,expected] of [['full',535,260,'full'],['scene',350,260,'details'],['rail',250,190,'half'],['rail',180,260,'quarter'],['rail',180,126,'quarter'],['full',326,140,'half'],['full',326,190,'details']])assert.equal(presentationForPlacement({presentation,width,height}),expected);
-  for(const geometry of [{width:0,height:200},{width:200,height:NaN},{width:-1,height:1}])assert.equal(presentationForPlacement(geometry),null);
+test('placement AUTO chooses the four formats from available dimensions rather than slot role',()=>{
+  for(const [presentation,width,height,expected] of [['full',535,260,'full'],['scene',354,260,'full'],['rail',326,112,'half'],['scene',199,260,'quarter'],['rail',250,190,'details'],['rail',180,260,'quarter'],['rail',180,126,'quarter'],['full',326,140,'half'],['full',326,190,'details']])assert.equal(presentationForPlacement({presentation,width,height}),expected);
+  for(const presentation of ['full','scene','rail',undefined])for(const [width,height,expected]of [[239,260,'quarter'],[240,154,'half'],[240,155,'details'],[354,209,'details'],[354,210,'full']])assert.equal(presentationForPlacement({presentation,width,height}),expected);
+  for(const geometry of [{width:0,height:200},{width:200,height:NaN},{width:-1,height:1},{width:Infinity,height:260},{width:354,height:0}])assert.equal(presentationForPlacement(geometry),null);
 });
-function fixture(){
-  const storage=new Map(),components=[],callbacks=[],changes=[],opens=[],observers=[],intervals=new Set();let language='fr',languageChanged;
+function fixture(saved){
+  const storage=new Map(saved?[[Bridge.KEY,JSON.stringify(saved)]]:[]),components=[],callbacks=[],changes=[],opens=[],observers=[],intervals=new Set();let language='fr',languageChanged;
   const document={createElement(){return{className:'',remove(){this.removed=true;}};}};
   const win={localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},setTimeout:callback=>(callbacks.push(callback),1),setInterval:callback=>(intervals.add(callback),callback),clearInterval:callback=>intervals.delete(callback),ResizeObserver:class{constructor(callback){this.callback=callback;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}},NotchyI18n:{locale:()=>language,t:value=>value,onChange(callback){languageChanged=callback;return()=>{languageChanged=null;};}},NotchyDuration:{mount(host,options){let view=options.view,size='full';const calls={sizes:[],languages:[],fits:0};const component={ready:Promise.resolve(),calls,options,inspect:()=>({view,size}),setPresentation(value){size=value;calls.sizes.push(value);},fit(){calls.fits++;},setLanguage(value){calls.languages.push(value);},showSettings(){view='settings';options.onViewChange({view});},showTimer(){view='timer';options.onViewChange({view});},showTasks(){view='tasks';options.onViewChange({view});},startCreate(){view='create-title';options.onViewChange({view});},cancelEdit(){view=options.view;options.onViewChange({view});},dispose(){this.disposed=true;}};components.push(component);return component;}}};document.defaultView=win;
   const host=(presentation='full',width=535,height=260)=>({ownerDocument:document,dataset:{presentation},clientWidth:width,clientHeight:height,hidden:false,children:[],append(node){this.children.push(node);}});
@@ -68,10 +69,37 @@ function fixture(){
   return{focus,focusHost,host,components,changes,opens,observers,flush(){while(callbacks.length)callbacks.shift()();},tick(){for(const callback of intervals)callback();},language(value){language=value;languageChanged?.();}};
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
+
+test('the unified module restores an ongoing or paused session and otherwise opens its task list',async()=>{
+  for(const kind of ['fresh','running','paused','completed']){
+    const state=Core.fresh();state.tasks=[{id:'saved-task',title:'Continue actual work',totalMinutes:25,settings:{...state.settings},elapsedMs:kind==='paused'?7000:kind==='completed'?1500000:0,done:kind==='completed'}];state.activeId='saved-task';state.startedAt=kind==='running'?Date.now():null;
+    const f=fixture({durationModule:state});await f.focus.ready;f.flush();
+    assert.equal(f.components[0].inspect().view,['running','paused'].includes(kind)?'timer':'tasks',kind);
+    assert.equal(f.focus.durationStore.snapshot().tasks[0].id,'saved-task');
+    assert.equal(f.focus.durationStore.snapshot().startedAt!==null,kind==='running');f.focus.dispose();
+  }
+});
 test('render(false) avoids model emissions, unchanged format redraws and duplicate language updates',async()=>{
   const f=fixture();await f.focus.ready;f.flush();const count=f.changes.length,sizes=f.components[0].calls.sizes.length;f.focus.render(false);f.focus.render(false);assert.equal(f.changes.length,count);assert.equal(f.components[0].calls.sizes.length,sizes);
   f.language('fr');assert.equal(f.components[0].calls.languages.length,0);f.language('en');f.language('en');assert.deepEqual(f.components[0].calls.languages,['en']);
-  f.focusHost.dataset.presentation='scene';f.focusHost.clientWidth=350;f.focus.render(false);assert.equal(f.components[0].inspect().size,'details');f.focus.dispose();
+  f.focusHost.dataset.presentation='scene';f.focusHost.clientWidth=354;f.focusHost.clientHeight=190;f.focus.render(false);assert.equal(f.components[0].inspect().size,'details');
+  f.focusHost.clientHeight=260;f.focus.render(false);assert.equal(f.components[0].inspect().size,'full');f.focus.dispose();
+});
+test('the same short slot uses the Tasks list quarter and Focus half without resizing forms',async()=>{
+  const f=fixture(),taskHost=f.host('rail',326,112),tasks=Bridge.createTasks({host:taskHost,focus:f.focus});await tasks.ready;
+  f.focusHost.dataset.presentation='rail';f.focusHost.clientWidth=326;f.focusHost.clientHeight=112;f.focus.render(false);
+  assert.equal(f.components[0].inspect().size,'quarter','the unified module starts with its task list');assert.equal(f.components[1].inspect().size,'quarter');
+  f.components[0].showTasks();assert.equal(f.components[0].inspect().size,'quarter','opening Tasks immediately uses its compact list canvas');
+  f.components[0].showTimer();assert.equal(f.components[0].inspect().size,'half','returning to the timer immediately restores the wide format');
+  f.components[1].showTimer();assert.equal(f.components[1].inspect().size,'half');f.components[1].showTasks();assert.equal(f.components[1].inspect().size,'quarter');
+  const before=JSON.stringify(f.focus.durationStore.snapshot());
+  const formats=f.components.map(component=>component.calls.sizes.length);
+  f.components[0].showSettings();f.components[1].showSettings();
+  f.focusHost.clientHeight=260;taskHost.clientHeight=260;f.focus.render(false);tasks.render();
+  assert.equal(f.components[0].inspect().view,'settings');assert.equal(f.components[0].inspect().size,'half');
+  assert.equal(f.components[1].inspect().view,'settings');assert.equal(f.components[1].inspect().size,'quarter');
+  assert.deepEqual(f.components.map(component=>component.calls.sizes.length),formats,'opening or resizing a form does not redraw its presentation');
+  assert.equal(JSON.stringify(f.focus.durationStore.snapshot()),before);tasks.dispose();f.focus.dispose();
 });
 test('Tasks mounts real shared content and leaving its editor suppresses recursive route restoration',async()=>{
   const f=fixture(),taskHost=f.host('full'),tasks=Bridge.createTasks({host:taskHost,focus:f.focus});await tasks.ready;f.flush();

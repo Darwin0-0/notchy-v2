@@ -92,7 +92,7 @@ mod experience_preference_tests {
     const FAVORITES: &str = "notchy-peer-favorites-v1";
 
     fn order() -> Value {
-        json!(["shelf", "weather", "music", "tasks", "focus"])
+        json!(["shelf", "weather", "music", "focus"])
     }
     fn favorite(index: usize) -> Value {
         json!({"identity":format!("{index:064x}"), "alias":"Téléphone de test 📱", "deviceType":"mobile"})
@@ -101,8 +101,11 @@ mod experience_preference_tests {
     #[test]
     fn module_order_accepts_only_one_of_each_known_module() {
         assert!(valid_module_order(&order().to_string()));
+        assert!(valid_module_order(r#"["music","focus","weather","shelf"]"#));
         assert!(valid_module_order(r#"["music","focus","weather","tasks","shelf"]"#));
         for invalid in [json!([]), json!(["shelf", "music"]), json!(["shelf", "weather", "music", "tasks", "shelf"]),
+            json!(["music", "tasks", "weather", "shelf"]), json!(["music", "focus", "weather", "focus"]),
+            json!(["music", "focus", "weather", "health"]), json!(["music", "focus", "weather", 1]),
             json!(["shelf", "weather", "music", "tasks", "health"]), json!(["shelf", "weather", "music", "tasks", 1]),
             json!(["shelf", "weather", "music", "tasks", "focus", "health"]), json!({"order":order()}), Value::Null] {
             assert!(!valid_module_order(&invalid.to_string()), "{invalid}");
