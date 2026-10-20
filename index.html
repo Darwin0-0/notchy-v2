@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="application-version" content="0.3.10">
+  <meta name="application-version" content="0.3.11">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Notchy V2</title>
   <link rel="stylesheet" href="tokens.css">
@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="module-library.css">
   <link rel="stylesheet" href="calendar.css">
   <link rel="stylesheet" href="module-layout.css">
+  <link rel="stylesheet" href="reception.css">
   <script src="app.bundle.js" defer></script>
 </head>
 <body>
@@ -54,12 +55,16 @@
       </span>
       <span id="focus-live" class="focus-live" hidden><svg class="focus-ring" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13"/><circle class="ring-fill" cx="16" cy="16" r="13" pathLength="1"/></svg><span id="focus-live-time"></span></span>
       </span>
-      <span id="localsend-live" class="localsend-live" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><use id="localsend-live-icon" href="#localsend-icon-share"/></svg><strong id="localsend-live-title"></strong><span id="localsend-live-meta"></span></span>
+      <span id="localsend-live" class="localsend-live" hidden><span class="reception-device"><i class="reception-ping"></i><svg viewBox="0 0 24 24" aria-hidden="true"><use id="localsend-live-icon" href="#localsend-icon-share"/></svg></span><span class="reception-mini-copy"><strong id="localsend-live-title"></strong><small id="localsend-live-meta"></small></span><span class="reception-mini-count"></span></span>
       <span id="module-feedback-live" class="module-feedback-live" aria-hidden="true" hidden><span id="module-feedback-icon"></span><span class="module-feedback-copy"><span id="module-feedback-label" class="module-feedback-label"></span><strong id="module-feedback-title"></strong><small id="module-feedback-detail"></small><span id="module-feedback-cycles" class="module-feedback-cycles" hidden></span></span><span id="module-feedback-spectrum" class="music-spectrum" hidden><i></i><i></i><i></i><i></i></span></span>
       <span id="shelf-drop-hint" class="shelf-drop-hint" hidden data-i18n>Déposer dans l’Étagère</span>
       </span>
       <span id="live-progresses" class="live-progresses"><span id="music-discreet-progress" class="music-strip" role="progressbar" aria-label="Progression musicale" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden data-i18n-aria-label="Progression musicale"><span class="music-strip-fill"></span></span><span id="focus-discreet-progress" class="focus-strip" role="progressbar" aria-label="Progression Focus" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden data-i18n-aria-label="Progression Focus"><span></span></span><span id="localsend-discreet-progress" class="localsend-strip" role="progressbar" aria-label="Progression LocalSend" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden data-i18n-aria-label="Progression LocalSend"><span></span></span></span>
     </button>
+    <div id="reception-compact-actions" hidden>
+      <button type="button" data-localsend-command="reject" aria-label="Refuser" data-i18n-aria-label="Refuser"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"/></svg></button>
+      <button type="button" data-localsend-command="accept" aria-label="Accepter" data-i18n-aria-label="Accepter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+    </div>
     <div id="music-hover-controls" class="music-hover-controls" role="group" aria-label="Lecteur multimédia" data-i18n-aria-label="Lecteur multimédia" hidden>
       <div class="music-hover-transport">
         <button type="button" data-music-command="previous" aria-label="Morceau précédent" data-i18n-aria-label="Morceau précédent" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5a1 1 0 0 1 1 1v12a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM18.5 5.3a1 1 0 0 1 1.5.86v11.68a1 1 0 0 1-1.5.86L8.8 12.86a1 1 0 0 1 0-1.72Z"/></svg></button>
@@ -92,8 +97,9 @@
       <section id="module-library-player" hidden aria-label="Modules"></section>
       <div id="shelf-drag-preview" class="shelf-drag-preview" role="status" aria-live="polite" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 12H3v8h18v-8h-2"/></svg><strong id="shelf-drag-title" data-i18n>Déposer des fichiers</strong><span id="shelf-drag-detail" data-i18n>Relâche pour choisir une action.</span></div>
       <section id="localsend-player" class="localsend-player" aria-label="Partage LocalSend" data-stage="discovery" data-direction="send" data-active="false" hidden data-i18n-aria-label="Partage LocalSend">
+        <div class="localsend-outgoing">
         <header class="localsend-heading"><div class="localsend-heading-title"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#localsend-icon-share"/></svg><strong id="localsend-title" data-i18n>Envoyer à…</strong></div><span id="localsend-summary" class="localsend-summary"></span><button id="localsend-close" class="localsend-icon-button" type="button" data-localsend-command="close" aria-label="Fermer le partage" data-i18n-aria-label="Fermer le partage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
-        <div id="localsend-consent" hidden><div id="shelf-incoming" class="localsend-consent" role="region" aria-label="Proposition de réception LocalSend" hidden data-i18n-aria-label="Proposition de réception LocalSend"><span class="localsend-device"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#localsend-icon-phone"/></svg></span><div class="localsend-request-copy"><small data-i18n>DEMANDE DE PARTAGE</small><strong id="shelf-incoming-sender"></strong><p id="shelf-incoming-files"></p></div><div class="localsend-consent-actions"><button id="shelf-incoming-reject" class="localsend-pill localsend-secondary" type="button" data-i18n>Refuser</button><button id="shelf-incoming-accept" class="localsend-pill localsend-accent" type="button" data-i18n>Accepter</button></div></div></div>
+
         <div id="localsend-discovery" class="localsend-discovery"><div class="localsend-origin"><span class="localsend-radar" aria-hidden="true"><i></i><i></i><i></i></span><span class="localsend-device"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#localsend-icon-pc"/></svg></span></div><div id="localsend-devices" class="localsend-devices" aria-label="Appareils à proximité" data-i18n-aria-label="Appareils à proximité"></div><p id="localsend-discovery-help" class="localsend-discovery-help" hidden data-i18n>Ouvre LocalSend sur l’autre appareil et connecte-le au même réseau Wi-Fi.</p><p id="localsend-discovery-label" role="status" data-i18n>Recherche d’appareils à proximité…</p><button id="localsend-discover" class="localsend-pill localsend-secondary" type="button" data-localsend-command="discover" data-i18n>Rechercher</button></div>
         <div id="localsend-connection" class="localsend-connection" hidden><span class="localsend-device"><svg viewBox="0 0 24 24" aria-hidden="true"><use id="localsend-from-icon" href="#localsend-icon-pc"/></svg></span><span class="localsend-link" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="localsend-device"><svg viewBox="0 0 24 24" aria-hidden="true"><use id="localsend-to-icon" href="#localsend-icon-phone"/></svg></span><button id="localsend-cancel" class="localsend-icon-button" type="button" data-localsend-command="cancel" aria-label="Annuler le transfert" data-i18n-aria-label="Annuler le transfert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
         <div id="localsend-waiting" class="localsend-waiting" role="status" hidden><strong id="localsend-waiting-title"></strong><span id="localsend-waiting-detail"></span></div>
@@ -101,6 +107,29 @@
         <div id="localsend-result" class="localsend-result" role="status" hidden><svg class="localsend-check" viewBox="0 0 64 64" aria-hidden="true"><circle class="localsend-check-ring" cx="32" cy="32" r="28" transform="rotate(-90 32 32)"/><path class="localsend-check-tick" d="M21 33l8 8 15-17"/></svg><svg class="localsend-error-symbol" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 3v.1"/></svg><div class="localsend-result-copy"><strong id="localsend-result-title"></strong><p id="localsend-result-detail"></p><small id="localsend-result-help" hidden></small></div></div>
         <div id="localsend-file-chips" class="localsend-file-chips" hidden></div>
         <footer id="localsend-result-actions" class="localsend-result-actions" hidden><button id="localsend-shelf" class="localsend-pill localsend-primary" type="button" data-localsend-command="shelf" hidden data-i18n><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Voir l’Étagère</button><button class="localsend-pill localsend-primary" type="button" data-localsend-command="done" data-i18n>Terminé</button><button id="localsend-retry" class="localsend-pill localsend-secondary" type="button" data-localsend-command="retry" hidden data-i18n>Renvoyer</button></footer>
+        </div>
+        <div id="reception-card" class="reception-card" hidden>
+          <div id="localsend-consent" class="reception-request" hidden><div id="shelf-incoming" hidden>
+            <small id="reception-eyebrow" class="reception-eyebrow" data-i18n>DEMANDE DE PARTAGE</small>
+            <svg id="reception-expiry" class="reception-expiry" viewBox="0 0 24 24" role="img" aria-label="Expiration"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="9" pathLength="1" transform="rotate(-90 12 12)"/></svg>
+            <span class="reception-device"><i class="reception-ping"></i><span id="reception-request-device"></span></span>
+            <div class="reception-copy"><strong id="shelf-incoming-sender"></strong><p id="shelf-incoming-files"></p></div>
+            <span id="reception-preview" class="reception-preview" aria-hidden="true" hidden></span>
+            <button class="reception-stack" type="button" data-localsend-command="details" aria-expanded="false" aria-controls="reception-files"></button>
+            <ul id="reception-files" class="reception-files" aria-label="Fichiers proposés" data-i18n-aria-label="Fichiers proposés" hidden></ul>
+            <div class="reception-consent-actions"><button id="shelf-incoming-reject" type="button" data-i18n>Refuser</button><button id="shelf-incoming-accept" type="button" data-i18n>Accepter</button></div>
+          </div></div>
+          <div id="reception-transfer" class="reception-transfer" hidden>
+            <span class="reception-device"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11 M7 10l5 5 5-5 M5 20h14"/></svg></span>
+            <div class="reception-transfer-copy"><small id="reception-peer"></small><strong id="reception-current-file"></strong></div><strong id="reception-counter" class="reception-counter"></strong>
+            <button id="reception-cancel" class="reception-cancel" type="button" data-localsend-command="cancel" aria-label="Annuler la réception" data-i18n-aria-label="Annuler la réception"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"/></svg></button>
+            <div class="reception-meter"><div id="reception-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Progression de la réception" data-i18n-aria-label="Progression de la réception"><i></i></div></div>
+            <div class="reception-transfer-meta"><span id="reception-bytes"></span><span id="reception-rate"></span></div>
+          </div>
+          <div id="reception-result" class="reception-result" role="status" hidden><span id="reception-result-icon" class="reception-result-icon"></span><div class="reception-result-copy"><strong id="reception-result-title"></strong><p id="reception-result-detail"></p></div><button class="reception-stack" type="button" data-localsend-command="shelf" aria-label="Voir les fichiers" data-i18n-aria-label="Voir les fichiers"></button></div>
+          <div id="reception-result-actions" class="reception-result-actions" hidden><button id="reception-shelf" type="button" data-localsend-command="shelf" data-i18n>Étagère</button><button id="reception-reveal" type="button" data-localsend-command="reveal" data-i18n>Ouvrir le dossier</button></div>
+          <p id="reception-action-error" role="alert" hidden></p>
+        </div>
       </section>
       <div id="nook-layout" class="nook-layout" hidden><div id="home-main" class="home-main"></div><aside id="home-side" class="home-side" aria-label="Modules de l’accueil" data-i18n-aria-label="Modules de l’accueil"></aside><div id="home-empty" class="home-empty" hidden><strong data-i18n>À toi de composer ton Nook.</strong><p data-i18n>Clic droit pour choisir les modules.</p></div></div>
       <div id="scenario-home-notice" class="scenarios-home-notice" hidden><p id="scenario-home-status" role="status" aria-live="polite"></p><button id="scenario-home-undo" type="button" data-scenario-command="undo" aria-label="Annuler la disposition" data-i18n-aria-label="Annuler la disposition" data-i18n>Annuler</button></div>

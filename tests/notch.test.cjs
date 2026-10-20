@@ -66,7 +66,7 @@ test('the painted spring sends valid native geometry on every large-panel closin
     ISLAND_CONFIG, openPanelScale:require('../notch.js').openPanelScale, appearance:{format:'compact'},view:'nook', ModuleLayout:require('../module-contracts.js'), motion, shape, calendar: null, moduleLab: null, calendarHeightLimit: 0, document: {hidden: false}, motionEnabled: () => true, desktopPointer() {},
     window: {innerWidth: 960, cancelAnimationFrame() {}, requestAnimationFrame: () => 1},
     notch: {style: {values: {}, setProperty(name, value) {this.values[name] = value;}}},
-    surface: node(), contour: node(), bandCut: node(), panelCut: node(),
+    surface: node(), contour: node(), bandCut: node(), panelCut: node(), receptionGeometry:()=>null,
     desktop: {sendGeometry(value) {
       assert(Object.values(value).filter(item => typeof item === 'number').every(Number.isFinite));
       assert(value.width >= 1 && value.width <= 1200 && value.height >= 1 && value.height <= 900);
@@ -177,7 +177,7 @@ function interactionFixture() {
   const timers = new Map(), changes = [];
   let nextTimer = 0, focused = null, now = 1000, transfer = null, documentFocused=true;
   const scope = {
-    calendar:null, moduleLab:null,
+    calendar:null, moduleLab:null, search:null,
     ISLAND_CONFIG, Date: {now: () => now},
     scenarioController: null,
     geometry: {width: 780, height: 480},
@@ -203,7 +203,7 @@ function interactionFixture() {
     ${source.slice(source.indexOf('  function searchOpening() {'), source.indexOf('  function searchClosed() {'))}
     const resume = ${source.match(/const removeResume = desktop\.onResume\((value => \{[^\n]+\})\);/)[1]};
     this.api={resume,openFromOutside,searchOpening,enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,scheduleCollapse,open,outside,key,
-      get state(){return state;},get view(){return view;},get pending(){return collapseTimer;},set state(value){state=value;},set view(value){view=value;},set closing(value){closingTo=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;}};
+      get state(){return state;},get view(){return view;},get pending(){return collapseTimer;},set state(value){state=value;},set view(value){view=value;},set closing(value){closingTo=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;},set previewing(value){search={isPreviewing:()=>value};}};
   `, scope);
   function runDue() {
     for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
@@ -391,6 +391,13 @@ test('Escape returns from Settings before collapsing; outside clicks and toggle 
     if (close === 'escape') {assert.equal(f.api.state,'open');assert.equal(f.api.view,'nook');f.api.key({key:'Escape',preventDefault(){}});}
     assert.equal(f.api.state, 'rest', close);
   }
+});
+
+test('QuickLook keeps search reachable when the pointer leaves, then releases the collapse guard', () => {
+  const f=interactionFixture();f.api.state='open';f.api.view='search';f.api.previewing=true;
+  f.api.leave();f.advance(1000);assert.equal(f.api.state,'open');
+  f.api.scheduleCollapse(true);f.advance(1000);assert.equal(f.api.state,'open');
+  f.api.previewing=false;f.api.scheduleCollapse(true);f.advance(280);assert.equal(f.api.state,'rest');
 });
 
 test('settings close on departure and pointer reentry only previews without opening the route', () => {
@@ -720,7 +727,7 @@ function liveBandFixture() {
     isModuleEnabled:()=>true,motionEnabled:()=>true,text:(node,value)=>{node.textContent=value;},shelfGlyph:()=>element(),restContent:element(),toggle:element(),position:()=>30,focusLabel:()=>i18n.t('Concentration')};
   require('node:vm').runInNewContext(`
     let state='rest',fileDragging=false,connectionLost=false,music={available:true,playing:true,title:'Titre',artist:'Artiste'},
-      focus={sessionActive:true,remaining:90,minutes:25,pomodoro:{phase:'work',finished:false}},focusSettings={},moduleFeedback=null,transfer=null,nearby={peers:[]},nearbyLoaded=true,fileJob={status:'idle'};
+      focus={sessionActive:true,remaining:90,minutes:25,pomodoro:{phase:'work',finished:false}},focusSettings={},moduleFeedback=null,transfer=null,nearby={peers:[]},nearbyLoaded=true,fileJob={status:'idle'},view='nook',nearbyBusy=false;
     const live=byId('music-live'),strip=byId('music-discreet-progress'),focusStrip=byId('focus-discreet-progress');
     function focusIsActive(){return focus.sessionActive;}
     function localSendBand(){return transfer;}

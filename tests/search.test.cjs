@@ -314,6 +314,172 @@ test('unsupported and active formats are reveal-only including their default key
   } finally {f.controller.dispose();}
 });
 
+test('QuickLook previews files and folders by opaque ID while preserving search and its query', async () => {
+  const f = fixture(name => name === 'search_query' ? response([hit('folder', 'Reports', 'folder'), hit('file')]) : {}, 'en',
+    {status: () => ({files:42, indexing:false, quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open(); await f.type('report'); const {preview, input, contextMenu, more} = f.controller.elements;
+    assert.equal(preview.hidden, false); assert.equal(preview.getAttribute('aria-label'), 'QuickLook preview');
+    preview.emit('click'); await delay(0);
+    assert.deepEqual(f.calls.find(call => call.name === 'search_preview').args, {id:'folder'});
+    assert.equal(f.controller.isOpen(), true); assert.equal(input.value, 'report');
+    f.key('ArrowDown'); more.emit('click'); contextMenu.children[3].emit('click'); await delay(0);
+    assert.deepEqual(f.calls.filter(call => call.name === 'search_preview').at(-1).args, {id:'file'});
+    assert.equal(f.calls.some(call => call.name === 'search_open'), false);
+  } finally {f.controller.dispose();}
+});
+
+test('Alt+P previews once, normal spaces and IME input remain editable', async () => {
+  const f = fixture(name => name === 'search_query' ? response([hit('file')]) : {}, 'fr',
+    {status: () => ({files:42, indexing:false, quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open(); await f.type('report');
+    assert.equal(f.key(' ').prevented, undefined);
+    assert.equal(f.key('p', {altKey:true,isComposing:true}).prevented, undefined);
+    assert.equal(f.key('p', {altKey:true,repeat:true}).prevented, undefined);
+    assert.equal(f.key('p', {altKey:true}).prevented, true); await delay(0);
+    assert.equal(f.calls.filter(call => call.name === 'search_preview').length, 1);
+    assert.equal(f.controller.isOpen(), true);
+  } finally {f.controller.dispose();}
+});
+
+test('missing QuickLook opens only its official setup action and leaves the result available', async () => {
+  const f = fixture(name => name === 'search_query' ? response([hit('file')]) : {}, 'en',
+    {status: () => ({files:42, indexing:false, quickLook:{supported:true,available:false}})});
+  try {
+    f.controller.open(); await f.type('report'); assert.equal(f.controller.elements.preview.getAttribute('aria-label'), 'Get QuickLook');
+    f.controller.elements.preview.emit('click'); await delay(0);
+    assert.deepEqual(f.calls.find(call => call.name === 'search_quicklook_install').args, {});
+    assert.equal(f.calls.some(call => call.name === 'search_preview' || call.name === 'search_open'), false);
+    assert.equal(f.controller.isOpen(), true); assert.match(f.controller.elements.information.textContent, /Install it/);
+    assert.equal(f.controller.elements.preview.disabled, false);
+  } finally {f.controller.dispose();}
+});
+
+test('failed QuickLook previews preserve results, show a safe error and allow retry', async () => {
+  const f = fixture(name => {if (name === 'search_query') return response([hit('file')]); throw new Error('C:\\private\\secret');}, 'en',
+    {status: () => ({files:42, indexing:false, quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open(); await f.type('report'); f.controller.elements.preview.emit('click'); await delay(0);
+    assert.equal(f.controller.isOpen(), true); assert.equal(f.controller.elements.list.children.length, 1);
+    assert.equal(f.controller.elements.information.textContent, 'QuickLook preview could not be started.');
+    assert(!f.host.textContent.includes('secret')); assert.equal(f.controller.elements.preview.disabled, false);
+  } finally {f.controller.dispose();}
+});
+
+test('returning after setup redetects QuickLook and clears its setup hint without losing the query', async () => {
+  let available = false;
+  const f = fixture(name => name === 'search_query' ? response([hit('file')]) : {}, 'en',
+    {animationFrames:true,status: () => ({files:42,indexing:false,quickLook:{supported:true,available}})});
+  try {
+    f.controller.open(); await f.type('report'); f.controller.elements.preview.emit('click'); await delay(0);
+    assert.match(f.controller.elements.information.textContent,/Install it/);
+    available=true;f.document.defaultView.emit('focus');await delay(0);
+    assert.equal(f.controller.elements.preview.getAttribute('aria-label'),'QuickLook preview');
+    assert.equal(f.controller.elements.information.textContent,'42 indexed items');
+    assert.equal(f.controller.elements.input.value,'report');assert.equal(f.controller.elements.list.children.length,1);
+  } finally {f.controller.dispose();}
+});
+
+test('macOS-style selection uses Space to toggle preview and Escape closes preview before search', async () => {
+  const f = fixture(name => name === 'search_query' ? response([hit('one'),hit('two')]) : {}, 'en',
+    {status: () => ({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  const resultKey = (key,extra={}) => f.host.emit('keydown',{target:f.document.activeElement,key,...extra});
+  try {
+    f.controller.open();await f.type('rapport');const {list,preview,input}=f.controller.elements;
+    list.emit('click',{target:list.children[0]});assert.equal(f.document.activeElement,list.children[0]);
+    assert.equal(f.calls.some(call=>call.name==='search_open'),false);
+    resultKey(' ');await delay(0);assert.equal(f.controller.isPreviewing(),true);
+    assert.deepEqual(f.calls.find(call=>call.name==='search_preview').args,{id:'one'});
+    assert.equal(preview.getAttribute('aria-label'),'Close preview');
+    resultKey(' ',{repeat:true});await delay(0);assert.equal(f.controller.isPreviewing(),true);
+    resultKey('ArrowDown');await delay(0);assert.equal(f.document.activeElement,list.children[1]);
+    assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').at(-1).args,{id:'two'});
+    list.emit('pointermove',{target:list.children[0]});assert.equal(list.children[1].getAttribute('aria-selected'),'true');
+    resultKey('Escape');await delay(0);assert.equal(f.controller.isPreviewing(),false);assert.equal(f.controller.isOpen(),true);
+    assert.equal(f.calls.filter(call=>call.name==='search_preview_close').length,1);assert.equal(input.value,'rapport');
+    resultKey(' ');await delay(0);resultKey(' ');await delay(0);assert.equal(f.controller.isPreviewing(),false);
+    assert.equal(f.calls.filter(call=>call.name==='search_preview_close').length,2);
+    resultKey('Escape');assert.equal(f.controller.isOpen(),false);
+  } finally {f.controller.dispose();}
+});
+
+test('rapid preview navigation keeps one request in flight and coalesces to the newest selection', async () => {
+  const first=deferred();let previews=0;
+  const f=fixture(name=>name==='search_query'?response([hit('one'),hit('two'),hit('three')]):name==='search_preview'&&++previews===1?first.promise:{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  const key=name=>f.host.emit('keydown',{target:f.document.activeElement,key:name});
+  try {
+    f.controller.open();await f.type('rapport');const {list}=f.controller.elements;list.emit('click',{target:list.children[0]});key(' ');
+    key('ArrowDown');key('ArrowDown');assert.equal(f.calls.filter(call=>call.name==='search_preview').length,1);
+    first.resolve({ok:true});await delay(0);
+    assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args.id),['one','three']);
+    key('ArrowRight');await delay(0);assert.equal(f.calls.filter(call=>call.name==='search_preview').length,2);
+    key('ArrowLeft');await delay(0);assert.equal(f.calls.filter(call=>call.name==='search_preview').at(-1).args.id,'two');
+  } finally {f.controller.dispose();}
+});
+
+test('a late preview response is closed after a query edit or disposal instead of reopening stale content', async () => {
+  for(const dispose of [false,true]) {
+    const pending=deferred(),f=fixture(name=>name==='search_query'?response([hit('one')]):name==='search_preview'?pending.promise:{},'en',
+      {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+    try {
+      f.controller.open();await f.type('rapport');f.controller.elements.preview.emit('click');
+      if(dispose)f.controller.dispose();else{f.controller.elements.input.value='new';f.controller.elements.input.emit('input');}
+      pending.resolve({ok:true});await delay(0);
+      assert.equal(f.calls.filter(call=>call.name==='search_preview_close').length,1);
+      assert.equal(f.controller.isPreviewing(),false);
+    } finally {f.controller.dispose();}
+  }
+});
+
+test('double-click opens the selected file normally after single-click selection', async () => {
+  const f=fixture(name=>name==='search_query'?response([hit('one')]):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('rapport');const {list}=f.controller.elements;
+    list.emit('click',{target:list.children[0]});assert.equal(f.calls.some(call=>call.name==='search_open'),false);
+    list.emit('dblclick',{target:list.children[0]});await delay(0);
+    assert.deepEqual(f.calls.find(call=>call.name==='search_open').args,{id:'one'});assert.equal(f.controller.isOpen(),false);
+  } finally {f.controller.dispose();}
+});
+
+test('typing from a selected result returns to query editing and closes its preview', async () => {
+  const f=fixture(name=>name==='search_query'?response([hit('one')]):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('rapport');const {list,input}=f.controller.elements;
+    list.emit('click',{target:list.children[0]});f.host.emit('keydown',{target:list.children[0],key:' '});await delay(0);
+    f.host.emit('keydown',{target:list.children[0],key:'x'});await delay(0);
+    assert.equal(input.value,'rapportx');assert.equal(f.document.activeElement,input);assert.equal(f.controller.isPreviewing(),false);
+    assert.equal(f.calls.filter(call=>call.name==='search_preview_close').length,1);
+    await delay(search.CONFIG.debounce+10);list.emit('click',{target:list.children[0]});
+    f.host.emit('keydown',{target:list.children[0],key:'Backspace'});assert.equal(input.value,'rapport');
+  } finally {f.controller.dispose();}
+});
+
+test('closing the native viewer clears preview state on return without closing search or sending another Close', async () => {
+  let visible=true;
+  const f=fixture(name=>name==='search_query'?response([hit('one')]):{},'en',
+    {animationFrames:true,status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true,previewVisible:visible}})});
+  try {
+    f.controller.open();await f.type('rapport');f.controller.elements.preview.emit('click');await delay(0);
+    assert.equal(f.controller.isPreviewing(),true);visible=false;f.host.emit('pointerenter');await delay(0);
+    assert.equal(f.controller.isPreviewing(),false);assert.equal(f.controller.isOpen(),true);
+    assert.equal(f.calls.some(call=>call.name==='search_preview_close'),false);
+    f.controller.elements.preview.emit('click');await delay(0);assert.equal(f.controller.isPreviewing(),true);
+  } finally {f.controller.dispose();}
+});
+
+test('unsupported platforms do not advertise QuickLook or intercept Alt+P', async () => {
+  const f = fixture(name => name === 'search_query' ? response([hit('file')]) : {});
+  try {
+    f.controller.open(); await f.type('report'); assert.equal(f.controller.elements.preview.hidden, true);
+    f.controller.elements.more.emit('click'); assert.equal(f.controller.elements.contextMenu.children[3].hidden, true);
+    f.key('Escape'); assert.equal(f.key('p', {altKey:true}).prevented, undefined);
+  } finally {f.controller.dispose();}
+});
+
 test('composition invalidates old results and waits for completed text before querying', async () => {
   const f = fixture(name => name === 'search_query' ? response([hit('one')]) : {});
   try {

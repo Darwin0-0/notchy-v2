@@ -11,4 +11,10 @@ Notchy uses the following components. Their licences remain separate from the ap
 
 Spotify names and icons identify the compatible service. They belong to their respective owners and do not imply an official affiliation.
 
+## Optional external application: QuickLook
+
+[QuickLook for Windows](https://github.com/QL-Win/QuickLook) was originally created by [Paddy Xu (@xupefei)](https://github.com/xupefei) and is maintained by the QL-Win team and contributors. Its original [author notice](https://github.com/QL-Win/QuickLook/blob/fe6dae67ce28a780c8247b70ccc4fb65cddaeab8/QuickLook/App.xaml.cs) credits Paddy Xu; current source notices credit QL-Win Contributors. QuickLook is distributed under the [GNU General Public License, version 3](https://github.com/QL-Win/QuickLook/blob/master/LICENSE-GPL.txt); its source-file notices also permit later versions.
+
+Notchy interoperates with a separately installed QuickLook application to preview indexed search results. Notchy's installer does not include QuickLook binaries or viewer plugins. QuickLook and its plugins retain their own notices and licence terms. Thanks to its creator, maintainers and contributors for making these previews available.
+
 This document does not grant an additional licence for the application code.

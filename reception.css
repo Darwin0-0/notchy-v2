@@ -1,0 +1,289 @@
+/* User-provided reception surfaces: shared state, content-sized presentation. */
+.localsend-outgoing:not([hidden]) { display: contents; }
+.localsend-outgoing[hidden],#reception-card[hidden],#reception-compact-actions[hidden] { display: none !important; }
+.localsend-live>.reception-device { display:grid;place-items:center;flex:0 0 16px;width:16px;height:16px; }
+.localsend-live>.reception-device svg { width:16px;height:16px;fill:none;stroke:var(--localsend-accent,var(--activity-transfer));stroke-width:2;stroke-linecap:round;stroke-linejoin:round; }
+.localsend-live>.reception-device>.reception-ping,.localsend-live>.reception-mini-count { display:none; }
+.localsend-live>.reception-mini-copy { display:flex;justify-content:space-between;gap:8px;flex:1;min-width:0; }
+.localsend-live .reception-mini-copy strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.localsend-live .reception-mini-copy small { color:#a1a1a6; }
+.notch[data-receive-band="true"] #island-compact-content { width:100%;height:100%; }
+.notch[data-receive-band="true"][data-state="rest"] #island-compact-content { opacity:1!important;filter:none!important;transform:none!important;visibility:visible; }
+.notch[data-receive-band="true"] :is(#island-rest-live,#music-discreet-progress,#focus-discreet-progress) { visibility:hidden; }
+.notch[data-reception="true"] .reception-expiry circle:last-child { stroke-dasharray:var(--reception-remaining,1) 1; }
+.notch[data-reception="true"] #reception-action-error { position:absolute;left:24px;right:24px;bottom:0;color:var(--status-error,#ff6565);font-size:11px;line-height:14px; }
+.notch[data-reception="true"] #localsend-player:has(#reception-action-error:not([hidden])) .reception-card { overflow-y:auto; }
+
+.notch:is([data-reception="true"],[data-receive-band="true"]) {
+  --reception-accent: var(--accent-focus,#ff7a45);
+  --reception-ink: #1a0a02;
+  --reception-muted: #a1a1a6;
+  --reception-eyebrow: #6b6b73;
+  --reception-device-color: #86b7ff;
+  --reception-surface: #000;
+  --reception-control: #1c1c1f;
+  --reception-card: #26262a;
+  --reception-radius: 28px;
+  --reception-inset: 24px;
+  --reception-ease: cubic-bezier(.215,.61,.355,1);
+  color: #fff;
+  font-family: var(--font-ui,"DM Sans",system-ui,sans-serif);
+}
+
+.notch[data-reception="true"] :is(#notch-menu,#island-footer,.localsend-outgoing) { display: none; }
+.notch[data-reception="true"] #notch-panel {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  clip-path: none;
+}
+.notch[data-reception="true"] #notch-panel > #localsend-player {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0 0 var(--reception-radius) var(--reception-radius);
+  background: var(--reception-surface);
+  text-shadow: none;
+}
+.notch[data-reception="true"] #localsend-player[hidden],
+.notch[data-reception="true"] #reception-card [hidden] { display: none !important; }
+.notch[data-reception="true"] .reception-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--reception-surface);
+  color: #fff;
+  font: 500 13px/1.4 var(--font-ui,"DM Sans",system-ui,sans-serif);
+}
+.notch[data-reception="true"] .reception-card :is(p,ul) { margin: 0; }
+.notch[data-reception="true"] .reception-card svg,
+.notch[data-receive-band="true"] :is(#localsend-live,#reception-compact-actions) svg {
+  display: block;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.notch[data-reception="true"] .reception-card button,
+.notch[data-receive-band="true"] #reception-compact-actions button {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: #fff;
+  background: var(--reception-control);
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 150ms cubic-bezier(.2,.8,.2,1),filter 200ms ease;
+}
+.notch[data-reception="true"] .reception-card button:hover:not(:disabled),
+.notch[data-receive-band="true"] #reception-compact-actions button:hover:not(:disabled) { filter: brightness(1.12); }
+.notch[data-reception="true"] .reception-card button:active:not(:disabled),
+.notch[data-receive-band="true"] #reception-compact-actions button:active:not(:disabled) { transform: scale(.96); }
+.notch[data-reception="true"] .reception-card button:focus-visible,
+.notch[data-receive-band="true"] #reception-compact-actions button:focus-visible { outline: 2px solid var(--reception-device-color); outline-offset: 3px; }
+.notch[data-reception="true"] .reception-card button:disabled,
+.notch[data-receive-band="true"] #reception-compact-actions button:disabled { opacity: .4; cursor: default; }
+
+.notch[data-reception="true"] :is(.reception-request,.reception-transfer,.reception-result) { position: absolute; inset: 0; }
+.notch[data-reception="true"] #shelf-incoming { position: absolute; inset: 0; }
+.notch[data-reception="true"] .reception-card:not([data-stage="consent"]) .reception-request,
+.notch[data-reception="true"] .reception-card:not(:is([data-stage="progress"],[data-stage="waiting"])) .reception-transfer,
+.notch[data-reception="true"] .reception-card:is([data-stage="consent"],[data-stage="progress"],[data-stage="waiting"]) :is(.reception-result,.reception-result-actions) { display: none; }
+.notch[data-reception="true"] .reception-eyebrow {
+  position: absolute;
+  left: var(--reception-inset);
+  right: 58px;
+  top: 16px;
+  overflow: hidden;
+  color: var(--reception-eyebrow);
+  font-size: 10.5px;
+  line-height: 15px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notch[data-reception="true"] .reception-expiry { position: absolute; right: var(--reception-inset); top: 12px; width: 22px; height: 22px; color: var(--reception-accent); stroke-width: 3; }
+.notch[data-reception="true"] .reception-expiry svg { width: 100%; height: 100%; stroke-width: 3; }
+.notch[data-reception="true"] .reception-expiry circle:first-child { stroke: var(--reception-card); }
+.notch[data-reception="true"] .reception-expiry circle:last-child { stroke-dasharray: var(--reception-remaining,1) 1; transition: stroke-dasharray 1s linear; }
+.notch[data-reception="true"] .reception-device,
+.notch[data-receive-band="true"] #localsend-live .reception-device {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  left: var(--reception-inset);
+  top: 42px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  color: var(--reception-device-color);
+  background: var(--reception-control);
+}
+.notch[data-reception="true"] .reception-device svg { position: relative; width: 23px; height: 23px; }
+.notch[data-reception="true"] .reception-ping,
+.notch[data-receive-band="true"] #localsend-live .reception-ping { position: absolute; inset: 0; border: 2px solid var(--reception-device-color); border-radius: inherit; pointer-events: none; animation: reception-ping 1.8s ease-out infinite; }
+.notch[data-reception="true"] .reception-copy { position: absolute; left: 90px; right: 128px; top: 42px; min-width: 0; }
+.notch[data-reception="true"] .reception-copy > strong { display: block; overflow: hidden; font-size: 20px; line-height: 28px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-copy > p { overflow: hidden; color: var(--reception-muted); font-size: 13px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-card .reception-stack {
+  position: absolute;
+  display: block;
+  right: var(--reception-inset);
+  top: 46px;
+  width: 90px;
+  height: 40px;
+  border-radius: 11px;
+  background: transparent;
+}
+.notch[data-reception="true"] .reception-file-icon { display: grid; place-items: center; flex: none; width: 38px; height: 38px; border: 1.5px solid var(--reception-surface); border-radius: 11px; color: #c9c9ce; background: var(--reception-card); }
+.notch[data-reception="true"] .reception-file-icon svg { width: 19px; height: 19px; }
+.notch[data-reception="true"] .reception-file-icon[data-kind="image"] { color: #9db8d9; }
+.notch[data-reception="true"] .reception-file-icon:is([data-kind="document"],[data-kind="pdf"]) { color: var(--reception-accent); }
+.notch[data-reception="true"] .reception-stack > .reception-file-icon { position: absolute; right: 0; top: 0; --reception-stack-x: 0px; --reception-stack-angle: 7deg; transform: translateX(var(--reception-stack-x)) rotate(var(--reception-stack-angle)); }
+.notch[data-reception="true"] .reception-stack > .reception-file-icon:first-child { --reception-stack-x: -52px; --reception-stack-angle: -7deg; }
+.notch[data-reception="true"] .reception-stack > .reception-file-icon:nth-child(2) { --reception-stack-x: -26px; --reception-stack-angle: 0deg; }
+.notch[data-reception="true"] :is(.reception-consent-actions,.reception-result-actions) { position: absolute; left: var(--reception-inset); right: var(--reception-inset); top: 114px; display: flex; align-items: center; gap: 12px; height: 44px; }
+.notch[data-reception="true"] :is(.reception-consent-actions,.reception-result-actions) > button { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1; height: 44px; min-height: 44px; padding: 0 12px; overflow: hidden; border-radius: 15px; font-size: 15px; line-height: 20px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] :is(.reception-consent-actions,.reception-result-actions) > button:last-child { flex: 1.4; color: var(--reception-ink); background: var(--reception-accent); }
+.notch[data-reception="true"] #shelf-incoming-accept { color: var(--reception-ink); background: var(--reception-accent); }
+.notch[data-reception="true"] :is(.reception-consent-actions,.reception-result-actions) > button:only-child { flex: 1; }
+
+.notch[data-reception="true"] .reception-preview { position: absolute; display: none; place-items: center; left: var(--reception-inset); top: 24px; width: 110px; height: 128px; overflow: hidden; border-radius: 20px; color: #9db8d9; background: #17171a; }
+.notch[data-reception="true"] .reception-preview svg { width: 44px; height: 44px; stroke-width: 1.6; }
+.notch[data-reception="true"] .reception-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.notch[data-reception="true"] .reception-card[data-detail="single"] .reception-preview { display: grid; }
+.notch[data-reception="true"] .reception-card[data-detail="single"] .reception-request :is(.reception-device,.reception-stack) { display: none; }
+.notch[data-reception="true"] .reception-card[data-detail="single"] .reception-eyebrow { left: 150px; top: 22px; }
+.notch[data-reception="true"] .reception-card[data-detail="single"] .reception-copy { left: 150px; right: var(--reception-inset); }
+.notch[data-reception="true"] .reception-card[data-detail="single"] .reception-copy > p { max-height: 36px; white-space: pre-line; }
+.notch[data-reception="true"] .reception-card[data-detail="single"] .reception-consent-actions { left: 150px; top: 112px; gap: 10px; }
+.notch[data-reception="true"] .reception-card[data-detail="single"] .reception-consent-actions > button:last-child { flex: 1.3; }
+.notch[data-reception="true"] .reception-files { position: absolute; left: var(--reception-inset); right: var(--reception-inset); top: 88px; display: none; height: 98px; max-height: 98px; padding: 1px 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid #1e1e22; list-style: none; }
+.notch[data-reception="true"] .reception-files ul { margin: 0; padding: 0; list-style: none; }
+.notch[data-reception="true"] .reception-files li { display: flex; align-items: center; gap: 12px; height: 32px; min-width: 0; }
+.notch[data-reception="true"] .reception-files .reception-file-icon { width: 28px; height: 28px; border-radius: 9px; }
+.notch[data-reception="true"] .reception-files .reception-file-icon svg { width: 16px; height: 16px; }
+.notch[data-reception="true"] .reception-files .reception-file-name { flex: 1; min-width: 0; overflow: hidden; font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-files small { flex: none; max-width: 90px; overflow: hidden; color: var(--reception-muted); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-card[data-detail="list"] .reception-files { display: block; }
+.notch[data-reception="true"] .reception-card[data-detail="list"] .reception-request .reception-stack { display: none; }
+.notch[data-reception="true"] .reception-card[data-detail="list"] .reception-request .reception-device { top: 38px; width: 40px; height: 40px; }
+.notch[data-reception="true"] .reception-card[data-detail="list"] .reception-request .reception-device svg { width: 18px; height: 18px; }
+.notch[data-reception="true"] .reception-card[data-detail="list"] .reception-copy { left: 78px; top: 38px; right: var(--reception-inset); }
+.notch[data-reception="true"] .reception-card[data-detail="list"] .reception-copy > strong { font-size: 18px; line-height: 24px; }
+.notch[data-reception="true"] .reception-card[data-detail="list"] .reception-copy > p { font-size: 12.5px; line-height: 18px; }
+.notch[data-reception="true"] .reception-card[data-detail="list"] .reception-consent-actions { top: 200px; }
+
+.notch[data-reception="true"] .reception-transfer > .reception-device { top: 24px; width: 46px; height: 46px; }
+.notch[data-reception="true"] .reception-transfer > .reception-device > svg { width: 21px; height: 21px; }
+.notch[data-reception="true"] .reception-transfer-copy { position: absolute; left: 84px; right: 108px; top: 22px; min-width: 0; }
+.notch[data-reception="true"] .reception-transfer-copy small { display: block; overflow: hidden; color: var(--reception-muted); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-transfer-copy strong { display: block; overflow: hidden; font-size: 17px; line-height: 24px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-counter { position: absolute; right: var(--reception-inset); top: 30px; color: #d1d1d6; font-size: 15px; line-height: 20px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.notch[data-reception="true"] .reception-card .reception-cancel { position: absolute; right: 20px; top: 52px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; color: var(--reception-muted); background: transparent; }
+.notch[data-reception="true"] .reception-cancel svg { width: 14px; height: 14px; }
+.notch[data-reception="true"] .reception-meter { position: absolute; left: var(--reception-inset); right: var(--reception-inset); top: 86px; height: 8px; }
+.notch[data-reception="true"] .reception-meter [role="progressbar"] { width: 100%; height: 8px; border-radius: 4px; background: var(--reception-control); }
+.notch[data-reception="true"] .reception-meter [role="progressbar"] > i { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--reception-accent); box-shadow: 0 0 12px #ff7a4580; transform: scaleX(clamp(0,var(--reception-progress,0),1)); transform-origin: left; transition: transform 160ms linear; }
+.notch[data-reception="true"] .reception-transfer-meta { position: absolute; display: flex; justify-content: space-between; gap: 12px; left: var(--reception-inset); right: var(--reception-inset); top: 104px; color: var(--reception-muted); font-size: 12px; line-height: 16px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.notch[data-reception="true"] .reception-transfer-meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-card[data-stage="waiting"] .reception-meter [role="progressbar"] > i { width: 20%; transform: none; box-shadow: none; animation: reception-wait 1.5s var(--reception-ease) infinite alternate; }
+
+.notch[data-reception="true"] .reception-result-icon { position: absolute; left: var(--reception-inset); top: 34px; display: grid; place-items: center; width: 52px; height: 52px; overflow: hidden; border-radius: 50%; color: var(--reception-ink); background: var(--reception-accent); }
+.notch[data-reception="true"] .reception-result-icon svg { width: 28px; height: 28px; stroke-width: 2.8; }
+.notch[data-reception="true"] .reception-result-icon svg > circle { fill: none; stroke: none; }
+.notch[data-reception="true"] .reception-result-copy { position: absolute; left: 90px; right: 128px; top: 34px; min-width: 0; }
+.notch[data-reception="true"] .reception-result-copy > strong { display: block; overflow: hidden; font-size: 20px; line-height: 28px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-result-copy > p { overflow: hidden; color: var(--reception-muted); font-size: 13px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-reception="true"] .reception-result > .reception-stack { top: 36px; }
+.notch[data-reception="true"] .reception-card:is([data-stage="cancelled"],[data-stage="rejected"],[data-stage="error"]) .reception-result-icon { top: 30px; width: 46px; height: 46px; color: var(--reception-muted); background: var(--reception-control); }
+.notch[data-reception="true"] .reception-card:is([data-stage="cancelled"],[data-stage="rejected"],[data-stage="error"]) .reception-result-icon svg { width: 20px; height: 20px; stroke-width: 2.4; }
+.notch[data-reception="true"] .reception-card:is([data-stage="cancelled"],[data-stage="rejected"],[data-stage="error"]) .reception-result-copy { left: 84px; right: var(--reception-inset); top: 28px; }
+.notch[data-reception="true"] .reception-card:is([data-stage="cancelled"],[data-stage="rejected"],[data-stage="error"]) .reception-result-copy > strong { font-size: 17px; line-height: 26px; }
+.notch[data-reception="true"] .reception-card:is([data-stage="cancelled"],[data-stage="rejected"],[data-stage="error"]) .reception-result > .reception-stack { display: none; }
+.notch[data-reception="true"] .reception-card:is([data-stage="cancelled"],[data-stage="rejected"],[data-stage="error"]) .reception-result-actions { top: 74px; }
+
+/* Mini receipt and direct consent stay separate from the global toggle button. */
+.notch[data-receive-band="true"] #localsend-live { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 100%; padding: 0; font-family: inherit; }
+.notch[data-receive-band="true"] :is(#localsend-live,#reception-compact-actions)[hidden] { display: none !important; }
+.notch[data-receive-band="true"] #localsend-live > .reception-device { position: relative; inset: auto; display: grid; flex: 0 0 18px; width: 18px; height: 18px; overflow: visible; background: transparent; }
+.notch[data-receive-band="true"] #localsend-live > .reception-device svg { width: 18px; height: 18px; }
+.notch[data-receive-band="true"] #localsend-live > .reception-mini-copy,
+.notch[data-receive-band="true"] #localsend-live .reception-ping { display: none; }
+.notch[data-receive-band="true"] #localsend-live > .reception-mini-count { display: grid; place-items: center; flex: 0 0 18px; width: 18px; height: 18px; overflow: hidden; border-radius: 9px; color: var(--reception-ink); background: var(--reception-accent); font-size: 11px; line-height: 18px; font-weight: 700; text-align: center; }
+.notch[data-receive-band="true"] #reception-compact-actions { position: absolute; z-index: 30; right: 14px; top: 13px; display: none; gap: 8px; height: 32px; pointer-events: auto; }
+.notch[data-receive-band="true"][data-state="compact"] #reception-compact-actions:not([hidden]) { display: flex; }
+.notch[data-receive-band="true"] #reception-compact-actions button { display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; }
+.notch[data-receive-band="true"] #reception-compact-actions button:last-child { color: var(--reception-ink); background: var(--reception-accent); }
+.notch[data-receive-band="true"] #reception-compact-actions svg { width: 15px; height: 15px; stroke-width: 2.6; }
+.notch[data-receive-band="true"][data-state="compact"] #localsend-live { justify-content: flex-start; padding: 0 100px 0 14px; gap: 10px; }
+.notch[data-receive-band="true"][data-state="compact"] #localsend-live > .reception-device { flex-basis: 34px; width: 34px; height: 34px; background: var(--reception-control); }
+.notch[data-receive-band="true"][data-state="compact"] #localsend-live > .reception-device svg { width: 15px; height: 15px; }
+.notch[data-receive-band="true"][data-state="compact"] #localsend-live .reception-ping { display: block; }
+.notch[data-receive-band="true"][data-state="compact"] #localsend-live > .reception-mini-count { display: none; }
+.notch[data-receive-band="true"][data-state="compact"] #localsend-live > .reception-mini-copy { display: block; flex: 1; min-width: 0; overflow: hidden; text-align: left; }
+.notch[data-receive-band="true"][data-state="compact"] #localsend-live .reception-mini-copy strong { display: block; overflow: hidden; color: #fff; font-size: 14px; line-height: 19px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-receive-band="true"][data-state="compact"] #localsend-live .reception-mini-copy small { display: block; overflow: hidden; color: var(--reception-muted); font-size: 11.5px; line-height: 16px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.notch[data-receive-band="true"] #localsend-discreet-progress { display: none; }
+
+/* The renderer changes stage only on real transfer events, not an autoplay clock. */
+.notch[data-reception="true"] .reception-card[data-motion="true"] :is(.reception-eyebrow,.reception-device,.reception-copy,.reception-stack,.reception-files,.reception-consent-actions,.reception-transfer-copy,.reception-counter,.reception-meter,.reception-transfer-meta,.reception-result-icon,.reception-result-copy,.reception-result-actions) { animation: reception-reveal 600ms var(--reception-ease) both; }
+.notch[data-reception="true"] .reception-card[data-motion="true"] .reception-device { animation-delay: 100ms; }
+.notch[data-reception="true"] .reception-card[data-motion="true"] :is(.reception-copy,.reception-transfer-copy,.reception-counter,.reception-result-copy) { animation-delay: 200ms; }
+.notch[data-reception="true"] .reception-card[data-motion="true"] :is(.reception-stack,.reception-files,.reception-meter,.reception-transfer-meta) { animation-delay: 300ms; }
+.notch[data-reception="true"] .reception-card[data-motion="true"] :is(.reception-consent-actions,.reception-result-actions) { animation-delay: 400ms; }
+.notch[data-reception="true"] .reception-card[data-motion="true"] .reception-stack > .reception-file-icon { animation: reception-stack 700ms 500ms var(--reception-ease) both; }
+.notch[data-reception="true"] .reception-card[data-motion="true"][data-stage="complete"] .reception-result-icon svg > path { stroke-dasharray: 1 1; stroke-dashoffset: 0; animation: reception-check 500ms 300ms ease both; }
+.notch[data-reception="true"] #reception-current-file[data-changing="true"] { animation: reception-file 400ms var(--reception-ease) both; }
+@keyframes reception-reveal { from { opacity: 0; filter: blur(10px); translate: 0 10px; } to { opacity: 1; filter: blur(0); translate: 0 0; } }
+@keyframes reception-ping { from { transform: scale(1); opacity: .7; } to { transform: scale(1.5); opacity: 0; } }
+@keyframes reception-stack { from { transform: translateX(0) rotate(0); } to { transform: translateX(var(--reception-stack-x)) rotate(var(--reception-stack-angle)); } }
+@keyframes reception-check { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes reception-file { from { opacity: 0; filter: blur(8px); translate: 0 -12px; } to { opacity: 1; filter: blur(0); translate: 0 0; } }
+@keyframes reception-wait { from { translate: 0; } to { translate: 400%; } }
+.notch[data-reception="true"] .reception-card[data-motion="false"] *,
+.notch[data-receive-band="true"][data-motion="false"] :is(#localsend-live,#reception-compact-actions) *,
+body[data-motion="false"] .notch:is([data-reception="true"],[data-receive-band="true"]) * { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .notch:is([data-reception="true"],[data-receive-band="true"]) *,
+  .notch:is([data-reception="true"],[data-receive-band="true"]) *::before,
+  .notch:is([data-reception="true"],[data-receive-band="true"]) *::after { animation: none !important; transition: none !important; }
+}
+@media (forced-colors: active) {
+  .notch:is([data-reception="true"],[data-receive-band="true"]) { --reception-accent: Highlight; --reception-ink: HighlightText; --reception-muted: CanvasText; --reception-eyebrow: CanvasText; --reception-device-color: LinkText; --reception-surface: Canvas; --reception-control: ButtonFace; --reception-card: Canvas; color: CanvasText; }
+  .notch[data-reception="true"] .reception-card { color: CanvasText; }
+  .notch[data-reception="true"] .reception-card button,
+  .notch[data-receive-band="true"] #reception-compact-actions button { border: 1px solid ButtonText; color: ButtonText; }
+}
+
+@container notch-window (max-width:420px) {
+  .notch[data-reception="true"] { --reception-inset:16px; }
+  .notch[data-reception="true"] .reception-copy { right:16px; }
+  .notch[data-reception="true"] .reception-card .reception-request .reception-stack { display:block;top:4px;right:42px;width:64px;height:36px; }
+  .notch[data-reception="true"] .reception-request .reception-stack > .reception-file-icon { top:8px;width:22px;height:22px;border-radius:6px; }
+  .notch[data-reception="true"] .reception-request .reception-stack > .reception-file-icon svg { width:13px;height:13px; }
+  .notch[data-reception="true"] .reception-request .reception-stack > .reception-file-icon:first-child { --reception-stack-x:-32px; }
+  .notch[data-reception="true"] .reception-request .reception-stack > .reception-file-icon:nth-child(2) { --reception-stack-x:-16px; }
+  .notch[data-reception="true"] .reception-eyebrow { right:114px; }
+  .notch[data-reception="true"] .reception-card[data-detail="single"] .reception-preview { width:74px;height:76px;top:24px; }
+  .notch[data-reception="true"] .reception-card[data-detail="single"] :is(.reception-copy,.reception-eyebrow) { left:104px; }
+  .notch[data-reception="true"] .reception-card[data-detail="single"] .reception-consent-actions { left:16px; }
+  .notch[data-reception="true"] .reception-result-copy { right:16px; }
+  .notch[data-reception="true"] .reception-result > .reception-stack { display:none; }
+}

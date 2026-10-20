@@ -2239,7 +2239,7 @@ body[data-motion="false"] .focus-summary-progress > span { transition: none; }
 #music-player:is([data-presentation="rail"],[data-music-size="banner"]) #music-artist { font-size: var(--text-s); line-height: var(--measure-14-px); }
 #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-copy > .music-spectrum { top: var(--measure-9-px); right: 0; height: var(--measure-12-px); }
 #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-copy > .music-spectrum i { height: var(--measure-12-px); }
-#music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-timeline { grid-column: 1 / -1; grid-row: 2; height: var(--measure-23-px); }
+#music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-timeline { display: grid; grid-column: 1 / -1; grid-row: 2; height: var(--measure-23-px); }
 #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-controls { grid-column: 2; grid-row: 1; align-self: center; width: var(--measure-88-px); height: var(--measure-28-px); gap: var(--space-8); padding: 0; }
 #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-controls button,#music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-controls #music-toggle { flex-basis: var(--measure-24-px); width: var(--measure-24-px); height: var(--measure-28-px); padding: var(--measure-2-px); }
 #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-controls svg { width: var(--measure-18-px); height: var(--measure-18-px); }
@@ -2250,8 +2250,7 @@ body[data-motion="false"] .focus-summary-progress > span { transition: none; }
  #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-art { width: 38%; }
  #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-controls { grid-column: 1; grid-row: 3; width: 100%; height: var(--measure-24-px); justify-content: space-between; gap: var(--measure-3-px); }
  #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-controls button,#music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-controls #music-toggle { height: var(--measure-24-px); }
- #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-timeline { grid-column: 1; grid-row: 2; display: flex; align-items: center; height: var(--measure-24-px); }
- #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-timeline > span { display: none; }
+ #music-player:is([data-presentation="rail"],[data-music-size="banner"]) .music-timeline { grid-column: 1; grid-row: 2; display: grid; align-items: center; height: var(--measure-24-px); }
  #music-player:is([data-presentation="rail"],[data-music-size="banner"]) #music-title { font-size: var(--text-m); line-height: var(--measure-18-px); }
  #music-player:is([data-presentation="rail"],[data-music-size="banner"]) #music-artist { font-size: var(--measure-11-px); line-height: var(--measure-14-px); }
 }

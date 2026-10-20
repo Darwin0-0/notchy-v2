@@ -20,6 +20,10 @@
     'Réessaie dans un instant.': 'Try again in a moment.', 'Réessayer': 'Try again',
     'Ouvrir': 'Open', 'Afficher dans l’Explorateur': 'Show in File Explorer', 'Envoyer via LocalSend': 'Send via LocalSend',
     'Autres actions': 'More actions', 'Actions pour {name}': 'Actions for {name}',
+    'Aperçu QuickLook': 'QuickLook preview', 'Obtenir QuickLook': 'Get QuickLook',
+    'Fermer l’aperçu': 'Close preview',
+    'QuickLook est nécessaire pour afficher un aperçu. Installe-le, puis reviens dans Notchy.': 'QuickLook is needed for previews. Install it, then return to Notchy.',
+    'Impossible de lancer l’aperçu QuickLook.': 'QuickLook preview could not be started.',
     'Ouverture…': 'Opening…', 'Impossible d’ouvrir cet élément.': 'This item could not be opened.',
     'Impossible d’afficher cet élément.': 'This item could not be revealed.',
     'Impossible de préparer cet envoi.': 'This item could not be prepared for sharing.',
@@ -85,6 +89,8 @@
     let debounce = null, poll = null, loading = false, acting = false, composing = false, error = '', statusError = false;
     let cancelFocus = null;
     let status = {files: 0, indexing: false, shortcutUnavailable: false}, statusReady = false, reindexing = false, opener = null, emptyController = null, menuOpener = null;
+    let quickLook = {supported: false, available: false};
+    let previewing = false, previewSent = null, previewFlight = null;
     const element = (tag, className) => {const node = document.createElement(tag); if (className) node.className = className; return node;};
     const label = (key, values = {}) => {
       const translated = typeof t === 'function' ? t(key) : key;
@@ -101,6 +107,7 @@
         file: 'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6',
         reveal: 'M10 4H4v16h16v-6M14 4h6v6M20 4 10 14', send: 'M12 16V3m-5 5 5-5 5 5M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7',
         more: 'M4 12h.01M12 12h.01M20 12h.01', open: 'M14 4h6v6M20 4 10 14M10 4H4v16h16v-6',
+        preview: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
         refresh: 'M20 7v5h-5M4 17v-5h5M6.2 6.2A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.8 5.8'}[kind]);
       svg.append(path); return svg;
     };
@@ -117,17 +124,18 @@
     body.append(list, empty);
     const footer = element('footer', 'search-footer'), information = element('span', 'search-information'), actions = element('div', 'search-actions');
     const reveal = button('search-icon-button search-reveal', 'reveal'), send = button('search-icon-button search-send', 'send'), openButton = button('search-open');
+    const preview = button('search-icon-button search-preview', 'preview');
     const more = button('search-icon-button search-more', 'more'), contextMenu = element('div', 'search-context-menu');
     contextMenu.id = prefix + '-actions'; contextMenu.hidden = true; contextMenu.setAttribute('role', 'menu');
     more.setAttribute('aria-haspopup', 'menu'); more.setAttribute('aria-controls', contextMenu.id); more.setAttribute('aria-expanded', 'false');
-    const menuItems = ['open', 'reveal', 'send'].map(action => {
+    const menuItems = ['open', 'reveal', 'send', 'preview'].map(action => {
       const item = button('search-context-action', action), copy = element('span'); item.append(copy); item.dataset.searchAction = action;
       item.setAttribute('role', 'menuitem'); item.tabIndex = -1; contextMenu.append(item); return {action, item, copy};
     });
     const reindex = button('search-icon-button search-reindex', 'refresh'), reindexLabel = element('span'); reindex.append(reindexLabel);
     const announcer = element('span', 'search-sr'); announcer.id = prefix + '-status'; announcer.setAttribute('role', 'status'); announcer.setAttribute('aria-live', 'polite'); announcer.setAttribute('aria-atomic', 'true');
     input.setAttribute('aria-describedby', announcer.id);
-    actions.append(reveal, send, more, openButton); footer.append(information, reindex, actions);
+    actions.append(preview, reveal, send, more, openButton); footer.append(information, reindex, actions);
     host.classList.add('notchy-search'); host.hidden = true; host.replaceChildren(heading, body, footer, announcer, contextMenu);
     host.setAttribute('aria-label', label('Recherche locale'));
 
@@ -173,7 +181,7 @@
       more.setAttribute('aria-label', label('Autres actions')); more.title = label('Autres actions') + ' · Shift+F10';
       openButton.textContent = label(acting ? 'Ouverture…' : 'Ouvrir'); openButton.title = label('Entrée');
       send.hidden = typeof onSend !== 'function' || hits[selected]?.kind !== 'file';
-      for (const control of [openButton, reveal, send, more]) control.disabled = acting || loading || !hits[selected];
+      for (const control of [openButton, preview, reveal, send, more]) control.disabled = acting || loading || !hits[selected];
       actions.hidden = !hasHits;
       if (!hasHits) {
         if (error || statusError) emptyState(label(error || 'La recherche est indisponible.'), label('Réessaie dans un instant.'), true);
@@ -198,11 +206,44 @@
       send.hidden = typeof onSend !== 'function' || hits[selected]?.kind !== 'file';
       openButton.hidden = !canOpen(hits[selected]);
       reveal.title = label('Afficher dans l’Explorateur') + ' · ' + (canOpen(hits[selected]) ? 'Ctrl+' : '') + label('Entrée');
+      const previewLabel = label(previewing ? 'Fermer l’aperçu' : quickLook.available ? 'Aperçu QuickLook' : 'Obtenir QuickLook');
+      preview.hidden = !quickLook.supported;
+      preview.setAttribute('aria-label', previewLabel); preview.title = previewLabel + ' · Space';
+      preview.setAttribute('aria-keyshortcuts', 'Space Alt+p'); preview.setAttribute('aria-pressed', String(previewing));
+      preview.setAttribute('aria-busy', String(!!previewFlight));
       contextMenu.setAttribute('aria-label', label('Actions pour {name}', {name: hits[selected]?.name || ''}));
       for (const {action, item, copy} of menuItems) {
-        copy.textContent = label(action === 'open' ? 'Ouvrir' : action === 'reveal' ? 'Afficher dans l’Explorateur' : 'Envoyer via LocalSend');
-        item.hidden = action === 'open' ? !canOpen(hits[selected]) : action === 'send' && (hits[selected]?.kind !== 'file' || typeof onSend !== 'function');
+        copy.textContent = action === 'preview' ? previewLabel : label(action === 'open' ? 'Ouvrir' : action === 'reveal' ? 'Afficher dans l’Explorateur' : 'Envoyer via LocalSend');
+        item.hidden = action === 'preview' ? !quickLook.supported : action === 'open' ? !canOpen(hits[selected]) : action === 'send' && (hits[selected]?.kind !== 'file' || typeof onSend !== 'function');
       }
+      if (previewing) void syncPreview();
+    }
+
+    function focusResult() {list.children[selected]?.focus({preventScroll: true});}
+    function syncPreview() {
+      if (previewFlight) return previewFlight;
+      const target = () => opened && !disposed && previewing ? hits[selected]?.id || null : null;
+      if (target() === previewSent) return Promise.resolve();
+      previewFlight = (async () => {
+        while (target() !== previewSent) {
+          const id = target();
+          await invoke(id ? 'search_preview' : 'search_preview_close', id ? {id} : {});
+          previewSent = id;
+        }
+      })().catch(async () => {
+        previewing = false;
+        if (previewSent !== null) {try {await invoke('search_preview_close', {});} catch (_) {}}
+        previewSent = null;
+        if (opened && !disposed) error = 'Impossible de lancer l’aperçu QuickLook.';
+      }).finally(() => {previewFlight = null; if (opened && !disposed) render();});
+      return previewFlight;
+    }
+    function stopPreview() {previewing = false; void syncPreview();}
+    function togglePreview() {
+      if (!quickLook.supported || !hits[selected] || loading || acting) return;
+      closeMenu();
+      if (!quickLook.available) {void activate('preview'); return;}
+      error = ''; previewing = !previewing; focusResult(); void syncPreview(); render();
     }
     function results(value) {
       const menuHadFocus = contextMenu.contains(document.activeElement); closeMenu();
@@ -239,6 +280,9 @@
     }
     function readStatus(value) {
       if (!value || typeof value !== 'object') return;
+      if (value.quickLook && typeof value.quickLook === 'object') quickLook = {supported: value.quickLook.supported === true, available: value.quickLook.available === true};
+      if (previewing && !previewFlight && value.quickLook?.previewVisible === false) {previewing = false; previewSent = null;}
+      if (quickLook.available && error === 'QuickLook est nécessaire pour afficher un aperçu. Installe-le, puis reviens dans Notchy.') error = '';
       status = {files: Number.isSafeInteger(value.files) && value.files >= 0 ? value.files : status.files, indexing: value.indexing === true,
         shortcutUnavailable: typeof value.shortcut?.available === 'boolean' ? !value.shortcut.available : status.shortcutUnavailable};
       statusReady = true; statusError = typeof value.lastError === 'string' && !!value.lastError;
@@ -291,20 +335,28 @@
     }
     function changed() {
       if (composing || disposed || !opened) return;
+      stopPreview();
       generation++; clearTimeout(debounce); error = ''; loading = input.value.trim().length >= CONFIG.minimumQuery; results([]); render();
       if (loading) debounce = setTimeout(query, CONFIG.debounce);
     }
     async function activate(action = 'open') {
       const hit = hits[selected];
       if (!opened || disposed || acting || loading || !hit || action === 'send' && (hit.kind !== 'file' || typeof onSend !== 'function')) return;
+      if (action === 'preview' && !quickLook.supported) return;
+      if (action === 'preview' && quickLook.available) {togglePreview(); return;}
+      if (action !== 'preview') stopPreview();
       if (action === 'open' && !canOpen(hit)) action = 'reveal';
       closeMenu(); const current = generation; input.focus({preventScroll: true}); acting = true; error = ''; render();
       try {
         if (action === 'send') await onSend(hit.id);
+        else if (action === 'preview') {
+          await invoke(quickLook.available ? 'search_preview' : 'search_quicklook_install', quickLook.available ? {id: hit.id} : {});
+          if (opened && !disposed && current === generation && !quickLook.available) error = 'QuickLook est nécessaire pour afficher un aperçu. Installe-le, puis reviens dans Notchy.';
+        }
         else await invoke(action === 'reveal' ? 'search_reveal' : 'search_open', {id: hit.id});
-        if (opened && !disposed && current === generation) close();
+        if (action !== 'preview' && opened && !disposed && current === generation) close();
       } catch (_) {
-        if (opened && !disposed && current === generation) {error = action === 'send' ? 'Impossible de préparer cet envoi.' : action === 'reveal' ? 'Impossible d’afficher cet élément.' : 'Impossible d’ouvrir cet élément.'; render();}
+        if (opened && !disposed && current === generation) {error = action === 'preview' ? 'Impossible de lancer l’aperçu QuickLook.' : action === 'send' ? 'Impossible de préparer cet envoi.' : action === 'reveal' ? 'Impossible d’afficher cet élément.' : 'Impossible d’ouvrir cet élément.'; render();}
       } finally {acting = false; if (opened && !disposed) render();}
     }
     function key(event) {
@@ -324,12 +376,26 @@
         if (hits[index]) {event.preventDefault(); event.stopImmediatePropagation(); showMenu(index);}
         return;
       }
-      if (event.key === 'Escape') {event.preventDefault(); event.stopImmediatePropagation(); close(); return;}
-      if (event.target !== input) return;
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (event.key === 'Escape') {event.preventDefault(); event.stopImmediatePropagation(); if (previewing) {stopPreview(); focusResult(); render();} else close(); return;}
+      if (event.key?.toLowerCase() === 'p' && event.altKey && !event.ctrlKey && !event.metaKey && !event.repeat && quickLook.supported) {
+        event.preventDefault(); event.stopImmediatePropagation(); void activate('preview'); return;
+      }
+      const row = event.target.closest?.('[data-result-id]'), inResults = !!row && list.contains(row);
+      if (inResults && (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) togglePreview(); return;
+      }
+      if (event.target !== input && !inResults) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || inResults && previewing && ['ArrowLeft','ArrowRight'].includes(event.key)) {
         event.preventDefault(); if (!hits.length) return;
-        select((selected + (event.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length);
+        const step = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1;
+        select(quickLook.supported ? selected + step : (selected + (step > 0 ? 1 : hits.length - 1)) % hits.length);
+        if (quickLook.supported) focusResult();
       } else if (event.key === 'Enter') {event.preventDefault(); void activate(event.ctrlKey || event.metaKey ? 'reveal' : 'open');}
+      else if (inResults && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key?.length === 1 || event.key === 'Backspace')) {
+        event.preventDefault(); input.focus({preventScroll:true});
+        input.value = event.key === 'Backspace' ? [...input.value].slice(0,-1).join('') : input.value + event.key;
+        changed();
+      }
     }
     function open() {
       if (disposed) return false;
@@ -338,6 +404,7 @@
     }
     function close({restoreFocus = true, notify = true} = {}) {
       if (!opened || disposed) return false;
+      stopPreview();
       closeMenu(); cancelInputFocus();
       opened = false; generation++; statusGeneration++; clearTimeout(debounce); clearTimeout(poll); debounce = poll = null;
       loading = false; host.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant');
@@ -348,8 +415,9 @@
     listen(input, 'input', changed); listen(input, 'compositionstart', () => {composing = true; generation++; clearTimeout(debounce); debounce = null; loading = false; results([]); render();});
     listen(input, 'compositionend', () => {composing = false; changed();}); listen(host, 'keydown', key);
     listen(clear, 'click', () => {input.value = ''; changed(); input.focus({preventScroll: true});}); listen(closeButton, 'click', () => close());
-    listen(list, 'click', event => {const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return; closeMenu(); select(hits.findIndex(hit => hit.id === row.dataset.resultId), false); void activate();});
-    listen(list, 'pointermove', event => {if (!contextMenu.hidden) return; const row = event.target.closest('[data-result-id]'); if (row && list.contains(row)) select(hits.findIndex(hit => hit.id === row.dataset.resultId), false);});
+    listen(list, 'click', event => {const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return; closeMenu(); select(hits.findIndex(hit => hit.id === row.dataset.resultId), false); if (quickLook.supported) focusResult(); else void activate();});
+    listen(list, 'dblclick', event => {const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return; select(hits.findIndex(hit => hit.id === row.dataset.resultId), false); void activate();});
+    listen(list, 'pointermove', event => {if (!contextMenu.hidden || previewing || list.contains(document.activeElement)) return; const row = event.target.closest('[data-result-id]'); if (row && list.contains(row)) select(hits.findIndex(hit => hit.id === row.dataset.resultId), false);});
     listen(list, 'contextmenu', event => {
       const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return;
       event.preventDefault(); event.stopImmediatePropagation();
@@ -359,13 +427,15 @@
     for (const {action, item} of menuItems) listen(item, 'click', event => {event.stopImmediatePropagation(); if (!item.hidden) void activate(action);});
     listen(more, 'click', () => contextMenu.hidden ? showMenu(selected, null, more) : closeMenu(true));
     listen(document, 'pointerdown', event => {cancelInputFocus(); if (!contextMenu.hidden && !contextMenu.contains(event.target) && event.target !== more && !more.contains(event.target)) closeMenu();});
-    if (view) listen(view, 'focus', () => {if (opened && !disposed && !host.contains(document.activeElement)) focusInput();});
+    if (view) listen(view, 'focus', () => {if (opened && !disposed) {void refreshStatus(); if (!host.contains(document.activeElement)) focusInput();}});
+    listen(host, 'pointerenter', () => {if (opened && previewing) void refreshStatus();});
     listen(view || host, 'resize', () => closeMenu(true));
     listen(list, 'scroll', () => closeMenu(true));
     listen(openButton, 'click', () => void activate()); listen(reveal, 'click', () => void activate('reveal')); listen(send, 'click', () => void activate('send'));
+    listen(preview, 'click', togglePreview);
     listen(reindex, 'click', () => void rebuild());
     render();
-    return Object.freeze({open, close, isOpen: () => opened, render, refresh, elements: {input, clear, close: closeButton, list, empty, information, open: openButton, reveal, send, more, contextMenu, reindex, announcer}, dispose() {
+    return Object.freeze({open, close, stopPreview, isOpen: () => opened, isPreviewing: () => previewing, render, refresh, elements: {input, clear, close: closeButton, list, empty, information, open: openButton, preview, reveal, send, more, contextMenu, reindex, announcer}, dispose() {
       if (disposed) return false; close({restoreFocus: false, notify: false}); disposed = true; for (const remove of listeners) remove(); emptyController?.dispose();
       host.replaceChildren(...previous); host.hidden = previousHidden; if (previousLabel === null) host.removeAttribute('aria-label'); else host.setAttribute('aria-label', previousLabel);
       delete host.dataset.status; if (!hadClass) host.classList.remove('notchy-search'); return true;

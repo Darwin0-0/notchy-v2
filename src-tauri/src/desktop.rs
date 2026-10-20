@@ -296,6 +296,7 @@ fn open_uri_with(uri: &str, launch: impl FnOnce(&[u16]) -> isize) -> Result<(), 
     let allowed = matches!(
         uri,
         "spotify:" | "ms-settings:privacy-notifications" | "ms-settings:privacy-location"
+            | "https://github.com/QL-Win/QuickLook/releases/latest"
     ) || url::Url::parse(uri)
         .map(|url| {
             url.scheme() == "https"
@@ -555,6 +556,9 @@ mod tests {
             "file:///C:/secret",
             "https://example.com/",
             "cmd:/c calc",
+            "https://github.com/QL-Win/QuickLook/releases/latest?redirect=evil",
+            "https://github.com/QL-Win/QuickLook/releases/latest/other",
+            "https://github.com.evil/QL-Win/QuickLook/releases/latest",
             "https://accounts.spotify.com.evil/authorize",
             "https://user@accounts.spotify.com/authorize",
             "https://accounts.spotify.com:444/authorize",
@@ -581,7 +585,7 @@ mod tests {
     }
     #[test]
     fn uri_launch_uses_shell_success_and_failure_codes() {
-        for uri in ["spotify:", "ms-settings:privacy-notifications", "ms-settings:privacy-location"] {
+        for uri in ["spotify:", "ms-settings:privacy-notifications", "ms-settings:privacy-location", "https://github.com/QL-Win/QuickLook/releases/latest"] {
             assert!(open_uri_with(uri, |_| 33).is_ok());
             for status in [0, 2, 5, 31, 32] {
                 assert!(open_uri_with(uri, |_| status).is_err());

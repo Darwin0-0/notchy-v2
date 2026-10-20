@@ -1067,6 +1067,19 @@ impl SearchService {
         let checked = self.checked_item(id)?;
         launch(&checked.path, true)
     }
+
+    pub fn preview(&self, id: &str) -> Result<(), String> {
+        self.preview_with(id, crate::quicklook::preview)
+    }
+
+    fn preview_with(&self, id: &str, launch: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), String> {
+        let checked = self.checked_item(id)?;
+        if checked.path.extension().and_then(|extension| extension.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("qlplugin")) {
+            return Err("QuickLook plugins must be installed deliberately from QuickLook.".into());
+        }
+        // QuickLook is a viewer, not the item's default handler. Never ShellExecute the result.
+        launch(Path::new(&display_path(&checked.path)))
+    }
 }
 
 fn openable_format(path: &Path) -> bool {
@@ -1513,6 +1526,29 @@ mod tests {
         ] {
             assert!(!openable_format(Path::new(name)));
         }
+    }
+
+    #[test]
+    fn previews_recheck_files_and_folders_and_never_launch_missing_changed_or_plugin_items() {
+        let fixture = Fixture::new();
+        let file = fixture.file("reports/résumé & draft.pdf");
+        fixture.file("viewer.QLPLUGIN");
+        fixture.index();
+        let file_hit = fixture.service.query("résumé", 8).unwrap().remove(0);
+        let folder_hit = fixture.service.query("reports", 8).unwrap().into_iter().find(|hit| hit.kind == "folder").unwrap();
+        for (id, expected) in [(&file_hit.id, &file), (&folder_hit.id, &fixture.root.join("reports"))] {
+            fixture.service.preview_with(id, |path| {
+                assert_eq!(path_key(path), path_key(expected)); Ok(())
+            }).unwrap();
+        }
+        let never = |_: &Path| -> Result<(), String> { panic!("An invalid preview reached the viewer") };
+        let plugin = fixture.service.query("QLPLUGIN", 8).unwrap().remove(0);
+        assert!(fixture.service.preview_with(&plugin.id, never).is_err());
+        assert!(fixture.service.preview_with("not-an-indexed-id", never).is_err());
+        fs::write(&file, b"different contents and length").unwrap();
+        assert!(fixture.service.preview_with(&file_hit.id, never).is_err());
+        fs::remove_file(file).unwrap();
+        assert!(fixture.service.preview_with(&file_hit.id, never).is_err());
     }
 
     #[test]

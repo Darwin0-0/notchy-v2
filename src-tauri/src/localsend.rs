@@ -627,6 +627,30 @@ struct IncomingFile {
     checksum: Option<String>,
     token: String,
     status: String,
+    received_id: Option<String>,
+}
+
+fn receive_details(transfer: &mut Value, files: &[IncomingFile], terminal: Option<&str>) {
+    transfer["files"] = json!(files.iter().map(|file| {
+        let status = if file.status == "complete" {
+            "complete"
+        } else {
+            match terminal {
+                Some(status @ ("cancelled" | "error" | "rejected")) => status,
+                _ => file.status.as_str(),
+            }
+        };
+        json!({"name":file.name,"size":file.size,"status":status})
+    }).collect::<Vec<_>>());
+    let received = files.iter().filter(|file| file.status == "complete" && file.received_id.is_some()).collect::<Vec<_>>();
+    transfer["completedFileCount"] = received.len().into();
+    transfer["receivedBytes"] = received.iter().fold(0u64, |total, file| total.saturating_add(file.size)).into();
+    transfer["receivedIds"] = json!(received.iter().filter_map(|file| file.received_id.as_ref()).collect::<Vec<_>>());
+    transfer["currentFile"] = if terminal.is_none() {
+        files.iter().enumerate().find(|(_, file)| file.status == "receiving").map(|(index, file)| json!({"name":file.name,"index":index + 1})).unwrap_or(Value::Null)
+    } else {
+        Value::Null
+    };
 }
 
 fn parse_offer(value: &Value) -> Result<Vec<IncomingFile>, ApiError> {
@@ -680,6 +704,7 @@ fn parse_offer(value: &Value) -> Result<Vec<IncomingFile>, ApiError> {
                 checksum,
                 token: token(),
                 status: "pending".into(),
+                received_id: None,
             })
         })
         .collect()
@@ -690,6 +715,7 @@ struct Offer {
     session_id: String,
     address: IpAddr,
     alias: String,
+    device_type: String,
     created_at: u64,
     files: Mutex<Vec<IncomingFile>>,
     accepted: AtomicBool,
@@ -807,17 +833,18 @@ impl LocalSend {
 
     pub async fn snapshot(&self) -> Value {
         let state = self.state.lock().await;
-        let incoming = if let Some(offer) = state
-            .offer
-            .as_ref()
-            .filter(|offer| !offer.accepted.load(Ordering::Acquire))
-        {
+        let mut transfer = state.transfer.clone();
+        let mut incoming = Value::Null;
+        if let Some(offer) = state.offer.as_ref() {
             let files = offer.files.lock().await;
-            json!({"id":offer.id,"alias":offer.alias,"files":files.iter().map(|file| json!({"name":file.name,"size":file.size})).collect::<Vec<_>>(),"totalBytes":offer.total_bytes,"createdAt":offer.created_at,"status":"awaiting-consent"})
-        } else {
-            Value::Null
-        };
-        json!({"status":state.status,"available":state.available,"error":state.error,"peers":state.peers.values().filter(|p| now().saturating_sub(p.seen_at) < PEER_TTL).map(Peer::public).collect::<Vec<_>>(),"transfer":state.transfer,"incoming":incoming})
+            if !offer.accepted.load(Ordering::Acquire) {
+                let expires_at = offer.created_at.saturating_add(self.options.consent.as_millis().min(u64::MAX as u128) as u64);
+                incoming = json!({"id":offer.id,"alias":offer.alias,"deviceType":offer.device_type,"files":files.iter().map(|file| json!({"name":file.name,"size":file.size})).collect::<Vec<_>>(),"totalBytes":offer.total_bytes,"createdAt":offer.created_at,"expiresAt":expires_at,"status":"awaiting-consent"});
+            } else if let Some(transfer) = transfer.as_mut().filter(|transfer| transfer["id"] == offer.id) {
+                receive_details(transfer, &files, None);
+            }
+        }
+        json!({"status":state.status,"available":state.available,"error":state.error,"peers":state.peers.values().filter(|p| now().saturating_sub(p.seen_at) < PEER_TTL).map(Peer::public).collect::<Vec<_>>(),"transfer":transfer,"incoming":incoming})
     }
 
     pub async fn start_on_launch(self: &Arc<Self>, checking: bool) -> Result<(), ApiError> {
@@ -1276,6 +1303,8 @@ impl LocalSend {
         if let Some(response) = offer.response.lock().await.take() {
             let _ = response.send((403, Value::Null));
         }
+        // Let an in-flight Shelf adoption finish or roll back before publishing its receipt.
+        let _commit = self.receive_queue.lock().await;
         {
             let mut state = self.state.lock().await;
             if state
@@ -1283,10 +1312,15 @@ impl LocalSend {
                 .as_ref()
                 .is_some_and(|active| active.id == offer.id)
             {
+                if let Some(transfer) = state.transfer.as_mut().filter(|transfer| transfer["id"] == offer.id) {
+                    let files = offer.files.lock().await;
+                    receive_details(transfer, &files, Some(status));
+                    transfer["status"] = status.into();
+                    transfer["error"] = message.map(Value::from).unwrap_or(Value::Null);
+                }
                 state.offer = None;
             }
         }
-        self.result(&offer.id, status, message).await;
     }
 
     async fn accept(&self, id: &str) -> Result<Value, ApiError> {
@@ -1314,6 +1348,8 @@ impl LocalSend {
             response_files.insert(file.id.clone(), file.token.clone().into());
         }
         let file_count = files.len();
+        let mut transfer = json!({"id":offer.id,"direction":"receive","peerId":null,"alias":offer.alias,"deviceType":offer.device_type,"status":"receiving","totalBytes":offer.total_bytes,"transferredBytes":0,"progress":0,"fileCount":file_count,"error":null});
+        receive_details(&mut transfer, &files, None);
         drop(files);
         let directory = self.directory.join("incoming");
         fs::create_dir_all(&directory).await?;
@@ -1329,9 +1365,7 @@ impl LocalSend {
                     .snapshot_error("Cette proposition n’est plus disponible.")
                     .await);
             }
-            state.transfer = Some(
-                json!({"id":offer.id,"direction":"receive","peerId":null,"alias":offer.alias,"status":"receiving","totalBytes":offer.total_bytes,"transferredBytes":0,"progress":0,"fileCount":file_count,"error":null}),
-            );
+            state.transfer = Some(transfer);
         }
         offer.activity.send_replace(());
         let response = offer.response.lock().await.take();
@@ -2030,6 +2064,7 @@ async fn prepare_http(service: Arc<LocalSend>, address: IpAddr, request: Request
         session_id: token(),
         address,
         alias: peer.alias,
+        device_type: peer.device_type,
         created_at: now(),
         total_bytes: files.iter().map(|file| file.size).sum(),
         files: Mutex::new(files),
@@ -2130,25 +2165,23 @@ async fn upload_http(service: Arc<LocalSend>, address: IpAddr, request: Request)
     let _ = fs::remove_file(&temporary).await;
     match result {
         Ok(()) => {
-            let complete = {
-                let mut files = offer.files.lock().await;
-                if let Some(file) = files.iter_mut().find(|current| current.id == file.id) {
-                    file.status = "complete".into();
-                }
-                files.iter().all(|file| file.status == "complete")
-            };
-            if complete {
-                let mut state = service.state.lock().await;
-                if state
-                    .offer
-                    .as_ref()
-                    .is_some_and(|active| active.id == offer.id)
-                {
+            let _commit = service.receive_queue.lock().await;
+            let mut state = service.state.lock().await;
+            if state.offer.as_ref().is_some_and(|active| active.id == offer.id)
+                && !offer.cancelled.load(Ordering::Acquire)
+            {
+                let files = offer.files.lock().await;
+                if files.iter().all(|file| file.status == "complete") {
+                    if let Some(transfer) = state.transfer.as_mut().filter(|transfer| transfer["id"] == offer.id) {
+                        receive_details(transfer, &files, Some("complete"));
+                        transfer["status"] = "complete".into();
+                        transfer["error"] = Value::Null;
+                        transfer["progress"] = 100.into();
+                        transfer["transferredBytes"] = offer.total_bytes.into();
+                    }
                     state.offer = None;
+                    offer.cancel.send_replace(true);
                 }
-                drop(state);
-                offer.cancel.send_replace(true);
-                service.result(&offer.id, "complete", None).await;
             }
             reply(200, Value::Null)
         }
@@ -2254,6 +2287,11 @@ async fn receive_file(
             let _ = service.shelf.remove(id).await;
         }
         return Err(ApiError::new(499, "Transfert annulé."));
+    }
+    let mut files = offer.files.lock().await;
+    if let Some(current) = files.iter_mut().find(|current| current.id == file.id) {
+        current.status = "complete".into();
+        current.received_id = saved["item"]["id"].as_str().map(str::to_owned);
     }
     Ok(())
 }
@@ -2800,14 +2838,24 @@ mod tests {
         let (incoming, pending) = prepare(&service, &client, &base, Value::Object(files)).await;
         assert!(!pending.is_finished());
         assert_eq!(incoming["files"].as_array().unwrap().len(), 8);
+        assert_eq!(incoming["deviceType"], "mobile");
+        assert_eq!(incoming["expiresAt"].as_u64().unwrap() - incoming["createdAt"].as_u64().unwrap(), 2000);
+        assert!(incoming["files"].as_array().unwrap().iter().all(|file| file.as_object().unwrap().len() == 2));
         assert!(service.shelf.list().await.unwrap()["items"]
             .as_array()
             .unwrap()
             .is_empty());
-        service
+        let accepted_state = service
             .accept(incoming["id"].as_str().unwrap())
             .await
             .unwrap();
+        assert!(accepted_state["incoming"].is_null());
+        assert_eq!(accepted_state["transfer"]["deviceType"], "mobile");
+        assert_eq!(accepted_state["transfer"]["completedFileCount"], 0);
+        assert_eq!(accepted_state["transfer"]["receivedBytes"], 0);
+        assert_eq!(accepted_state["transfer"]["receivedIds"], json!([]));
+        assert!(accepted_state["transfer"]["currentFile"].is_null());
+        assert!(accepted_state["transfer"]["files"].as_array().unwrap().iter().all(|file| file["status"] == "pending"));
         let response = pending.await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let accepted = read_response(response).await.unwrap();
@@ -2842,6 +2890,10 @@ mod tests {
         assert_eq!(state["transfer"]["status"], "complete");
         assert_eq!(state["transfer"]["progress"], 100);
         assert_eq!(state["transfer"]["transferredBytes"], 32);
+        assert_eq!(state["transfer"]["completedFileCount"], 8);
+        assert_eq!(state["transfer"]["receivedBytes"], 32);
+        assert!(state["transfer"]["currentFile"].is_null());
+        assert!(state["transfer"]["files"].as_array().unwrap().iter().all(|file| file["status"] == "complete" && file.as_object().unwrap().len() == 3));
         assert_eq!(
             uploaded_bytes(&service).await,
             (0..8)
@@ -2860,6 +2912,10 @@ mod tests {
             8
         );
         assert_eq!(
+            state["transfer"]["receivedIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect::<HashSet<_>>(),
+            stored["items"].as_array().unwrap().iter().map(|file| file["id"].as_str().unwrap()).collect::<HashSet<_>>()
+        );
+        assert_eq!(
             client
                 .post(format!("{base}register"))
                 .json(&json!({"padding":"X".repeat(70*1024)}))
@@ -2869,6 +2925,74 @@ mod tests {
                 .status(),
             StatusCode::BAD_REQUEST
         );
+        service.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn partial_reception_keeps_only_validated_receipts_after_cancellation() {
+        let (_directory, service, client, base) = fixture().await;
+        let (incoming, pending) = prepare(
+            &service,
+            &client,
+            &base,
+            json!({
+                "a":{"id":"a","fileName":"kept.txt","size":4,"sha256":digest(b"KEEP")},
+                "b":{"id":"b","fileName":"partial.txt","size":4}
+            }),
+        ).await;
+        let id = incoming["id"].as_str().unwrap();
+        service.accept(id).await.unwrap();
+        let accepted = read_response(pending.await.unwrap()).await.unwrap();
+        let response = client.post(format!("{base}upload"))
+            .query(&[("sessionId", accepted["sessionId"].as_str().unwrap()), ("fileId", "a"), ("token", accepted["files"]["a"].as_str().unwrap())])
+            .body(b"KEEP".to_vec()).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let first = service.snapshot().await;
+        assert_eq!(first["transfer"]["status"], "receiving");
+        assert_eq!(first["transfer"]["completedFileCount"], 1);
+        assert_eq!(first["transfer"]["receivedBytes"], 4);
+        assert!(first["transfer"]["currentFile"].is_null());
+        assert_eq!(first["transfer"]["files"][1]["status"], "pending");
+
+        let (chunks, receiver) = tokio::sync::mpsc::channel::<Result<Vec<u8>, io::Error>>(1);
+        chunks.send(Ok(b"PA".to_vec())).await.unwrap();
+        let stream = futures_util::stream::unfold(receiver, |mut receiver| async {
+            receiver.recv().await.map(|chunk| (chunk, receiver))
+        });
+        let request = client.post(format!("{base}upload"))
+            .query(&[("sessionId", accepted["sessionId"].as_str().unwrap()), ("fileId", "b"), ("token", accepted["files"]["b"].as_str().unwrap())])
+            .body(reqwest::Body::wrap_stream(stream));
+        let uploading = tokio::spawn(async move { request.send().await.unwrap() });
+        let active = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let snapshot = service.snapshot().await;
+                if snapshot["transfer"]["transferredBytes"] == 6 { break snapshot; }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }).await.unwrap();
+        assert_eq!(active["transfer"]["currentFile"], json!({"name":"partial.txt","index":2}));
+        assert_eq!(active["transfer"]["files"][1]["status"], "receiving");
+        assert_eq!(active["transfer"]["completedFileCount"], 1);
+        assert_eq!(active["transfer"]["receivedBytes"], 4, "streamed bytes are not yet validated receipts");
+        assert_eq!(active["transfer"]["receivedIds"], first["transfer"]["receivedIds"]);
+
+        let cancelled = service.cancel(id).await.unwrap();
+        drop(chunks);
+        assert_eq!(uploading.await.unwrap().status().as_u16(), 499);
+        assert_eq!(cancelled["transfer"]["status"], "cancelled");
+        assert_eq!(cancelled["transfer"]["completedFileCount"], 1);
+        assert_eq!(cancelled["transfer"]["receivedBytes"], 4);
+        assert_eq!(cancelled["transfer"]["receivedIds"], first["transfer"]["receivedIds"]);
+        assert!(cancelled["transfer"]["currentFile"].is_null());
+        assert_eq!(cancelled["transfer"]["files"], json!([
+            {"name":"kept.txt","size":4,"status":"complete"},
+            {"name":"partial.txt","size":4,"status":"cancelled"}
+        ]));
+        assert_eq!(service.snapshot().await["transfer"], cancelled["transfer"]);
+        assert_eq!(uploaded_bytes(&service).await, vec![b"KEEP".to_vec()]);
+        let shelf = service.shelf.list().await.unwrap();
+        assert_eq!(cancelled["transfer"]["receivedIds"], json!([shelf["items"][0]["id"]]));
+        assert!(!serde_json::to_string(&cancelled).unwrap().contains(accepted["files"]["b"].as_str().unwrap()));
         service.dispose().await;
     }
 
@@ -2927,6 +3051,12 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .is_empty());
+            let snapshot = service.snapshot().await;
+            assert_eq!(snapshot["transfer"]["completedFileCount"], 0);
+            assert_eq!(snapshot["transfer"]["receivedBytes"], 0);
+            assert_eq!(snapshot["transfer"]["receivedIds"], json!([]));
+            assert!(snapshot["transfer"]["currentFile"].is_null());
+            assert_eq!(snapshot["transfer"]["files"][0]["status"], "error");
         }
         let (incoming, pending) = prepare(
             &service,

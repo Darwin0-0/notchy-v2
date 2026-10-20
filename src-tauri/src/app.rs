@@ -302,6 +302,7 @@ fn search_status_value(state: &DesktopState) -> Value {
     value["shortcut"] = state.search_shortcut.lock().unwrap().as_ref()
         .map(|shortcut| json!(*shortcut.lock().unwrap()))
         .unwrap_or_else(|| json!({"shortcut":"Ctrl+Space","available":false}));
+    value["quickLook"] = json!(notchy::quicklook::status());
     value
 }
 #[derive(serde::Deserialize)]
@@ -664,6 +665,26 @@ async fn desktop_command(
                 if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Recherche invalide.")); }
                 search_service(&state)?.request_reindex(); Ok(search_status_value(&state))
             }
+            "search-preview" => {
+                let id = search_result_id(argument)?;
+                let search = search_service(&state)?;
+                tokio::task::spawn_blocking(move || search.preview(&id)).await
+                    .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
+                    .map_err(|_| ApiError::new(409, "L’aperçu QuickLook est indisponible. Actualise les résultats et vérifie que QuickLook est installé."))?;
+                Ok(json!({"ok":true}))
+            }
+            "search-quicklook-install" => {
+                if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Commande invalide.")); }
+                desktop::open_uri("https://github.com/QL-Win/QuickLook/releases/latest")?;
+                Ok(json!({"ok":true}))
+            }
+            "search-preview-close" => {
+                if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Commande invalide.")); }
+                tokio::task::spawn_blocking(notchy::quicklook::close).await
+                    .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
+                    .map_err(|_| ApiError::new(503, "Fermeture de l’aperçu indisponible."))?;
+                Ok(json!({"ok":true}))
+            }
             "search-stage" => search_stage_file(&state, search_result_id(argument)?).await,
             "preference" => preference(&state, argument).await,
             "startup" => {
@@ -853,7 +874,7 @@ pub fn run() {
         window.on_window_event(move|event|match event{
           tauri::WindowEvent::CloseRequested{api,..}=>{if !events.quitting.load(Ordering::Relaxed){api.prevent_close();hide(&event_window,&events);}},
           tauri::WindowEvent::Focused(true)=>{events.blur.fetch_add(1,Ordering::Relaxed);},
-          tauri::WindowEvent::Focused(false)=>{let generation=events.blur.fetch_add(1,Ordering::Relaxed)+1;let state=events.clone();let window=event_window.clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_millis(180)).await;if state.blur.load(Ordering::Relaxed)==generation&&state.visible.load(Ordering::Relaxed)&&!state.dialog.load(Ordering::Relaxed)&&state.downloads.load(Ordering::Relaxed)==0&&!window.is_focused().unwrap_or(true){let _=window.emit("notchy:deactivate",json!({"reason":"blur"}));}});},
+          tauri::WindowEvent::Focused(false)=>{let generation=events.blur.fetch_add(1,Ordering::Relaxed)+1;let state=events.clone();let window=event_window.clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_millis(180)).await;if state.blur.load(Ordering::Relaxed)==generation&&state.visible.load(Ordering::Relaxed)&&!state.dialog.load(Ordering::Relaxed)&&state.downloads.load(Ordering::Relaxed)==0&&!window.is_focused().unwrap_or(true){let _=window.emit("notchy:deactivate",json!({"reason":"blur","quickLook":notchy::quicklook::is_foreground()}));}});},
           tauri::WindowEvent::ScaleFactorChanged{..}=>resume(&event_window,&events,"resume"),
           _=>{},
         });

@@ -98,7 +98,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
     disposed: false, shelfItems: plain(files), shelfLoaded: true, shelfBusy: false, shelfError: '', shelfDownloadError: false, shelfEpoch: 0, selectedFiles: new Set(), fileDragging: false,
     nearby: {available: true, status: 'discovering', peers: plain(peers), transfer: null, incoming: null}, nearbyBusy: false, nearbyError: '', nearbyActionError: false, nearbyMutation: 0,
     nearbyPeer: '', nearbyReading: false, nearbyLoaded: true, nearbyIncomingShown: '', nearbyReceiveCompleted: '', nearbyTimer: 0,
-    localSendContext: null, moduleEditing: false, state: 'open', view, islandPage: 'essential', weather: {}, weatherBusy: false, queueBusy: false, queueState: {status: 'disconnected'}, music: {available: false},
+    localSendContext: null, receptionIntroTimer:0, receptionDetail:'summary', receptionActionError:'', moduleEditing: false, state: 'open', view, islandPage: 'essential', weather: {}, weatherBusy: false, queueBusy: false, queueState: {status: 'disconnected'}, music: {available: false},
     startupBusy: false, startupEnabled: false, desktop: {startup: {supported: false}}, weatherPickerOpen: false, queueOpen: false, welcome: null, scenarioController: null, search: null, searchShortcut: 'Ctrl+Space', moduleLibrary:null,
     moduleDefinitions: {}, toggle: nodes.get('notch-toggle'), menu: nodes.get('notch-menu'), panel: nodes.get('notch-panel'), notch: {dataset: {}}, settingsPlayer: nodes.get('settings-player'),
     shelfInput: {value: ''}, shelfPlayer: nodes.get('shelf-player'), weatherCityInput: nodes.get('weather-city-input'), t: translate, uiMessage: translate,

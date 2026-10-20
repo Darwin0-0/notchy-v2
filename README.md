@@ -38,7 +38,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 - **Your day at a glance.** Read the weather, open detailed forecasts from the city, and keep appointments in a local calendar. Its icon changes color when you have something planned today.
 - **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
 - **Ready to receive.** LocalSend starts with Notchy. Accept incoming files, send to nearby devices, and follow the transfer without leaving the notch.
-- **Find it, keep your flow.** Open local search from the magnifying glass or **Ctrl+Space**. Find a file or folder by name, reveal it in Explorer, or choose a nearby device to send it with LocalSend. Your search stays on your PC.
+- **Find it, keep your flow.** Open local search from the magnifying glass or **Ctrl+Space**. Find a file or folder by name, preview the selected result with **Space** through the optional QuickLook app, reveal it in Explorer, or choose a nearby device to send it with LocalSend. Your search stays on your PC.
 - **Make space for your own ideas.** Open **Market** to find Music, Tasks & Focus, Weather and Shelf, with their real installed state. Preview local community examples or import your own JSON module. Your module data stays on this device.
 
 ![Local search inside Notchy, with sample files and keyboard controls](assets/previews/search.png)
@@ -55,7 +55,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 2. Hover over the notch for a quick preview, then click to open the controls. Move away to return to the discreet view. Keyboard editing, file dialogs and active drags stay protected while you use them.
 3. Open **Settings → Modules** to arrange Music, Tasks & Focus, Weather and Shelf. **Market** lets you install or remove modules; removing a built-in module keeps its data and saved placement. Open **Tray** for files and LocalSend; save a copy to Downloads whenever you need one.
 4. Choose your city and add a task: enter its title, set hours and minutes, review the interval plan, then choose **Add task**. A 90-minute budget includes three 25-minute focus intervals and three 5-minute breaks with the default settings. Pomodoro settings apply to new task plans; existing plans keep their timings and progress. Back or Escape cancels an unsaved form.
-5. Use **Ctrl+Space** for local search. Navigate with the arrow keys, press **Enter** to open a result or **Ctrl+Enter** to reveal it, and **Escape** to return. If the global shortcut is busy, Notchy tries **Ctrl+Shift+Space**; **Ctrl+K** also works inside Notchy.
+5. Use **Ctrl+Space** for local search. Navigate with the arrow keys, press **Enter** to open a result or **Ctrl+Enter** to reveal it, and **Escape** to return. Select a result and press **Space** to toggle its optional [QuickLook preview](docs/LOCAL_SEARCH.md#quicklook-previews); arrows switch the preview and Escape closes it first. Spaces still type normally in the search field. If the global shortcut is busy, Notchy tries **Ctrl+Shift+Space**; **Ctrl+K** also works inside Notchy.
 
 Your personal profiles and files stay in local data folders and are excluded from the source repository. Weather uses a public forecast service; Spotify is optional, and LocalSend connects devices on your local network. Setup and privacy details are in the [development guide](docs/DEVELOPMENT.md).
 
@@ -86,5 +86,7 @@ Small contributions fit here: improve a real interaction, test an empty or error
 ## Thanks, and licensing
 
 Thanks to everyone who tests a build, reports a rough edge or shares an idea—and to the authors of the [third-party components](THIRD_PARTY_NOTICES.md) used here.
+
+Special thanks to [Paddy Xu (@xupefei)](https://github.com/xupefei), the original creator of [QuickLook for Windows](https://github.com/QL-Win/QuickLook), and the QL-Win maintainers and contributors. QuickLook provides the optional file previews used by Notchy's search and is licensed under [GNU GPL v3](https://github.com/QL-Win/QuickLook/blob/master/LICENSE-GPL.txt). It is installed separately; Notchy's installer does not bundle QuickLook or its viewer plugins.
 
 A project-wide licence has not been selected yet. Public availability does not add one; check the licensing status before reusing or redistributing the application code. Third-party licences remain in place.

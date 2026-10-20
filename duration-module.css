@@ -107,7 +107,7 @@ svg{display:block;flex:none}button svg{pointer-events:none}h2,p{margin:0}[hidden
 .nd-module-timer{display:flex;flex:0 0 220px;flex-direction:column;align-items:center;justify-content:flex-start;gap:var(--space-16,16px);min-width:0;min-height:0}
 .nd-island[data-canonical-view=true] .nd-selected-title{position:static;align-self:stretch;display:flex;gap:var(--space-8,8px);width:100%;min-width:0;height:24px;text-align:left;font-size:16px;line-height:24px;font-weight:700}
 .nd-island[data-canonical-view=true] .nd-dot{width:9px;height:9px;border-radius:50%}
-.nd-island[data-canonical-view=true] .nd-module-ring{position:relative;inset:auto;flex:none;width:190px;height:190px}
+.nd-island[data-canonical-view=true] .nd-module-ring{position:relative;inset:auto;flex:none;width:190px;height:190px;container-type:inline-size}
 .nd-island[data-canonical-view=true] .nd-module-ring>svg{filter:none}
 .nd-island[data-canonical-view=true] .nd-ring-text{gap:2px}
 .nd-island[data-canonical-view=true] .nd-clock{font-size:46px;line-height:1;font-weight:700;letter-spacing:-.01em}
@@ -174,7 +174,7 @@ svg{display:block;flex:none}button svg{pointer-events:none}h2,p{margin:0}[hidden
 .nd-island[data-module-presentation=tall][data-canonical-view=true] .nd-module-ring{width:112px;height:112px}
 .nd-island[data-module-presentation=tall][data-canonical-view=true] .nd-clock{font-size:28px}
 .nd-island:is([data-module-presentation=small],[data-module-presentation=wide])[data-canonical-view=true] .nd-module{align-items:center;padding:var(--space-16,16px);gap:var(--space-12,12px)}
-.nd-module-small-copy{display:flex;flex:1 1 0;flex-direction:column;gap:var(--space-4,4px);min-width:0;text-align:left}
+.nd-module-small-copy{display:flex;flex:1 1 0;flex-direction:column;gap:var(--space-4,4px);min-width:0;text-align:left;container-type:inline-size}
 .nd-island[data-canonical-view=true] .nd-module-small-copy .nd-mini-clock{position:static;display:block;font-size:34px;font-weight:700;letter-spacing:-.01em;line-height:1;white-space:nowrap}
 .nd-module-small-title{display:block;min-width:0;color:var(--text-muted,#6b6b73);font-size:13px;font-weight:500;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nd-module-small-ring{position:relative;flex:none;width:64px;height:64px}
@@ -225,7 +225,7 @@ svg{display:block;flex:none}button svg{pointer-events:none}h2,p{margin:0}[hidden
 @keyframes nd-cycle-segment{from{opacity:0}to{opacity:1}}
 @keyframes nd-feedback{from{opacity:0;filter:blur(14px);transform:translateY(12px)}to{opacity:1;filter:blur(0);transform:none}}
 @keyframes nd-particle{0%{opacity:0;transform:translate(0,0) scale(.6)}10%{opacity:1}100%{opacity:0;transform:translate(var(--particle-x),calc(var(--particle-y) + 22px)) scale(.5)}}
-@container(max-height:319px){.nd-island[data-module-presentation=side] .nd-module-timer{gap:var(--space-8,8px)}.nd-island[data-module-presentation=side] .nd-module-ring{width:112px;height:112px}.nd-island[data-module-presentation=side] .nd-clock{font-size:28px}.nd-island[data-module-presentation=side] .nd-module-upnext{padding-top:var(--space-8,8px)}}
+@container(max-height:319px){.nd-island[data-module-presentation=side][data-canonical-view=true] .nd-module-timer{gap:var(--space-8,8px)}.nd-island[data-module-presentation=side][data-canonical-view=true] .nd-module-ring{width:112px;height:112px}.nd-island[data-module-presentation=side][data-canonical-view=true] .nd-clock{font-size:28px}.nd-island[data-module-presentation=side][data-canonical-view=true] .nd-module-upnext{padding-top:var(--space-8,8px)}}
 @container(max-width:219.999px){.nd-island:is([data-module-presentation=small],[data-module-presentation=wide]) .nd-module{padding:var(--space-12,12px);gap:var(--space-8,8px)}.nd-island .nd-module-small-copy .nd-mini-clock{font-size:30px}.nd-module-small-ring{width:54px;height:54px}.nd-island[data-canonical-view=true] .nd-module-small-ring>.nd-module-ring{width:54px;height:54px}.nd-island[data-canonical-view=true] .nd-module-small-ring>.nd-toggle{inset:6px}}
 @keyframes nd-empty-turn{to{transform:rotate(360deg)}}
 @container(max-height:287px){.nd-island[data-embedded=true][data-empty-card=true] .nd-screen{padding:var(--space-12,12px);gap:var(--space-8,8px)}.nd-island[data-embedded=true][data-empty-card=true] .nd-header{height:28px}.nd-island[data-embedded=true][data-empty-card=true] .nd-icon{width:28px;height:28px}.nd-island[data-embedded=true][data-empty-card=true] .nd-empty{gap:var(--space-8,8px)}.nd-island[data-embedded=true][data-empty-card=true] .nd-empty-content{gap:var(--space-4,4px)}.nd-island[data-embedded=true][data-empty-card=true] .nd-empty-art{width:40px;height:40px;margin-bottom:0}.nd-island[data-embedded=true][data-empty-card=true] .nd-empty h2{font-size:16px;line-height:20px}.nd-island[data-embedded=true][data-empty-card=true] .nd-empty p{font-size:12px}.nd-island[data-embedded=true][data-empty-card=true] .nd-empty .nd-primary{height:38px;border-radius:19px;font-size:13px}}
@@ -237,3 +237,7 @@ svg{display:block;flex:none}button svg{pointer-events:none}h2,p{margin:0}[hidden
 @container(max-height:239px){.nd-island[data-module-presentation=tall][data-canonical-view=true] .nd-module-ring{width:100px;height:100px}.nd-island[data-module-presentation=tall][data-canonical-view=true] .nd-selected-title{height:20px;font-size:14px;line-height:20px}.nd-island[data-module-presentation=tall][data-canonical-view=true] .nd-control{width:34px;height:34px}.nd-island[data-module-presentation=tall][data-canonical-view=true] .nd-toggle{width:40px;height:40px}}
 
 .nd-island[data-motion=false] :is(.nd-completion-particles,.nd-boundary-pulse){display:none}.nd-island[data-motion=false] .nd-boundary *{animation:none!important}.nd-island[data-motion=false] .nd-boundary-check path{stroke-dashoffset:0}
+
+/* Reserve space inside the stroke for both the tabular digits and phase label. */
+.nd-island[data-canonical-view=true] .nd-module-ring .nd-clock{font-size:min(46px,calc(62cqi / (var(--nd-clock-columns,4) * .71 + .3)))}
+.nd-island[data-canonical-view=true] .nd-module-small-copy .nd-mini-clock{font-size:min(34px,calc(100cqi / (var(--nd-clock-columns,4) * .71 + .3)))}

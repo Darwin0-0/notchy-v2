@@ -17,6 +17,7 @@
     "module-runtime.js",
     "module-library.js",
     "calendar.js",
+    "reception.js",
     "notch.js",
     "app.js"
   ],
@@ -38,7 +39,8 @@
     "duration-module.css",
     "duration-integration.css",
     "assets/duration-dm-sans.woff2",
-    "assets/duration-FONT-LICENSE.txt"
+    "assets/duration-FONT-LICENSE.txt",
+    "reception.css"
   ],
   "copies": [
     {

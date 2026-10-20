@@ -29,6 +29,7 @@ function fixture() {
     getCollapsedActivities: () => context.activities || ['music','focus','transfer'].filter(id=>context[id+'Active']).map(id=>({id})),
     musicInBand: () => context.musicActive, focusIsActive: () => context.focusActive,
     isModuleEnabled: () => true, localSendBand: () => context.transferActive ? {progress: .5} : null,
+    receptionGeometry: () => null,
     getHomeSlots: () => ['music'], homeCells: new Map(), homeLayout: null,
     renderHomeLayout() {home.dataset.layout=context.scene?'activities':'grid';if(context.scene)context.scene.height=368;context.homeLayout=context.scene||{mode:'grid',items:nookGridPlan(context.islandPage,['music'])};},
     byId: () => home, expandedLayer: {style: {}}, menu: {hidden: false, inert: false}, islandFooter: {hidden:false},

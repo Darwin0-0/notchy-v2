@@ -833,7 +833,7 @@
     if (!desktop || disposed) return;
     if (event) desktopMouse = {x: event.clientX, y: event.clientY};
     const hit = desktopMouse && document.elementFromPoint(desktopMouse.x, desktopMouse.y);
-    const interactive = !!hit?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer,#module-feedback-actions,#notch-surface > use,#music-hover-controls button');
+    const interactive = !!hit?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer,#module-feedback-actions,#reception-compact-actions,#notch-surface > use,#music-hover-controls button');
     if (interactive !== desktopInteractive) { desktopInteractive = interactive; desktop.setInteractive(interactive); }
   }
   function desktopFocus(event) { if (desktop && event.target.closest('#notch')) desktop.focus(); }
@@ -1755,7 +1755,7 @@
   }
   function renderCollapsedActivities(activities = getCollapsedActivities()) {
     const rail = byId('activity-rail');
-    const suppressed = fileDragging || state === 'compact' && !!moduleFeedback;
+    const suppressed = fileDragging || view === 'localsend' && localSendBand()?.direction === 'receive' || state === 'compact' && !!moduleFeedback;
     notch.dataset.mediaPreview = String(state === 'compact' && !suppressed && musicInBand());
     rail.hidden = state !== 'compact' || suppressed || !activities.length;
     const mini = state === 'compact' && !suppressed && activities[0]?.id === 'music';
@@ -2301,13 +2301,15 @@
 
   let nearby = {status: desktop?.localSendActive === true ? 'ready' : 'off', available: desktop?.localSendActive === true, peers: [], transfer: null, incoming: null}, nearbyPeer = '', nearbyTimer = 0, nearbyBusy = false, nearbyError = '', nearbyReading = false, nearbyActionError = false;
   let nearbyIncomingShown = '', nearbyReceiveCompleted = '';
+  let receptionIntroTimer = 0, receptionDetail = 'summary', receptionActionError = '';
+  const reception = window.NotchyReception.create({document,t,formatSize:localSendSize,motion:motionEnabled});
   function localSendPresentation() {
     const context = localSendContext; if (!context) return null;
     const incoming = nearby.incoming?.id === context.incomingId ? nearby.incoming : null;
     const current = nearby.transfer;
     const transfer = current && (context.transferId ? current.id === context.transferId : context.incomingId ? current.id === context.incomingId : context.requested && current.id !== context.previousId && current.direction === 'send') ? current : null;
-    const stage = incoming ? 'consent' : context.error || nearby.error ? 'error' : transfer?.status === 'complete' ? 'complete' : transfer?.status === 'sending' || transfer?.status === 'receiving' ? 'progress' : transfer?.status === 'preparing' || transfer?.status === 'waiting' ? 'waiting' : ['rejected','cancelled','error','pin-required'].includes(transfer?.status) ? transfer.status === 'pin-required' ? 'error' : transfer.status : context.incomingId ? 'cancelled' : context.requested ? 'waiting' : 'discovery';
-    const files = context.files, count = transfer?.fileCount || files.length;
+    const stage = incoming ? 'consent' : transfer?.status === 'complete' ? 'complete' : context.error || nearby.error ? 'error' : context.declined ? 'rejected' : transfer?.status === 'sending' || transfer?.status === 'receiving' ? 'progress' : transfer?.status === 'preparing' || transfer?.status === 'waiting' ? 'waiting' : ['rejected','cancelled','error','pin-required'].includes(transfer?.status) ? transfer.status === 'pin-required' ? 'error' : transfer.status : context.incomingId ? 'cancelled' : context.requested ? 'waiting' : 'discovery';
+    const files = transfer?.files?.length ? transfer.files : context.files, count = transfer?.fileCount || files.length;
     const bytes = transfer?.totalBytes || context.totalBytes;
     return {stage, direction: context.direction, files, count, bytes, transfer, alias: incoming?.alias || transfer?.alias || context.alias || '', progress: Math.max(0, Math.min(100, Number(transfer?.progress) || 0)), error: context.error || nearby.error || transfer?.error || ''};
   }
@@ -2328,8 +2330,13 @@
   }
   function renderLocalSendBand() {
     const band = localSendBand(), live = byId('localsend-live'), progress = byId('localsend-discreet-progress'), receive = band?.direction === 'receive';
-    live.hidden = state !== 'compact' || !band;
-    progress.hidden = state !== 'rest' || !band || !['progress', 'complete'].includes(band.stage);
+    const receiveBand = receive && view === 'localsend';
+    notch.dataset.receiveBand = String(receiveBand);
+    live.hidden = !(receiveBand && state !== 'open') && (state !== 'compact' || !band);
+    progress.hidden = receiveBand || state !== 'rest' || !band || !['progress', 'complete'].includes(band.stage);
+    const actions = byId('reception-compact-actions');
+    actions.hidden = !receiveBand || state !== 'compact' || band.stage !== 'consent'; actions.inert = actions.hidden;
+    for(const button of actions.children)button.disabled=nearbyBusy||!nearby.incoming;
     if (!progress.hidden) {
       const ratio = band.stage === 'complete' ? 1 : band.progress / 100;
       progress.style.setProperty('--localsend-progress', String(ratio));
@@ -2337,9 +2344,19 @@
     }
     if (!band) return;
     live.dataset.stage = band.stage;
-    byId('localsend-live-icon').setAttribute('href', band.stage === 'ready' ? '#localsend-icon-ready' : band.stage === 'complete' ? '#localsend-icon-done' : '#localsend-icon-share');
+    byId('localsend-live-icon').setAttribute('href', receiveBand ? band.stage === 'complete' ? '#localsend-icon-done' : '#localsend-icon-phone' : band.stage === 'ready' ? '#localsend-icon-ready' : band.stage === 'complete' ? '#localsend-icon-done' : '#localsend-icon-share');
     text(byId('localsend-live-title'), band.stage === 'ready' ? t('Prêt à recevoir') : band.stage === 'consent' ? t('Demande de partage') : band.stage === 'complete' ? localSendCompletion(band.count, receive) : band.stage === 'discovery' ? t('Partage local') : receive ? t('Réception') : t('Envoi'));
     text(byId('localsend-live-meta'), band.stage === 'progress' ? Math.round(band.progress) + ' %' : band.stage === 'discovery' ? t(nearby.peers.length === 1 ? '{count} appareil' : '{count} appareils', {count: nearby.peers.length}) : band.stage === 'complete' && receive ? t('Étagère') : 'LocalSend');
+    if(receiveBand){
+      text(byId('localsend-live-title'),band.stage==='consent'?band.alias:band.stage==='complete'?localSendCompletion(band.count,true):t('Réception depuis {device}',{device:band.alias}));
+      text(byId('localsend-live-meta'),localSendCount(band.count)+' · '+(band.stage==='progress'?Math.round(band.progress)+' %':localSendSize(band.bytes)));
+      text(live.querySelector('.reception-mini-count'),band.count);
+    }
+  }
+  function receptionGeometry() {
+    const value = view === 'localsend' ? localSendPresentation() : null;
+    if(value?.direction !== 'receive' || state !== 'open' && !localSendBand())return null;
+    return window.NotchyReception.size(state,value.stage,value.files.length===1?'single':receptionDetail);
   }
   function renderLocalSend() {
     const host = byId('localsend-player'), value = localSendPresentation();
@@ -2349,6 +2366,13 @@
     renderLocalSendBand();
     if (!value) return;
     host.dataset.stage = value.stage; host.dataset.direction = value.direction;
+    const receiving = value.direction === 'receive';
+    host.querySelector('.localsend-outgoing').hidden=receiving;
+    byId('reception-card').hidden=!receiving;
+    if(receiving){
+      reception.render(value,{incoming:nearby.incoming?.id===localSendContext.incomingId?nearby.incoming:null,busy:nearbyBusy||shelfBusy,detail:receptionDetail,canReveal:typeof desktop?.revealShelfItem==='function'&&!!value.transfer?.receivedIds?.length,error:receptionActionError||nearbyActionError&&nearbyError||''});
+      return;
+    }
     const receive = value.direction === 'receive', success = value.stage === 'complete', terminal = ['complete','error','cancelled','rejected'].includes(value.stage);
     const title = value.stage === 'discovery' ? t('Envoyer à…') : value.stage === 'waiting' ? value.transfer?.status !== 'waiting' ? t('Préparation de l’envoi') : t('Demande envoyée') : value.stage === 'progress' ? receive ? t('Réception de {device}', {device: value.alias}) : t('Envoi en cours') : success ? t('Terminé') : t('Transfert interrompu');
     text(byId('localsend-title'), title); text(byId('localsend-summary'), localSendCount(value.count) + ' · ' + localSendSize(value.bytes));
@@ -2410,15 +2434,17 @@
     text(byId('localsend-discovery-label'), nearbyBusy ? t('Recherche d’appareils à proximité…') : peers.length ? t('Choisis un appareil à proximité') : nearby.available ? t('Aucun appareil pour le moment') : t('Lancer la recherche sur le réseau local'));
     host.dataset.scanning = String(nearby.available || nearbyBusy);
   }
-  function openLocalSend(direction, files, source = 'shelf') {
+  function openLocalSend(direction, files, source = 'shelf', quietArrival = false) {
+    window.clearTimeout(receptionIntroTimer); receptionIntroTimer=0; receptionDetail='summary'; receptionActionError='';
     const incoming = direction === 'receive' ? files : null;
     const rows = incoming ? incoming.files : files;
     localSendContext = {direction, source, files: rows.map(file => ({id:file.id,name:file.name,size:file.size})), totalBytes: incoming?.totalBytes || rows.reduce((sum,file)=>sum+(file.size||0),0), incomingId:incoming?.id, alias:incoming?.alias || '', returnView:view === 'search' ? searchReturnView : view === 'localsend' ? 'tray' : view, previousId:nearby.transfer?.id || '', peerId:'', requested:false, error:''};
-    selectViewButton({dataset:{view:'localsend'}}); setState('open');
-    if (incoming) byId('shelf-incoming-accept').focus({preventScroll:true});
+    selectViewButton({dataset:{view:'localsend'}}); setState(quietArrival?'rest':'open');
+    if (incoming && !quietArrival) byId('shelf-incoming-accept').focus({preventScroll:true});
     else if (!nearby.available) void nearbyRequest({command:'discover'});
   }
   function closeLocalSend(toShelf = false, collapse = !toShelf) {
+    window.clearTimeout(receptionIntroTimer); receptionIntroTimer=0;
     const context = localSendContext, ongoing = ['waiting','progress'].includes(localSendPresentation()?.stage);
     selectViewButton({dataset:{view:toShelf ? 'tray' : context?.returnView || 'nook'}, restoring:true});
     if (!ongoing) localSendContext = null;
@@ -2428,8 +2454,27 @@
   async function localSendCommand(event) {
     const peer = event.target.closest('[data-localsend-peer]'), button = event.target.closest('[data-localsend-command],#shelf-incoming-accept,#shelf-incoming-reject');
     if (disposed || !localSendContext || (peer || button)?.disabled) return;
-    if (button?.id === 'shelf-incoming-accept' || button?.id === 'shelf-incoming-reject') {await nearbyCommand({target:button}); if (button.id === 'shelf-incoming-reject' && !nearby.incoming) closeLocalSend(); return;}
+    if (button?.id === 'shelf-incoming-accept' || button?.id === 'shelf-incoming-reject' || ['accept','reject'].includes(button?.dataset.localsendCommand)) {
+      window.clearTimeout(receptionIntroTimer); receptionIntroTimer=0;
+      const id = button.id || (button.dataset.localsendCommand==='accept'?'shelf-incoming-accept':'shelf-incoming-reject');
+      const offerId=nearby.incoming?.id;
+      if(!offerId||nearbyBusy)return;
+      await nearbyCommand({target:byId(id)});
+      // A declined offer is a local confirmed result, not a completed file transfer.
+      if(id==='shelf-incoming-reject'&&!nearby.incoming&&!nearbyActionError&&localSendContext?.incomingId===offerId){localSendContext.declined=true;renderLocalSend();update();}
+      return;
+    }
     const command = button?.dataset.localsendCommand;
+    if(command==='details') {receptionDetail=receptionDetail==='list'?'summary':'list';button.setAttribute('aria-expanded',String(receptionDetail==='list'));renderLocalSend();update();return;}
+    if(command==='reveal') {
+      const ids=localSendPresentation()?.transfer?.receivedIds;
+      if(!Array.isArray(ids)||!ids.length||typeof desktop?.revealShelfItem!=='function'||shelfBusy)return;
+      shelfBusy=true;receptionActionError='';renderLocalSend();
+      try{const result=await desktop.revealShelfItem(ids[0]);if(!result?.ok)throw new Error(result?.error||t('Le dossier ne peut pas être ouvert.'));}
+      catch(error){if(!disposed)receptionActionError=error.message||t('Le dossier ne peut pas être ouvert.');}
+      finally{if(!disposed){shelfBusy=false;renderLocalSend();}}
+      return;
+    }
     if (command === 'close') {closeLocalSend(); return;}
     if (command === 'done') {closeLocalSend(false,false); return;}
     if (command === 'shelf') {closeLocalSend(true); return;}
@@ -2488,7 +2533,15 @@
         nearbyLoaded = true; nearby = value; if (!nearbyActionError) nearbyError = ''; renderNearby();
         scenarioController?.observe();
         if (value.incoming && value.incoming.id !== nearbyIncomingShown && !protectedInteraction()) {
-          nearbyIncomingShown = value.incoming.id; openLocalSend('receive', value.incoming);
+          const quietArrival=!pointerInside&&!keyboardNavigation&&motionEnabled();
+          nearbyIncomingShown = value.incoming.id; openLocalSend('receive', value.incoming,'shelf',quietArrival);
+          // The arrival is small first. A real click may expand it immediately.
+          if(quietArrival){
+            receptionIntroTimer=window.setTimeout(()=>{
+              receptionIntroTimer=0;
+              if(!disposed&&view==='localsend'&&nearby.incoming?.id===value.incoming.id&&state==='rest'&&!pointerInside){setState('open');byId('shelf-incoming-accept').focus({preventScroll:true});}
+            },1200);
+          }
         }
         if (value.transfer?.direction === 'receive' && value.transfer.status === 'complete' && value.transfer.id !== nearbyReceiveCompleted) {
           nearbyReceiveCompleted = value.transfer.id; shelfLoaded = false; if (builtinVisible('shelf') || view === 'nook' && getHomeSlots().includes('shelf')) void loadShelf();
@@ -2519,8 +2572,11 @@
     try {
       const response = await window.fetch('/api/nearby', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Notchy': '1'}, body: JSON.stringify(value)}), data = await response.json();
       if (disposed || mutation !== nearbyMutation) return;
-      nearby = data;
+      // Failed commands may return only an error, not a fresh service snapshot.
+      // Keep the live consent and its actions until the service confirms a new state.
+      if(response.ok&&!data.error || typeof data?.available==='boolean'&&Array.isArray(data.peers))nearby = data;
       if (!response.ok || data.error) throw new Error(data.error || data.transfer?.error || t('Cette action est indisponible.'));
+      if(localSendContext && ['accept','reject','cancel'].includes(value.command))localSendContext.error='';
       if (value.command === 'share' && data.transfer?.status === 'complete') notifyModuleChange({id: value.source === 'files' ? 'files' : 'shelf', kind: 'sent', transferId: data.transfer.id, title: value.ids.length > 1 ? t('Fichiers envoyés') : t('Fichier envoyé'), detail: data.transfer.alias || t('Transfert terminé')});
     } catch (error) { if (!disposed && mutation === nearbyMutation) {nearbyActionError = true; nearbyError = error.message || t('Partage indisponible.'); if(localSendContext) localSendContext.error=nearbyError;} }
     finally { if (!disposed && mutation === nearbyMutation) { nearbyBusy = false; renderNearby(); renderLiveActivities(); update(); nearbyLifecycle(); } }
@@ -3585,7 +3641,7 @@
     frame = 0;
     if (disposed) return;
     const value = motion.step(now, {snap: !motionEnabled() || document.hidden});
-    const scale = 1 + (openPanelScale(appearance.format, {welcome: view === 'welcome'}) - 1) * Math.max(0, Math.min(1, value.progress));
+    const scale = receptionGeometry() ? 1 : 1 + (openPanelScale(appearance.format, {welcome: view === 'welcome'}) - 1) * Math.max(0, Math.min(1, value.progress));
     const width = Math.max(1, Math.min(value.width, ISLAND_CONFIG.states.expanded.width * 1.03, Math.max(1, (window.innerWidth - 32) / scale - Math.max(0, value.shoulder) * 2)));
     const height = Math.min(value.height, Math.max(ISLAND_CONFIG.states.expanded.height, ISLAND_CONFIG.activities.durationDetailHeight, ISLAND_CONFIG.activities.fullHeight+(moduleLab?ModuleLayout.metrics.labInset:0), calendarHeightLimit) * 1.03);
     geometry = shape({...value, width, height});
@@ -3611,6 +3667,9 @@
     const core = islandCoreView(), layout = ISLAND_CONFIG.layout;
     const activities = getCollapsedActivities();
     const closed = closedBandSize(state, {activities, feedback: moduleFeedback && isModuleEnabled(moduleFeedback.id) ? moduleFeedback : false});
+    const receptionSize=receptionGeometry();
+    notch.dataset.reception=String(!!receptionSize);
+    if(receptionSize&&state!=='open')Object.assign(closed,{width:receptionSize.width,band:receptionSize.height,shoulder:0,radius:28});
     closed.width = Math.min(closed.width, Math.max(1, window.innerWidth - layout.side * 2 - closed.shoulder * 2));
     renderCollapsedActivities(activities);
     if (view === 'nook' && !getModuleEditorActive()) {
@@ -3626,18 +3685,18 @@
     const scene = !calendarOpen && view === 'nook' && !getModuleEditorActive() && homeLayout?.mode === 'activities', sceneLayout = ISLAND_CONFIG.activities;
     notch.dataset.activityScene = String(scene);
     const durationDetail=['focus','tasks'].includes(view);
-    const showFooter = !calendarOpen && !ia && core && !scene && !durationDetail;
+    const showFooter = !calendarOpen && !ia && core && !scene && !durationDetail && !receptionSize;
     islandFooter.hidden = !showFooter;
     const labInset=moduleLab?ModuleLayout.metrics.labInset:0;
     const activityHeight = calendarOpen ? calendar.preferredHeight + layout.header + layout.bottom : scene ? homeLayout.height+sceneLayout.sceneTop+sceneLayout.bottom+labInset : durationDetail ? sceneLayout.durationDetailHeight : ISLAND_CONFIG.states.expanded.height;
     if (calendarOpen) calendarHeightLimit = Math.max(calendarHeightLimit, activityHeight);
-    const scale = openPanelScale(appearance.format, {welcome: view === 'welcome'});
+    const scale = receptionSize ? 1 : openPanelScale(appearance.format, {welcome: view === 'welcome'});
     const welcomeSize = view === 'welcome' ? welcomeStage === 'idle' ? {width: ISLAND_CONFIG.states.rest.width / scale, height: ISLAND_CONFIG.states.rest.height / scale} : welcomeStage === 'logo' ? {width: ISLAND_CONFIG.welcome.introWidth, height: ISLAND_CONFIG.welcome.introHeight} : ISLAND_CONFIG.welcome : {width: openPanelWidth(appearance.format, {lab: !!moduleLab, detail: durationDetail}), height: activityHeight};
-    const width = Math.min(welcomeSize.width, Math.max(1, (window.innerWidth - layout.side * 2) / scale));
-    const height = Math.max(closed.band, Math.min(welcomeSize.height, (desktop ? desktopMaxHeight - 8 : window.innerHeight - 96) / scale));
+    const width = Math.min(receptionSize?.width||welcomeSize.width, Math.max(1, (window.innerWidth - layout.side * 2) / scale));
+    const height = Math.max(closed.band, Math.min(receptionSize?.height||welcomeSize.height, (desktop ? desktopMaxHeight - 8 : window.innerHeight - 96) / scale));
     const showHeader = view !== 'welcome' && view !== 'localsend' && !fileDragging;
     const band = showHeader ? scene ? sceneLayout.sceneTop : layout.header : 0;
-    const panelHeight = Math.max(0, height - band - (scene ? sceneLayout.bottom : layout.bottom) - (showFooter ? layout.footer : 0));
+    const panelHeight = Math.max(0, height - band - (receptionSize?0:scene ? sceneLayout.bottom : layout.bottom) - (showFooter ? layout.footer : 0));
     notch.style.setProperty('--island-side', (scene ? sceneLayout.side : layout.side) + 'px');
     notch.style.setProperty('--scene-gap', (scene ? homeLayout.gap : sceneLayout.gap) + 'px');
     notch.style.setProperty('--island-header-height', layout.header + 'px');
@@ -3649,7 +3708,7 @@
     notch.style.setProperty('--closed-width', closed.width + 'px');
     notch.style.setProperty('--closed-height', closed.band + 'px');
     expandedLayer.style.width = width + 'px'; expandedLayer.style.height = height + 'px';
-    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius / scale : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : ISLAND_CONFIG.states.expanded.radius + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
+    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: receptionSize?28:view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius / scale : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : ISLAND_CONFIG.states.expanded.radius + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
     protectLayoutResize(target.width, target.height);
     motion.setTarget(target, {snap: !motionEnabled() || document.hidden});
     paint(); ia?.render(view,false); renderLocalSend(); syncCalendarLayer(); recheckCollapse();
@@ -3743,7 +3802,7 @@
   function protectedInteraction({ignoreFeedback = false} = {}) {
     const focused = document.hasFocus() ? document.activeElement : null;
     const editing = focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]');
-    return awaitingPointerEntry || calendar?.isOpen() || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || !ignoreFeedback && state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
+    return search?.isPreviewing() || awaitingPointerEntry || calendar?.isOpen() || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || !ignoreFeedback && state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
   }
   function scheduleCollapse(deactivated = false) {
     window.clearTimeout(collapseTimer); collapseTimer = 0;
@@ -3943,6 +4002,7 @@
   shelfPlayer.addEventListener('click', shelfCommand);
   shelfPlayer.addEventListener('click', nearbyCommand);
   byId('localsend-player').addEventListener('click', localSendCommand);
+  byId('reception-compact-actions').addEventListener('click',localSendCommand);
   shelfPlayer.addEventListener('dblclick', openShelfFile);
   filePlayer.addEventListener('click', fileCommand);
   fileInput.addEventListener('change', fileInputChanged);
@@ -3978,7 +4038,7 @@
     document.addEventListener('mousemove', desktopPointer);
     document.addEventListener('pointerdown', desktopFocus);
     const removeResume = desktop.onResume(value => { if (value?.maxHeight) desktopMaxHeight = value.maxHeight; if (value?.reason === 'search') showSearch(); else if (value?.reason === 'open') openFromOutside(); else update(); });
-    const removeDeactivate = desktop.onDeactivate?.(() => scheduleCollapse(true));
+    const removeDeactivate = desktop.onDeactivate?.(event => {if (!event?.quickLook) search?.stopPreview(); scheduleCollapse(true);});
     const removePointer = desktop.onPointer?.(nativePointer);
     desktopRemoveResume = () => { removeResume(); removeDeactivate?.(); removePointer?.(); };
   }
@@ -4053,6 +4113,8 @@
     shelfPlayer.removeEventListener('click', shelfCommand);
     shelfPlayer.removeEventListener('click', nearbyCommand);
     byId('localsend-player').removeEventListener('click', localSendCommand);
+    byId('reception-compact-actions').removeEventListener('click',localSendCommand);
+    window.clearTimeout(receptionIntroTimer);receptionIntroTimer=0;
     shelfPlayer.removeEventListener('dblclick', openShelfFile);
     filePlayer.removeEventListener('click', fileCommand);
     fileInput.removeEventListener('change', fileInputChanged);
