@@ -8,7 +8,7 @@ function fixture() {
   const scope={...core,disposed:false,state:'open',view:'nook',pointerInside:true,commandBusy:false,queueBusy:false,queueOpen:false,queueState:{},queueOperation:'',
     awaitingPointerEntry:false,keyboardNavigation:false,moduleLibrary:null,calendar:null,welcome:null,fileDialogOpen:false,fileDragging:false,seekDragging:false,
     localSendContext:null,nearby:{},document:{hidden:false,hasFocus:()=>true,activeElement:null},
-    moduleFeedback:null,moduleFeedbackTimer:0,moduleFeedbackSequence:0,moduleFeedbackAnimations:new Set(),moduleActivityStates:new Map(),
+    moduleFeedback:null,moduleFeedbackTimer:0,moduleFeedbackStageTimer:0,moduleFeedbackSequence:0,moduleFeedbackAnimations:new Set(),moduleActivityStates:new Map(),
     moduleDefinitions:Object.fromEntries(core.getModuleDefinitions().map(item=>[item.id,item])),isModuleEnabled:()=>true,
     t:value=>value,text:(target,value)=>target.textContent=value,localizedFeedback:value=>value,
     byId:id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);},

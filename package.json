@@ -1,9 +1,10 @@
 {
   "name": "notchy-v2",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "private": true,
   "description": "Music, tasks, focus time and files in a quieter Windows notch",
   "scripts": {
+    "build": "node scripts/build-frontend.cjs",
     "test": "node --test tests/*.test.cjs"
   }
 }

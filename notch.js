@@ -1,7 +1,12 @@
-(function (window) {
+(function (window, create) {
+  'use strict';
+  if (typeof module === 'object' && module.exports) create(null);
+  else if (window) window.NotchyShell = Object.freeze({create: () => create(window)});
+})(typeof window === 'object' ? window : null, function (window) {
   'use strict';
 
   const NOTCH_TOKENS = typeof module === 'object' && module.exports ? require('./tokens.js') : window.NOTCH_TOKENS;
+  const ModuleLayout = typeof module === 'object' && module.exports ? require('./module-contracts.js') : window.NotchyLayout;
   const ISLAND_CONFIG = NOTCH_TOKENS.island;
 
   // An exact spring solution carries the current velocity through reversals.
@@ -162,6 +167,7 @@
     ['weather', 'Météo', 'weather-player', 'weather', ...NOTCH_TOKENS.modules.minimum.weather, 'none', 'none', [], 2],
   ].map(([id, label, element, view, minWidth, minHeight, discreet, hover, changes, initialSlot]) => [id, Object.freeze({
     id, label, element, view, defaultInstalled: true, initialSlot, directOpen: ['shelf', 'weather'].includes(id),
+    contract: ModuleLayout.getBuiltinContract(id),
     size: Object.freeze({width: moduleLayouts[id].panelWidth, height: moduleLayouts[id].height + NOTCH_TOKENS.modules.metrics.detailInset, minWidth, minHeight, maxHeight: id === 'focus' ? NOTCH_TOKENS.modules.metrics.focusMax : NOTCH_TOKENS.modules.metrics.detailMax}),
     layout: Object.freeze({...moduleLayouts[id], minHeight: moduleLayouts[id].height}),
     editor: Object.freeze({basis: moduleLayouts[id].basis + NOTCH_TOKENS.modules.metrics.editorInset, maxWidth: moduleLayouts[id].maxWidth + NOTCH_TOKENS.modules.metrics.editorInset, height: id === 'focus' ? NOTCH_TOKENS.modules.metrics.focusEditorHeight : moduleLayouts[id].height + NOTCH_TOKENS.modules.metrics.editorInset, grow: id === 'music' ? NOTCH_TOKENS.modules.metrics.musicGrow : 1}),
@@ -181,64 +187,6 @@
       .map(([id, column, row, columns, rows]) => ({id, column, row, columns, rows}));
   }
 
-  function homeModuleLayout(ids, availableWidth, gap = 16, context = {}) {
-    const ordered = Array.isArray(ids) ? ids.filter((id, index, list) => typeof id === 'string' && Object.hasOwn(moduleDefinitions, id) && list.indexOf(id) === index).slice(0, 4) : [];
-    const placed = ordered.filter((id, index) => id !== 'shelf' || index === 0 || context?.completeScenario === true);
-    const width = Number.isFinite(availableWidth) ? Math.max(0, availableWidth) : 0;
-    gap = Number.isFinite(gap) ? Math.max(0, Math.min(32, gap)) : 16;
-    if (!context || typeof context !== 'object' || Array.isArray(context)) context = {};
-    const items = placed.map(id => {
-      const definition = moduleDefinitions[id], compact = false;
-      const layout = definition.layout;
-      const expandedHeight = id === 'weather' && context.weatherPicker === true ? 248 : 0;
-      return {id, compact, minWidth: compact ? layout.previewMinWidth : layout.minWidth,
-        minHeight: Math.max(compact ? layout.previewHeight : layout.height, expandedHeight),
-        basis: compact ? layout.previewBasis : layout.basis, maxWidth: compact ? layout.previewMaxWidth : layout.maxWidth};
-    });
-    if (context.dayScenario === true && ['music', 'focus', 'weather'].every(id => items.some(item => item.id === id)) && width >= moduleLayouts.music.minWidth + moduleLayouts.focus.minWidth + gap) {
-      const columns = homeModuleLayout(['music', 'focus'], width, gap, {...context, dayScenario: false});
-      const music = items.find(item => item.id === 'music'), focus = items.find(item => item.id === 'focus'), weather = items.find(item => item.id === 'weather');
-      const rowHeights = [context.focusConfig === true ? 244 : focus.minHeight, weather.minHeight], totalWidth = columns.items[0].width + columns.items[1].width;
-      Object.assign(music, {row: 0, column: 0, rowSpan: 2, width: columns.items[0].width, height: rowHeights[0] + rowHeights[1] + gap, share: columns.items[0].width * 100 / totalWidth});
-      Object.assign(focus, {row: 0, column: 1, width: columns.items[1].width, height: rowHeights[0], minHeight: rowHeights[0], share: columns.items[1].width * 100 / totalWidth});
-      Object.assign(weather, {row: 1, column: 1, width: Math.min(weather.maxWidth, columns.items[1].width), height: rowHeights[1], share: 100});
-      return {items: [music, focus, weather], mode: 'day', columns: [music.share, focus.share], rows: 2, rowHeights, gap,
-        preferredWidth: columns.preferredWidth, contentHeight: music.height,
-        columnMinWidth: moduleLayouts.music.minWidth + moduleLayouts.focus.minWidth + gap, minWidth: Math.max(...items.map(item => item.minWidth))};
-    }
-    const lines = [];
-    for (const item of items) {
-      let line = lines.at(-1);
-      if (!line || line.length >= (items.length === 4 ? 2 : 3) || line.reduce((sum, entry) => sum + entry.minWidth, 0) + line.length * gap + item.minWidth > width) lines.push(line = []);
-      line.push(item);
-    }
-    for (const [row, line] of lines.entries()) {
-      const useful = Math.max(0, width - (line.length - 1) * gap), minimum = line.reduce((sum, item) => sum + item.minWidth, 0);
-      const preferred = line.reduce((sum, item) => sum + item.basis, 0), allowance = Math.max(0, useful - minimum);
-      for (const item of line) item.width = preferred > useful ? item.minWidth + (preferred > minimum ? allowance * (item.basis - item.minWidth) / (preferred - minimum) : 0) : item.basis;
-      let surplus = Math.max(0, useful - line.reduce((sum, item) => sum + item.width, 0));
-      for (let pass = 0; pass < line.length && surplus > .01; pass++) {
-        const growing = line.filter(item => item.width < item.maxWidth), weight = growing.reduce((sum, item) => sum + item.basis, 0);
-        if (!weight) break;
-        let allocated = 0;
-        for (const item of growing) {const add = Math.min(item.maxWidth - item.width, surplus * item.basis / weight); item.width += add; allocated += add;}
-        surplus -= allocated;
-      }
-      const total = line.reduce((sum, item) => sum + item.width, 0);
-      for (const [column, item] of line.entries()) {
-        if (item.id === 'focus' && context.focusConfig === true) item.minHeight = 244;
-        Object.assign(item, {row, column, height: item.minHeight, share: total ? item.width * 100 / total : 100});
-      }
-    }
-    const rowHeights = lines.map(line => Math.max(...line.map(item => item.height)));
-    return {items, mode: items.length <= 1 ? 'single' : lines.length === 1 ? 'columns' : lines.every(line => line.length === 1) ? 'stacked' : 'wrapped',
-      columns: lines[0]?.map(item => item.share) || [100], rows: lines.length, rowHeights, gap,
-      preferredWidth: lines.length ? Math.max(...lines.map(line => line.reduce((sum, item) => sum + item.basis, 0) + (line.length - 1) * gap)) : 0,
-      contentHeight: rowHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, lines.length - 1) * gap,
-      columnMinWidth: items.reduce((sum, item) => sum + item.minWidth, 0) + Math.max(0, items.length - 1) * gap,
-      minWidth: items.length ? Math.max(...items.map(item => item.minWidth)) : 0};
-  }
-
   // Keep supported saved placements in place; retired modules do not enter this base.
   function normalizeModules(value = {}) {
     const definitions = Object.values(moduleDefinitions), ids = definitions.map(item => item.id);
@@ -255,18 +203,28 @@
       if (!ids.includes(id) || used.has(id)) return null;
       used.add(id); return id;
     });
-    return {enabled, slots};
+    const next = {enabled, slots};
+    if (Array.isArray(value.grid)) {
+      const grid = value.grid.filter(item => item && enabled.includes(canonical(item.id))).map(item => ({id:canonical(item.id),presentation:item.presentation,column:item.column,row:item.row}));
+      try { if (ModuleLayout.planGrid(grid, {getContract: id => moduleDefinitions[id]?.contract}).items.every(item=>item.fits)) next.grid = grid; } catch { /* Invalid saved placements fall back to the existing slots. */ }
+    }
+    return next;
   }
   function assignModuleSlot(value, index, id) {
     const next = normalizeModules(value);
     if (id === 'tasks') id = 'focus';
     if (!Number.isInteger(index) || index < 0 || index > 3 || id !== null && !Object.hasOwn(moduleDefinitions, id)) return next;
+    delete next.grid;
     const previous = id === null ? -1 : next.slots.indexOf(id);
     if (previous >= 0 && previous !== index) next.slots[previous] = next.slots[index];
     next.slots[index] = id; return next;
   }
   function modulePlacementPlan(value = {}) {
     const normalized = normalizeModules(value);
+    if (normalized.grid) {
+      const items = normalized.grid.map((item,index) => ({...item,index,slot:index})), slots = items.map(item => item.id);
+      return {slots,indices:items.map(item=>item.index),count:items.length,primary:slots[0]||null,primaryIndex:slots.length?0:-1,items};
+    }
     const slots = normalized.slots.slice(0, 3).map(id => normalized.enabled.includes(id) ? id : null);
     const indices = slots.map((id, index) => id ? index : -1).filter(index => index >= 0), count = indices.length;
     const items = indices.map((slot, index) => ({id: slots[slot], slot, index,
@@ -418,9 +376,22 @@
 
   function normalizeAppearance(value = {}) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) value = {};
-    return {format: ['compact', 'balanced', 'comfortable'].includes(value.format) ? value.format : 'balanced',
+    return {format: ['compact', 'balanced', 'comfortable'].includes(value.format) ? value.format : 'compact',
       radius: Number.isFinite(value.radius) ? Math.max(12, Math.min(24, Math.round(value.radius))) : 18,
       motion: value.motion !== false};
+  }
+
+  function initialAppearance(value) {
+    const saved = normalizeAppearance(value);
+    return value?.compactDefault === true ? saved : {...saved, format: 'compact'};
+  }
+
+  function openPanelScale(format, {welcome = false} = {}) {
+    return welcome ? .8 : ISLAND_CONFIG.displayScales[format] || ISLAND_CONFIG.displayScales.compact;
+  }
+  function openPanelWidth(format, {lab = false} = {}) {
+    const width = ISLAND_CONFIG.formats[format] || ISLAND_CONFIG.formats.compact;
+    return width;
   }
 
   function weatherNarrative(snapshot = {}) {
@@ -464,13 +435,12 @@
 
   // SVG geometry and colors are taken directly from the supplied Notch mockups.
   function weatherGlyphMarkup(kind) {
+    const outline = {"calendar": "M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z M4 10h16 M8 4v4 M16 4v4", "location": "M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z M12 7.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6z", "thermometer": "M10 4a2 2 0 0 1 4 0v9.2a4 4 0 1 1-4 0z"};
+    if (Object.hasOwn(outline,kind)) return '<g transform="scale(4.1666667)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + outline[kind] + '"/></g>';
     const glyphs = {
       "sunrise": "<g transform=\"scale(3.125)\"><path d=\"M7 22a9 9 0 0 1 18 0z\" fill=\"#ff9f1c\"></path><path d=\"M16 5v5 M5.5 11l3.5 3.5 M26.5 11L23 14.5 M3 22h26 M8 27h16\" stroke=\"#ff9f1c\" stroke-width=\"2.4\" stroke-linecap=\"round\" fill=\"none\"></path></g>",
-      "thermometer": "<g transform=\"scale(3.125)\"><rect x=\"12\" y=\"3\" width=\"8\" height=\"19\" rx=\"4\" fill=\"none\" stroke=\"#ff4d3d\" stroke-width=\"2.6\"></rect><circle cx=\"16\" cy=\"24\" r=\"5\" fill=\"#ff4d3d\"></circle><rect x=\"14.6\" y=\"11\" width=\"2.8\" height=\"13\" rx=\"1.4\" fill=\"#ff4d3d\"></rect></g>",
-      "calendar": "<rect x=\"9.375\" y=\"9.375\" width=\"81.25\" height=\"81.25\" rx=\"21.875\" fill=\"#5a5a5e\"></rect><g fill=\"#9a9a9f\"><circle cx=\"31.25\" cy=\"34.375\" r=\"5\"></circle><circle cx=\"50\" cy=\"34.375\" r=\"5\"></circle><circle cx=\"68.75\" cy=\"34.375\" r=\"5\"></circle><circle cx=\"31.25\" cy=\"53.125\" r=\"5\"></circle><circle cx=\"50\" cy=\"53.125\" r=\"5\"></circle><circle cx=\"68.75\" cy=\"53.125\" r=\"5\"></circle><circle cx=\"31.25\" cy=\"71.875\" r=\"5\"></circle><circle cx=\"50\" cy=\"71.875\" r=\"5\"></circle></g>",
       "moon": "<g transform=\"scale(3.125)\"><path d=\"M25 19.5A11 11 0 0 1 12.5 7a11 11 0 1 0 12.5 12.5z\" fill=\"#9db8d9\"></path></g>",
       "moon-small": "<g transform=\"scale(4.1666667)\"><path d=\"M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z\" fill=\"#9db8d9\"></path></g>",
-      "location": "<g transform=\"scale(4.1666667)\"><path d=\"M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z\" fill=\"none\" stroke=\"#ff7a45\" stroke-width=\"2\"></path><circle cx=\"12\" cy=\"10\" r=\"2.3\" fill=\"#ff7a45\"></circle></g>",
       "cloud": "<g fill=\"#a8c3d3\"><circle cx=\"34\" cy=\"56\" r=\"16\"></circle><circle cx=\"54\" cy=\"42\" r=\"22\"></circle><circle cx=\"76\" cy=\"58\" r=\"14\"></circle><rect x=\"30\" y=\"56\" width=\"52\" height=\"16\" rx=\"8\"></rect></g>",
       "humidity": "<path d=\"M50 10C50 10 22 44 22 62a28 28 0 0 0 56 0C78 44 50 10 50 10z\" fill=\"#4aa8ff\"></path>",
       "wind": "<g fill=\"none\" stroke=\"#7fd6c2\" stroke-width=\"8\" stroke-linecap=\"round\"><path d=\"M8 38h56a12 12 0 1 0-12-12\"></path><path d=\"M8 58h76a12 12 0 1 1-12 12\"></path></g>",
@@ -478,7 +448,8 @@
       "sun": "<circle cx=\"50\" cy=\"50\" r=\"20\" fill=\"#ff8f1f\"></circle><g stroke=\"#ff8f1f\" stroke-width=\"8\" stroke-linecap=\"round\"><line x1=\"50\" y1=\"8\" x2=\"50\" y2=\"20\"></line><line x1=\"50\" y1=\"80\" x2=\"50\" y2=\"92\"></line><line x1=\"8\" y1=\"50\" x2=\"20\" y2=\"50\"></line><line x1=\"80\" y1=\"50\" x2=\"92\" y2=\"50\"></line><line x1=\"20\" y1=\"20\" x2=\"28\" y2=\"28\"></line><line x1=\"72\" y1=\"72\" x2=\"80\" y2=\"80\"></line><line x1=\"80\" y1=\"20\" x2=\"72\" y2=\"28\"></line><line x1=\"20\" y1=\"80\" x2=\"28\" y2=\"72\"></line></g>",
       "rain": "<g fill=\"#8fa6b8\"><circle cx=\"34\" cy=\"56\" r=\"16\"></circle><circle cx=\"54\" cy=\"42\" r=\"22\"></circle><circle cx=\"76\" cy=\"58\" r=\"14\"></circle><rect x=\"30\" y=\"56\" width=\"52\" height=\"16\" rx=\"8\"></rect></g><g stroke=\"#4aa8ff\" stroke-width=\"7\" stroke-linecap=\"round\"><line x1=\"38\" y1=\"82\" x2=\"34\" y2=\"94\"></line><line x1=\"56\" y1=\"82\" x2=\"52\" y2=\"94\"></line><line x1=\"74\" y1=\"82\" x2=\"70\" y2=\"94\"></line></g>"
 };
-    if (kind === 'cloud-sun' || kind === 'cloud-moon') kind = 'cloud';
+    if(kind==='cloud-sun')return '<g transform="scale(1.5625)"><circle cx="42" cy="22" r="10" fill="#ff9f1c"/><path d="M42 5v4M42 35v4M25 22h4M55 22h4M30 10l3 3M54 10l-3 3" fill="none" stroke="#ff9f1c" stroke-width="3" stroke-linecap="round"/><path d="M17 52h27a9 9 0 0 0 1.5-17.9A14 14 0 0 0 19.5 36 8.5 8.5 0 0 0 17 52Z" fill="#9db8d9"/></g>';
+    if(kind==='cloud-moon')return glyphs.moon+glyphs.cloud;
     return Object.hasOwn(glyphs,kind) ? glyphs[kind] : '<g transform="scale(4.1666667)" fill="none" stroke="#a8c3d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + weatherConditionPath(kind) + '"/></g>';
   }
 
@@ -493,7 +464,8 @@
       return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
     };
     const bounded = (value, min, max) => Number.isFinite(value) && value >= min && value <= max ? value : null;
-    const sunrise = typeof snapshot.sunrise === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(snapshot.sunrise) && validDate(snapshot.sunrise.slice(0,10)) && Number(snapshot.sunrise.slice(11,13)) < 24 && Number(snapshot.sunrise.slice(14,16)) < 60 && (!snapshot.sunrise.slice(17) || Number(snapshot.sunrise.slice(17)) < 60) ? snapshot.sunrise : null;
+    const sunTime = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value) && validDate(value.slice(0,10)) && Number(value.slice(11,13)) < 24 && Number(value.slice(14,16)) < 60 && (!value.slice(17) || Number(value.slice(17)) < 60) ? value : null;
+    const sunrise = sunTime(snapshot.sunrise), sunset = sunTime(snapshot.sunset);
     const seenHours = new Set(), seenDays = new Set();
     const hours = available && Array.isArray(snapshot.hours) ? snapshot.hours.filter(hour => {
       const at = hour?.time;
@@ -504,7 +476,7 @@
       if (!validDate(day?.date) || !validTemperature(day.min) || !validTemperature(day.max) || day.min > day.max || seenDays.has(day.date)) return false;
       seenDays.add(day.date); return true;
     }).slice(0, 3).map(day => ({date: day.date, min: Math.round(day.min), max: Math.round(day.max)})) : [];
-    return {feelsLike: validTemperature(snapshot.feelsLike) ? Math.round(snapshot.feelsLike) : null, humidity: bounded(snapshot.humidity,0,100), windSpeed: bounded(snapshot.windSpeed,0,400), uvIndex: bounded(snapshot.uvIndex,0,30), sunrise, size, available, hours, days, narrative: size !== 'rail' && available, date,
+    return {feelsLike: validTemperature(snapshot.feelsLike) ? Math.round(snapshot.feelsLike) : null, humidity: bounded(snapshot.humidity,0,100), windSpeed: bounded(snapshot.windSpeed,0,400), uvIndex: bounded(snapshot.uvIndex,0,30), sunrise, sunset, size, available, hours, days, narrative: size !== 'rail' && available, date,
       celsius: available ? Math.round(snapshot.temperature) : null, fahrenheit: available ? Math.round(snapshot.temperature * 9 / 5 + 32) : null,
       calendarTodayCount: Number.isSafeInteger(snapshot.calendarTodayCount) && snapshot.calendarTodayCount >= 0 && snapshot.calendarTodayCount <= 9999 ? snapshot.calendarTodayCount : null,
       min: validTemperature(snapshot.min) ? Math.round(snapshot.min) : null, max: validTemperature(snapshot.max) ? Math.round(snapshot.max) : null,
@@ -546,12 +518,13 @@
     const entries = new Map();
     let order = [], serial = 0;
     const copy = () => ({primary: order[0] || null, rail: order.slice(1), items: order.map(id => ({...entries.get(id)}))});
-    function update(values = [], {completed = [], interacting = null, preserveOrder = false} = {}) {
+    function update(values = [], {completed = [], interacting = null, preserveOrder = false, allowedIds = [], maxItems = 3} = {}) {
+      maxItems = Math.max(1, Math.min(9, Number.isInteger(maxItems) ? maxItems : 3));
       const current = now(), active = new Map(), previousPrimary = order[0];
       for (const value of Array.isArray(values) ? values : []) {
-        if (!value || !(Object.hasOwn(moduleDefinitions, value.id) || ['transfer', 'file'].includes(value.id)) || active.has(value.id)) continue;
+        if (!value || !(Object.hasOwn(moduleDefinitions, value.id) || ['transfer', 'file'].includes(value.id) || allowedIds.includes(value.id)) || active.has(value.id)) continue;
         active.set(value.id, {...value});
-        if (active.size === 3) break;
+        if (active.size === maxItems) break;
       }
       const added = [];
       for (const [id, value] of active) {
@@ -573,9 +546,9 @@
         if (next) order = [next, ...order.filter(id => id !== next)];
       }
       if (!preserveOrder && added.includes('focus') && order[0] !== 'focus') order = ['focus', ...order.filter(id => id !== 'focus')];
-      if (order.length > 3) {
+      if (order.length > maxItems) {
         const expired = order.filter(id => entries.get(id)?.complete);
-        while (order.length > 3) {const id = expired.shift() || order.at(-1); order = order.filter(value => value !== id); entries.delete(id);}
+        while (order.length > maxItems) {const id = expired.shift() || order.at(-1); order = order.filter(value => value !== id); entries.delete(id);}
       }
       return copy();
     }
@@ -589,6 +562,7 @@
   }
 
   function closedBandSize(state, {activities = [], feedback = false} = {}) {
+    if (state === 'compact' && feedback?.boundary) {const {width,height,radius,shoulder}=ISLAND_CONFIG.focusPeek;return {width,band:height,radius,shoulder,progress:0};}
     if (state === 'compact' && feedback) {
       const {width, height, radius, shoulder} = feedback?.compact ? ISLAND_CONFIG.confirmation : ISLAND_CONFIG.notification;
       return {width, band: height, radius, shoulder, progress: 0};
@@ -602,7 +576,7 @@
     return {width: size.width, band: size.height, radius: size.radius, shoulder: 0, progress: 0};
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = {ISLAND_CONFIG, FocusModel, focusConfiguration, focusCardValues, weatherNarrative, weatherConditionPath, weatherGlyphMarkup, weatherDesignValues, dragFileCount, localSendFailureCopy, normalizeAppearance, normalizeModules, assignModuleSlot, modulePlacementPlan, moduleEditorPresentation, homeModuleLayout, nookGridPlan, getModuleDefinitions, openPanelLimits, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, createActivityReflow, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, artworkPalette, closedBandSize, activitySnapshot, createActivityScene};
+  if (typeof module === 'object' && module.exports) module.exports = {ISLAND_CONFIG, FocusModel, focusConfiguration, focusCardValues, weatherNarrative, weatherConditionPath, weatherGlyphMarkup, weatherDesignValues, dragFileCount, localSendFailureCopy, normalizeAppearance, initialAppearance, openPanelWidth, openPanelScale, normalizeModules, assignModuleSlot, modulePlacementPlan, moduleEditorPresentation, nookGridPlan, getModuleDefinitions, openPanelLimits, normalizeScenarios, scenarioModulePlan, createScenarioController, moduleActivitySnapshot, moduleActivityChange, createSurfaceMotion, createActivityReflow, shape, normalizeMusic, musicPosition, spectrumLevels, artworkColor, artworkPalette, closedBandSize, activitySnapshot, createActivityScene};
   if (!window?.document) return;
 
   const document = window.document;
@@ -625,7 +599,7 @@
     return t(origin?.view === 'tray' ? 'Revenir à Tray' : origin?.view === 'module-library' ? 'Revenir au Market' : settingsRoute(origin?.view) ? 'Revenir aux réglages' : origin?.view === 'tasks' ? 'Revenir aux tâches' : origin?.view === 'focus' ? 'Revenir au minuteur' : 'Revenir à Nook');
   }
   function captureRouteOrigin(control = document.activeElement) {
-    return {view,page:islandPage,control,detail:{origin:detailReturn,view:detailView},focus:focusToolReturn};
+    return {view,page:islandPage,control,detail:{origin:detailReturn,view:detailView},focus:focusToolReturn,...(moduleLab?{lab:{id:moduleLab.id,presentation:moduleLab.presentation,origin:moduleLab.origin}}:{})};
   }
   function returnFromDetail() {
     if(view==='weather'&&weatherInlinePickerReturn){weatherInlinePickerReturn=null;weatherPickerOpen=false;}
@@ -722,6 +696,8 @@
     if (motionEnabled() && typeof panel.animate === 'function') panel.animate([{opacity: 0}, {opacity: 1}], {duration: ISLAND_CONFIG.durations.contentExit, easing: 'ease-out'});
   }
   let homeLayout = null, pointerInside = false, keyboardNavigation = false;
+  let moduleLab = null, moduleLabToolbar = null;
+  ModuleLayout.applyTokens(notch);
   let localSendContext = null, nearbyMutation = 0, nearbyLoaded = false;
   const byId = id => document.getElementById(id);
   const desktop = window.notchyDesktop?.isDesktop ? window.notchyDesktop : null;
@@ -737,7 +713,7 @@
     }
     for (const {manifest} of entries) {
       const id = manifest.id, template = moduleDefinitions.weather;
-      moduleDefinitions[id] = Object.freeze({...template, id, community: true, label: manifest.name[i18n.locale()], description: manifest.description[i18n.locale()], element: 'community-module-' + id, view: 'nook', defaultInstalled: false, initialSlot: null, directOpen: false, band: Object.freeze({discreet:'none',hover:'none',changes:[]})});
+      moduleDefinitions[id] = Object.freeze({...template, id, community: true, label: manifest.name[i18n.locale()], description: manifest.description[i18n.locale()], contract: ModuleLayout.getCommunityContract(manifest), element: 'community-module-' + id, view: 'nook', defaultInstalled: false, initialSlot: null, directOpen: false, band: Object.freeze({discreet:'none',hover:'none',changes:[]})});
       if (!communityCards.has(id)) {const card = document.createElement('article'); card.id = moduleDefinitions[id].element; card.className = 'community-module-host activity-card activity-card-secondary'; card.hidden = true; panel.append(card); communityCards.set(id, card);}
     }
   }
@@ -754,9 +730,14 @@
   }
   function placeCommunityModule(id, destination) {
     if (!communityStore.get(id) || !Number.isInteger(destination) || destination < 0 || destination > 2) throw Error('Choose a valid module position');
-    const next=getModules(); if(!next.enabled.includes(id)) next.enabled.push(id);
-    const result = assignModuleSlot(next, destination, id);
-    moduleLibrary?.hide(); setModules(result); selectViewButton({dataset:{view:'nook'}}); openFromOutside();
+    if (moduleSettings.grid) {
+      moduleLibrary?.hide(); openModuleEditor();
+      moduleDraft.enabled=[...new Set([...moduleDraft.enabled,id])]; modulePicked=id;
+      moduleMessage=t('Choisis une cellule libre pour ajouter le module.'); renderModules(); return;
+    }
+    const placement=modulePlacementCandidate(getModules(),destination,id);
+    if(!placement.available)throw new Error(t(placement.reason==='unsupported-presentation'?'Format non pris en charge.':'Espace insuffisant pour ce format.'));
+    moduleLibrary?.hide(); setModules(placement.value); selectViewButton({dataset:{view:'nook'}}); openFromOutside();
   }
   async function changeBuiltinAvailability(id, installed) {
     if(disposed||!Object.hasOwn(moduleDefinitions,id)||moduleDefinitions[id].community||typeof installed!=='boolean')throw new TypeError('Unknown built-in module');
@@ -806,7 +787,7 @@
     searchReturnView = view === 'search' ? 'nook' : view;
     searchReturnState = state === 'open' ? 'open' : 'rest';
     clearModuleFeedback(false);
-    selectViewButton({dataset: {view: 'search'}}); openFromOutside();
+    selectViewButton({dataset: {view: 'search'}}); openFromOutside(); renderSearchRoute();
   }
   function searchClosed() {
     if (disposed || view !== 'search') return;
@@ -823,8 +804,12 @@
   }
   let desktopMaxHeight = 700, desktopRemoveResume = null, desktopMouse = null, desktopInteractive = false;
   if (desktop) { document.documentElement.dataset.desktop = 'true'; document.body.classList.add('desktop'); }
-  let appearance = normalizeAppearance();
-  try { appearance = normalizeAppearance(JSON.parse(window.localStorage.getItem('notchy-minimal-appearance-v1'))); } catch {}
+  let appearance = initialAppearance();
+  try {
+    const saved = JSON.parse(window.localStorage.getItem('notchy-minimal-appearance-v1'));
+    appearance = initialAppearance(saved);
+    if (saved?.compactDefault !== true) window.localStorage.setItem('notchy-minimal-appearance-v1', JSON.stringify({...appearance, compactDefault: true}));
+  } catch {}
   function motionEnabled() { return appearance.motion && !reduced.matches; }
   function renderAppearance() {
     document.body.dataset.motion = String(motionEnabled());
@@ -836,7 +821,7 @@
   function setAppearance(value, persist = true) {
     if (disposed) return false;
     appearance = normalizeAppearance({...appearance, ...value});
-    if (persist) try { window.localStorage.setItem('notchy-minimal-appearance-v1', JSON.stringify(appearance)); } catch {}
+    if (persist) try { window.localStorage.setItem('notchy-minimal-appearance-v1', JSON.stringify({...appearance, compactDefault: true})); } catch {}
     renderAppearance(); islandMotionPreference(); musicLifecycle(); return true;
   }
   function appearanceInput(event) {
@@ -885,8 +870,10 @@
   // Original module editor: four independent previews, then the integrated palette.
   const modulesPlayer = byId('modules-player'), moduleStorageKey = 'notchy-minimal-modules-v1';
   const scenarioStorageKey = 'notchy-scenarios-v1';
-  let scenarioController = null, scenarioPreferences = normalizeScenarios();
-  try {const saved = window.localStorage.getItem(scenarioStorageKey); if (saved && saved.length <= 4096) scenarioPreferences = normalizeScenarios(JSON.parse(saved));} catch {}
+  // Hidden legacy scenarios must never rearrange the user's chosen modules.
+  // Keep saved rules intact; use the saved module layout, without an active plan.
+  let scenarioController = null, scenarioPreferences = normalizeScenarios({mode:'manual'});
+  try {const saved = window.localStorage.getItem(scenarioStorageKey); if (saved && saved.length <= 4096) scenarioPreferences = {...normalizeScenarios(JSON.parse(saved)),mode:'manual',selected:null};} catch {}
   const moduleLabels = Object.fromEntries(Object.values(moduleDefinitions).map(item => [item.id, t(item.label)]));
   let queueOpen = false, queueClosing = false, queueActive = false, queueBusy = false, queueTimer = 0, queueEpoch = 0, queueRetryUntil = 0, queueListSignature = '';
   let queueState = {status: 'disconnected', current: null, items: [], message: ''};
@@ -911,7 +898,7 @@
     selectViewButton({dataset: {view: welcomeReturnView || 'nook'}}); setState(nextState);
   }
   function replayWelcome() { showWelcome(); }
-  let moduleFeedback = null, moduleFeedbackTimer = 0, moduleFeedbackSequence = 0;
+  let moduleFeedback = null, moduleFeedbackTimer = 0, moduleFeedbackStageTimer = 0, moduleFeedbackSequence = 0;
   const moduleFeedbackAnimations = new Set();
   const moduleActivityStates = new Map();
   function animateModuleChange(element) {
@@ -928,9 +915,14 @@
     const done = !!feedback && (feedback.id === 'shelf' || focusFeedback && (feedback.kind === 'task-complete' || feedback.kind === 'complete' || feedback.kind === 'phase' && focus.pomodoro?.phase === 'break'));
     notch.dataset.feedback = feedback ? done ? 'done' : feedback.id === 'music' && feedback.kind === 'track' ? 'track' : 'change' : '';
     notch.dataset.feedbackCompact = String(!!feedback?.compact);
+    notch.dataset.focusBoundary = feedback?.boundary?.kind || '';
     const actions = byId('module-feedback-actions'); actions.hidden = closed.hidden || !done;
+    byId('module-feedback-label').hidden = false;
+    actions.querySelector('[data-feedback-command="open"]').hidden = false;
+    actions.querySelector('[data-feedback-command="toggle"]').hidden = true;
     byId('module-feedback-spectrum').hidden = closed.hidden || feedback?.id !== 'music';
     if (!feedback) return;
+    if (feedback.boundary) {text(byId('module-feedback-open-title'), t(feedback.boundary.title)); renderFocusBoundary(feedback, closed, actions); return;}
     for (const id of ['module-feedback-title', 'module-feedback-open-title']) text(byId(id), feedback.title);
     text(byId('module-feedback-detail'), feedback.detail);
     text(byId('module-feedback-label'), feedback?.kind === 'task-complete' ? t('Tâche terminée').toLocaleUpperCase(i18n.locale()) : done ? focusFeedback ? t('SESSION TERMINÉE') : t('C’EST PRÊT') : feedback.id === 'music' ? t('EN LECTURE') : 'FOCUS');
@@ -954,8 +946,52 @@
       byId('module-feedback-icon').replaceChildren(icon);
     }
   }
+  function renderFocusBoundary(feedback, closed, actions) {
+    const boundary = feedback.boundary, settled = feedback.settled === true;
+    const color = boundary.kind === 'break' ? 'var(--activity-break)' : boundary.kind === 'task' ? 'var(--accent-focus)' : 'var(--activity-focus)';
+    const card = focusCardValues(focus, focusSettings), phase = boundary.phase;
+    const title = byId('module-feedback-title'), detail = byId('module-feedback-detail');
+    const nextRunning = boundary.nextTask && focus.activeTaskId === boundary.nextTask.id && focusIsActive();
+    const next = settled && boundary.kind === 'task' && boundary.taskDone && !nextRunning ? boundary.nextTask : null;
+    notch.style.setProperty('--module-feedback-color', settled && !next && focus.pomodoro?.phase === 'break' ? 'var(--activity-break)' : settled ? 'var(--activity-focus)' : color);
+    closed.dataset.settled = String(settled);
+    if (settled && (next || focusIsActive())) {
+      if (next) text(title, next.title);
+      else window.NotchyDuration.updateClock(title, time(card.seconds).padStart(5, '0'), {motion: motionEnabled()});
+      text(detail, next ? t('Prêt') : `${t(focus.pomodoro?.phase === 'break' ? 'PAUSE' : 'FOCUS')} · ${focus.pomodoro?.session || phase.cycle}/${focus.pomodoro?.total || boundary.cycles}`);
+    } else {
+      text(title, t(boundary.title));
+      text(detail, boundary.kind === 'focus' ? t('Pause de {minutes} min', {minutes: phase.minutes}) : boundary.kind === 'break' ? t('Retour au focus') : boundary.kind === 'cycle' ? t('Longue pause · {minutes} min', {minutes: phase.minutes}) : boundary.taskDone ? boundary.remainingCount ? t(boundary.remainingCount === 1 ? '{count} restante' : '{count} restantes', {count: boundary.remainingCount}) : t('Tout est fait') : boundary.task.title);
+    }
+    byId('module-feedback-label').hidden = true;
+    byId('module-feedback-cycles').hidden = true;
+    const icon = byId('module-feedback-icon');
+    if (icon.dataset.boundarySequence !== String(feedback.sequence)) {
+      icon.dataset.boundarySequence = String(feedback.sequence);
+      icon.innerHTML = '<svg class="focus-boundary-ring" viewBox="0 0 100 100" aria-hidden="true"><circle class="focus-boundary-track" cx="50" cy="50" r="42"/><circle class="focus-boundary-fill" cx="50" cy="50" r="42" pathLength="1"/><circle class="focus-boundary-wave" cx="50" cy="50" r="42"/><path class="focus-boundary-check" d="m31 51 13 13 26-29" pathLength="1"/></svg>';
+      for (let index = 0; index < 7; index++) {const particle = document.createElement('i'); particle.className='focus-boundary-particle'; particle.style.setProperty('--particle-index',index); icon.append(particle);}
+    }
+    icon.style.setProperty('--boundary-progress', String(settled ? next ? 1 : 1-card.progress : boundary.kind === 'cycle' ? 1 : 0));
+    const segmentGap = Math.min(.045, .2 / boundary.interval);
+    icon.style.setProperty('--boundary-segments', `${1 / boundary.interval - segmentGap} ${segmentGap}`);
+    icon.dataset.cycle = String(boundary.kind === 'cycle' && !settled);
+    actions.hidden = closed.hidden;
+    actions.querySelector('[data-feedback-command="open"]').hidden = true;
+    actions.querySelector('[data-feedback-command="skip"]').hidden = true;
+    const button = actions.querySelector('[data-feedback-command="toggle"]'); button.hidden = false;
+    button.dataset.transport = String(settled && (!!next || focusIsActive()));
+    button.setAttribute('aria-label', t(settled && next ? 'Lancer le Pomodoro' : settled && focusIsActive() ? focus.deadline ? 'Mettre en pause' : 'Reprendre' : 'Ouvrir l’encoche'));
+    button.querySelector('path').setAttribute('d', settled && next ? 'M7 4v16l13-8z' : settled && focusIsActive() ? focus.deadline ? 'M6 5h4v14H6zM14 5h4v14h-4z' : 'M7 4v16l13-8z' : 'm5 12.5 4.5 4.5L19 7.5');
+  }
+  function settleFocusBoundary() {
+    moduleFeedbackStageTimer = 0;
+    if (!moduleFeedback?.boundary || disposed) return;
+    moduleFeedback.settled = true; renderModuleFeedback();
+    animateModuleChange(byId('module-feedback-live').querySelector('.module-feedback-copy'));
+  }
   function clearModuleFeedback(render = true) {
     window.clearTimeout(moduleFeedbackTimer); moduleFeedbackTimer = 0;
+    window.clearTimeout(moduleFeedbackStageTimer); moduleFeedbackStageTimer = 0;
     for (const animation of moduleFeedbackAnimations) animation.cancel(); moduleFeedbackAnimations.clear();
     moduleFeedback = null;
     if (render && !disposed) { renderModuleFeedback(); renderLiveActivities(); update(); recheckCollapse(); }
@@ -981,6 +1017,7 @@
     const restoreQuiet = state === 'rest' || moduleFeedback?.restoreQuiet === true;
     clearModuleFeedback(false);
     moduleFeedback = {...event, sequence: ++moduleFeedbackSequence, restoreQuiet};
+    if (event.boundary) moduleFeedbackStageTimer = window.setTimeout(settleFocusBoundary, ISLAND_CONFIG.focusPeek.settleAfter);
     const copy = localizedFeedback(event);
     text(byId('module-feedback-announcer'), `${t(definition.label)} · ${copy.title} · ${copy.detail}`);
     if (state === 'rest' && !protectedInteraction()) setState('compact');
@@ -989,13 +1026,13 @@
     if (state === 'open') {
       animateModuleChange(byId('module-feedback-open'));
       const host = getModuleEditorActive() ? byId('module-catalog').querySelector(`[data-module-id="${event.id}"] .module-tile`) : byId(definition.element);
-      if (event.id !== 'music' || event.kind !== 'track') animateModuleChange(host);
+      if (!event.boundary && (event.id !== 'music' || event.kind !== 'track')) animateModuleChange(host);
       animateModuleChange(byId('home-side').querySelector(`[data-module-open="${event.id}"]`));
     } else if (!byId('module-feedback-live').hidden) animateModuleChange(byId('module-feedback-live'));
     moduleFeedbackTimer = window.setTimeout(() => {
       const quiet = moduleFeedback?.restoreQuiet; clearModuleFeedback();
       if (quiet && state === 'compact' && !pointerInside && !protectedInteraction()) setState('rest');
-    }, ISLAND_CONFIG.notification.duration);
+    }, event.boundary ? ISLAND_CONFIG.focusPeek.duration : ISLAND_CONFIG.notification.duration);
   }
   function observeModuleActivity(id, value) {
     const next = moduleActivitySnapshot(id, value), previous = moduleActivityStates.get(id);
@@ -1027,18 +1064,24 @@
     const command = event.target.closest('[data-feedback-command]')?.dataset.feedbackCommand, feedback = moduleFeedback;
     if (!command || !feedback || disposed) return;
     event.stopPropagation();
+    if (command === 'toggle' && feedback.boundary) {
+      const next = feedback.boundary.taskDone && feedback.boundary.nextTask;
+      if (feedback.settled && next && !(focus.activeTaskId === next.id && focusIsActive())) {focusComponent.startTask(next.id);return;}
+      if (feedback.settled && focusIsActive()) {focusComponent.command('toggle'); return;}
+      clearModuleFeedback(); selectViewButton({dataset: {view: 'focus'}}); setState('open'); return;
+    }
     if (command === 'skip' && ['focus', 'tasks'].includes(feedback.id)) { clearModuleFeedback(); focusComponent.command('skip'); return; }
     const id = feedback.id, target = feedback.kind === 'task-complete' ? 'tasks' : ['focus', 'tasks'].includes(id) ? 'focus' : moduleDefinitions[id].view; clearModuleFeedback(); selectViewButton({dataset: {view: target}}); setState('open');
   }
   const moduleMime = 'application/x-notchy-module';
   let moduleSettings = normalizeModules(), moduleDraft = null, moduleMessage = '', moduleEditing = false;
-  let modulePicked = null, moduleSelected = 0, modulePreviousView = 'nook', modulePreviousState = 'open', moduleReturnFocus = null;
+  let modulePicked = null, moduleSelected = 0, modulePreviousView = 'nook', modulePreviousState = 'open', moduleReturnFocus = null, moduleEditorMount = null;
   try {
     const saved = window.localStorage.getItem(moduleStorageKey);
     if (saved && saved.length <= 8192) moduleSettings = normalizeModules(JSON.parse(saved));
   } catch {}
   if (!moduleOrderSaved) moduleOrder=[...new Set([...moduleSettings.slots.filter(Boolean),...moduleSettings.enabled,...moduleOrder])];
-  function getModules() { return {enabled: [...moduleSettings.enabled], slots: [...moduleSettings.slots]}; }
+  function getModules() { return {enabled: [...moduleSettings.enabled], slots: [...moduleSettings.slots], ...(moduleSettings.grid?{grid:moduleSettings.grid.map(item=>({...item}))}:{})}; }
   function isModuleEnabled(id) { return moduleSettings.enabled.includes(id); }
   function focusCoreEnabled() { return isModuleEnabled('focus'); }
   function configuredModuleOrder() {
@@ -1046,6 +1089,7 @@
     return [...ordered, ...moduleSettings.enabled.filter(id => !ordered.includes(id))];
   }
   function getHomeSlots() {
+    if(moduleLab) return [...moduleLab.ids];
     if (view === 'nook' && !getModuleEditorActive() && islandPage === 'tasks') return isModuleEnabled('focus') ? ['focus', null, null] : [null, null, null];
     if (view === 'nook' && !getModuleEditorActive() && ['tasks', 'essential'].includes(islandPage)) {
       const ids = [...new Set(nookGridPlan(islandPage, moduleSettings.enabled).map(item => ['tasks', 'pomodoro'].includes(item.id) ? 'focus' : item.id).filter(id => Object.hasOwn(moduleDefinitions, id)))];
@@ -1062,7 +1106,7 @@
   function getModuleEditorActive() { return moduleEditing; }
   function getModuleEditorSlots() {
     const value = moduleEditing && moduleDraft ? moduleDraft : moduleSettings;
-    return value.slots.map(id => value.enabled.includes(id) ? id : null);
+    return value.grid ? value.grid.map(item=>item.id) : value.slots.map(id => value.enabled.includes(id) ? id : null);
   }
   function getModuleEditorOrder() {
     const value = moduleEditing && moduleDraft ? moduleDraft : moduleSettings, ordered = getModuleEditorSlots().filter(Boolean);
@@ -1101,20 +1145,25 @@
   function openModuleEditor(event) {
     if (disposed) return false;
     if (moduleEditing) return true;
+    if(moduleLab)endModuleLab(false);
     modulePreviousView = view; modulePreviousState = state; moduleReturnFocus = document.activeElement;
+    moduleEditorMount = {parent:modulesPlayer.parentNode,next:modulesPlayer.nextSibling};
+    panel.append(modulesPlayer);
     moduleDraft = getModules(); moduleDraftOrder = [...moduleOrder]; modulePicked = null; moduleMessage = ''; moduleEditing = true;
     const target = event?.target?.closest?.('[data-home-slot], [data-module-open]');
     const moduleId = target?.dataset.moduleOpen || target?.dataset.module, storedIndex = moduleDraft.slots.slice(0, 3).indexOf(moduleId);
     const index = Object.hasOwn(moduleDefinitions, moduleId || '') ? storedIndex >= 0 ? storedIndex : moduleDraft.slots.slice(0, 3).findIndex(id => !id || !moduleDraft.enabled.includes(id)) : target?.dataset.homeSlot;
     if (storedIndex < 0 && Object.hasOwn(moduleDefinitions, moduleId || '')) modulePicked = moduleId;
     moduleSelected = Number.isInteger(Number(index)) && Number(index) >= 0 && Number(index) < 3 ? Number(index) : Math.max(0, moduleDraft.slots.slice(0, 3).findIndex(Boolean));
-    moduleEditorLayout(true); (modulesPlayer.querySelector('.experience-switch') || modulesPlayer.querySelector(`[data-module-slot-box="${moduleSelected}"]`))?.focus({preventScroll: true}); return true;
+    moduleEditorLayout(true); modulesPlayer.querySelector('.experience-grid-module,.experience-grid-cell button')?.focus({preventScroll: true}); return true;
   }
   function closeModuleEditor(commit = false) {
     if (!moduleEditing) return false;
     const value = moduleDraft;
     if (commit && moduleDraftOrder) {moduleOrderSaved=true; moduleOrder = moduleDraftOrder.filter(id => !moduleDefinitions[id]?.community); try {window.localStorage.setItem('notchy-module-order-v1', JSON.stringify(moduleOrder));} catch {}}
     moduleDraftOrder = null; moduleEditing = false; moduleDraft = null; modulePicked = null;
+    if (moduleEditorMount?.parent?.isConnected) moduleEditorMount.parent.insertBefore(modulesPlayer,moduleEditorMount.next?.parentNode===moduleEditorMount.parent?moduleEditorMount.next:null);
+    moduleEditorMount = null;
     if (commit) {modulePreviousView = 'nook'; modulePreviousState = 'open'; setModules(value);} else moduleMessage = t('Changements annulés.');
     moduleEditorLayout(false, true);
     if (moduleReturnFocus?.isConnected && moduleReturnFocus.tabIndex >= 0 && !moduleReturnFocus.closest('[hidden],[inert]')) moduleReturnFocus.focus({preventScroll: true});
@@ -1175,11 +1224,45 @@
     else empty.append(make('strong', '', id === 'music' ? t('Musique') : t('Météo')), make('small', '', id === 'music' ? t('Aucun morceau en cours') : t('Choisir une ville')));
     host.append(empty);
   }
+  function renderEditorPreview(host, assignment) {
+    ModuleLayout.applyHost(host, assignment); host.inert = true;
+    if (assignment.id === 'focus') {
+      const preview = focusComponent.renderPreview(host, {presentation:assignment.presentation});
+      return () => preview.dispose();
+    }
+    const community=communityStore.get(assignment.id);
+    if(community){
+      host.classList.add('community-module-host');
+      const dispose=window.NotchyModules.render(host,community.manifest,community.state,{presentation:assignment.presentation,language:i18n.locale(),onAction:()=>{}});
+      return () => {dispose();host.classList.remove('community-module-host');};
+    }
+    const source = assignment.id === 'shelf' ? activitySummaryCard('shelf', assignment) : byId(moduleDefinitions[assignment.id]?.element);
+    if (!['music','shelf','weather'].includes(assignment.id) || (!source && assignment.id !== 'weather')) {modulePreview(host, assignment.id, assignment.presentation); return () => host.replaceChildren();}
+    const shadow = host.shadowRoot || host.attachShadow({mode:'open'}); shadow.replaceChildren();
+    for (const file of ['tokens.css','notch.css','sharing-experience.css','experience-polish.css','empty-states.css','module-layout.css']) {const link=document.createElement('link');link.rel='stylesheet';link.href=file;shadow.append(link);}
+    const surface=document.createElement('div');surface.id='notch';surface.className='notch';surface.style.cssText='width:100%;height:100%;position:relative;left:0;top:0;overflow:hidden;transform:none;zoom:1;box-shadow:none';
+    const canvas=document.createElement('div');canvas.id='nook-layout';canvas.style.cssText='width:100%;height:100%;padding:0';
+    const copy=assignment.id==='weather'?document.createElement('div'):source.cloneNode(true);copy.hidden=false;copy.inert=true;copy.style.cssText='width:100%;height:100%;margin:0;position:relative';
+    ModuleLayout.applyHost(copy,assignment);
+    if(assignment.id==='weather'){copy.className='weather-design';renderWeatherDesign(copy,assignment.presentation);}
+    if(assignment.id==='music')copy.dataset.musicSize=['small','wide'].includes(assignment.presentation)?'banner':'card';
+    if(assignment.id==='shelf'){
+      renderShelfSummaryContents(copy);
+      canvas.dataset.layout='activities';canvas.dataset.activityCount='1';
+      const stage=document.createElement('div');stage.className='activity-stage';stage.dataset.slotEngine='1';stage.style.cssText='width:100%;height:100%';
+      const main=document.createElement('div');main.className='activity-main activity-card';main.dataset.activity='shelf';
+      for(const [name,value]of Object.entries({x:'0px',y:'0px',width:'100%',height:'100%'}))main.style.setProperty('--slot-'+name,value);
+      main.append(copy);stage.append(main);canvas.append(stage);
+    }else canvas.append(copy);
+    surface.append(canvas);shadow.append(surface);
+    return () => {shadow.replaceChildren();};
+  }
   function renderModules() {
     if (disposed) return;
+    byId('module-editor-toolbar').hidden = !moduleEditing;
     modulesPlayer.hidden = !moduleEditing; if (!moduleEditing || !moduleDraft) return;
     if (experience) {
-      experience.renderModules({definitions: getModuleDefinitions(), enabled: moduleDraft.enabled, order: [...(moduleDraftOrder || moduleOrder),...communityStore.list().map(item=>item.manifest.id)]});
+      experience.renderModules({definitions: getModuleDefinitions(), enabled: moduleDraft.enabled, order: [...(moduleDraftOrder || moduleOrder),...communityStore.list().map(item=>item.manifest.id)], grid: moduleDraft.grid || ModuleLayout.planSlots(modulePlacementPlan(moduleDraft).items,{width:ModuleLayout.grid.width,height:ModuleLayout.grid.height,getContract:layoutContract}).items.map(({id,presentation},index)=>({id,presentation,column:index?2:0,row:index===2?2:0}))});
       byId('modules-status').textContent = moduleMessage; return;
     }
     const layout = moduleEditorPresentation(moduleDraft, modulePicked), slots = layout.slots, primary = Math.max(0, slots.findIndex(Boolean));
@@ -1219,8 +1302,9 @@
   }
   function placeModuleDraft(index, id) {
     if (!moduleDraft || !Number.isInteger(index) || index < 0 || index > 2 || !Object.hasOwn(moduleLabels, id)) return;
-    if (!moduleDraft.enabled.includes(id)) moduleDraft.enabled.push(id);
-    moduleDraft = assignModuleSlot(moduleDraft, index, id); moduleSelected = index; modulePicked = null;
+    const placement=modulePlacementCandidate(moduleDraft,index,id);
+    if(!placement.available){moduleMessage=t(placement.reason==='unsupported-presentation'?'Format non pris en charge.':'Espace insuffisant pour ce format.');renderModules();return;}
+    moduleDraft = placement.value; moduleSelected = index; modulePicked = null;
     moduleMessage = t('{module} placé.', {module: moduleLabels[id]}); moduleEditorLayout();
   }
   function removeModuleDraft(index) {
@@ -1304,7 +1388,7 @@
   }
   function renderSettings() {
     settingsPlayer.hidden = view !== 'settings' || getModuleEditorActive();
-    ia?.render(view,getModuleEditorActive());
+    ia?.render(view,false);
     renderAppearance();
     renderSettingsConnections();
     if (view === 'settings') update();
@@ -1323,7 +1407,7 @@
     if (!disposed && format && !format.disabled && settingsPlayer.contains(format)) {setAppearance({format: format.dataset.appearanceFormat}); return;}
     const button = event.target.closest('[data-settings-command]');
     if (disposed || !button || button.disabled || !settingsPlayer.contains(button)) return;
-    if (button.dataset.settingsCommand === 'reset-appearance') {setAppearance(normalizeAppearance()); ia?.render(view,getModuleEditorActive()); return;}
+    if (button.dataset.settingsCommand === 'reset-appearance') {setAppearance(normalizeAppearance()); ia?.render(view,false); return;}
     if (button.dataset.settingsCommand === 'close') {
       const origin=settingsReturn, editing=getModuleEditorActive();
       if (editing) closeModuleEditor(false);
@@ -1367,6 +1451,7 @@
     }
   }
   async function experienceAction(action) {
+    if (action === 'done' && moduleEditing) {closeModuleEditor(true); return;}
     if (disposed) return;
     if (action === 'back') {if (moduleEditing) closeModuleEditor(false); else selectViewButton({dataset:{view:'settings'}}); return;}
     if (action === 'network') await nearbyRequest({command:'discover'});
@@ -1449,6 +1534,7 @@
       musicPlaying: music.playing && !connectionLost, transferActive: !!nearby.incoming || nearbyBusy || ['preparing', 'waiting', 'sending', 'receiving'].includes(nearby.transfer?.status)};
   }
   function scenarioInteracting() {
+    if(moduleLab)return true;
     const focused = document.hasFocus() ? document.activeElement : null;
     return document.hidden || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || welcome?.isActive() || state === 'open' && pointerInside || state === 'open' && (['tasks','focus'].includes(view) || !!detailReturn && view === detailView) ||
       state === 'open' && (keyboardNavigation && !!focused?.closest('#notch-panel,#notch-menu,#island-footer') || !!focused?.closest('input,textarea,select,[contenteditable="true"]')) ||
@@ -1535,14 +1621,24 @@
   let focusToolReturn = null, focusConfigurationReturn = null;
   function restoreFocusRoute(origin) {
     if (!origin) return;
+    const restoreControl=()=>{
+      const control=origin.control;
+      // Duration is a shadow host. Its old button can be replaced when the
+      // presentation changes; restore the equivalent live control after render.
+      const target=control?.shadowRoot?.querySelector('.nd-module-small-copy,.nd-selected-title,.nd-heading')||control;
+      if(!target?.isConnected||control?.closest('[hidden],[inert]')||target.closest('[hidden],[inert]'))return false;
+      target.focus({preventScroll:true});return true;
+    };
+    if(origin.lab){
+      const restored=beginModuleLab(origin.lab);
+      if(restored.ok){moduleLab.origin=origin.lab.origin;if(!restoreControl())menu.querySelector('[data-view="nook"]')?.focus({preventScroll:true});return;}
+    }
     // Keep keyboard interaction anchored while the old detail controls are hidden.
     if (keyboardNavigation) menu.querySelector('[data-view="nook"]')?.focus({preventScroll:true});
     if (origin.detail) {detailReturn=origin.detail.origin; detailView=origin.detail.view; focusToolReturn=origin.focus || null;}
     if (origin.page) islandPage = origin.page;
     selectViewButton({dataset:{view:origin.view}, restoring:true}); setState('open');
-    const control = origin.control;
-    if (control?.isConnected && !control.closest('[hidden],[inert]')) control.focus({preventScroll:true});
-    else (origin.view === 'tasks' ? tasksPlayer.querySelector('.tasks-start') : origin.view === 'focus' ? focusPlayer.querySelector('#focus-toggle:not([hidden]),#focus-start:not([hidden])') : menu.querySelector('[data-view="nook"]'))?.focus({preventScroll:true});
+    if(!restoreControl())(origin.view === 'tasks' ? tasksPlayer.querySelector('.tasks-start') : origin.view === 'focus' ? focusPlayer.querySelector('#focus-toggle:not([hidden]),#focus-start:not([hidden])') : menu.querySelector('[data-view="nook"]'))?.focus({preventScroll:true});
   }
   function openActivityDetail(route) {
     if (view !== route) {
@@ -1554,7 +1650,10 @@
     const back = route === 'focus' ? focusToolBack : detailBack;
     if (!back.hidden && !back.closest('[hidden],[inert]')) back.focus({preventScroll:true});
   }
-  const focusComponent = FocusAPI.create({openDuration(kind) {openActivityDetail(kind === 'tasks' ? 'tasks' : 'focus');}, host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus, openTasks() {
+  const focusComponent = FocusAPI.create({openDuration(kind) {
+    if(focusComponent.inspect().configOpen)focusConfigurationReturn=captureRouteOrigin();
+    openActivityDetail(kind === 'tasks' ? 'tasks' : 'focus');
+  }, host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus, openTasks() {
     openActivityDetail('tasks'); tasksComponent.focusInput();
   }, openConfiguration() {
     if (!focusComponent.inspect().configOpen) focusConfigurationReturn = captureRouteOrigin();
@@ -1592,10 +1691,11 @@
     renderFocusTaskPrompt();
     const card = value.card;
     notch.style.setProperty('--focus-progress', String(card.progress)); notch.dataset.focusPhase = focus.pomodoro?.phase || 'work';
-    text(byId('focus-live-time'), time(card.seconds));
+    window.NotchyDuration.updateClock(byId('focus-live-time'), time(card.seconds), {motion: motionEnabled()});
     focusStrip.setAttribute('aria-valuenow', String(Math.round(card.progress * 100)));
     focusStrip.setAttribute('aria-valuetext', t('{phase} · {time} restantes', {phase: focusLabel(), time: time(card.seconds)}));
-    observeModuleActivity('focus', focus);
+    if (value.event?.boundary) moduleActivityStates.set('focus', moduleActivitySnapshot('focus', focus));
+    else observeModuleActivity('focus', focus);
     if (value.event) notifyModuleChange({id: 'focus', ...value.event});
     scenarioController?.observe();
     renderLiveActivities(); renderHomeSummaries(); if (getModuleEditorActive()) renderModules();
@@ -1693,7 +1793,7 @@
       node.dataset.playing = String(item.playing); node.dataset.indeterminate = String(item.progress === null);
       node.style.setProperty('--activity-progress', String(item.id === 'focus' ? focusCardValues(focus, focusSettings).progress : item.progress ?? 0));
       node.title = [copy.label, copy.value, copy.detail].filter(Boolean).join(' · '); labels.push(node.title);
-      if (!index) {text(node.querySelector('strong'), copy.label); text(node.querySelector('small'), copy.detail); text(node.querySelector('.activity-value'), copy.value);}
+      if (!index) {text(node.querySelector('strong'), copy.label); text(node.querySelector('small'), copy.detail); if (item.id === 'focus') window.NotchyDuration.updateClock(node.querySelector('.activity-value'), copy.value, {motion: motionEnabled()}); else text(node.querySelector('.activity-value'), copy.value);}
       if (item.id === 'music') { const image = node.querySelector('img'), cover = !index && music.cover; image.hidden = !cover; if (cover && image.getAttribute('src') !== cover) image.src = cover; node.dataset.cover = String(!!cover); }
     });
     if (state !== 'compact' || !motionEnabled()) for (const bars of rail.querySelectorAll('.activity-spectrum')) delete bars.dataset.signal;
@@ -1720,9 +1820,9 @@
     renderCollapsedActivities();
   }
   function homePrimary() { return getModuleEditorActive() ? getModuleEditorSlots()[0] : getHomeSlots().find(Boolean) || null; }
-  function homeModuleContext() { const selected = scenarioController?.getPreferences().selected; return {weatherPicker: weatherPickerOpen, focusConfig: focusComponent?.inspect().configOpen, completeScenario: selected === 'complete', dayScenario: selected === 'day'}; }
   function builtinVisible(id) {
     const definition = moduleDefinitions[id], editing = getModuleEditorActive();
+    if(view!=='nook'&&definition?.element)ModuleLayout.clearHost(byId(definition.element));
     if (definition?.community) return view === 'nook' && !editing && activityScene.inspect().items.some(item=>item.id===id);
     if (id === 'files') return view === 'files' && !editing;
     if (id === 'tasks') return view === 'tasks' && focusCoreEnabled() && !editing;
@@ -1793,19 +1893,21 @@
     if (activityMotions.size) {activityStage.dataset.reflow='true'; paintActivityReflow(now);}
   }
   function sceneActivities() {
-    if (focus.sessionSummary && focusCoreEnabled()) {const value=focusCardValues(focus,focusSettings); return [{id:'focus',key:'focus',label:focusLabel(),value:time(value.seconds),detail:focus.task,playing:!!focus.deadline,progress:value.progress}];}
-    const configured = modulePlacementPlan({enabled: islandPage === 'tasks' && isModuleEnabled('focus') ? [...moduleSettings.enabled, 'tasks'] : moduleSettings.enabled, slots: getHomeSlots()});
+    if (!moduleLab && focus.sessionSummary && focusCoreEnabled()) {const value=focusCardValues(focus,focusSettings); return [{id:'focus',key:'focus',label:focusLabel(),value:time(value.seconds),detail:focus.task,playing:!!focus.deadline,progress:value.progress}];}
+    const customGrid = !moduleLab && islandPage !== 'tasks' && !scenarioController?.getPreferences().selected && moduleSettings.grid;
+    const configured = moduleLab ? {items:moduleLab.ids.map(id=>({id}))} : modulePlacementPlan(customGrid ? moduleSettings : {enabled: islandPage === 'tasks' && isModuleEnabled('focus') ? [...moduleSettings.enabled, 'tasks'] : moduleSettings.enabled, slots: getHomeSlots()});
     const live = new Map(getCollapsedActivities().map(item => [item.id, item]));
     const priorTransfer = activityScene.inspect().items.find(item => item.id === 'transfer');
-    const confirmingTransfer = priorTransfer && nearby.transfer?.status === 'complete' && (!priorTransfer.complete || priorTransfer.until > Date.now());
-    const contextual = live.get('transfer') || live.get('file');
+    const confirmingTransfer = !moduleLab && priorTransfer && nearby.transfer?.status === 'complete' && (!priorTransfer.complete || priorTransfer.until > Date.now());
+    const contextual = moduleLab || customGrid ? null : live.get('transfer') || live.get('file');
     const currentOrder = activityScene.inspect().items.map(item => item.id);
     const ordered = [...configured.items].sort((left, right) => {
       const rank = id => currentOrder.includes(id) ? currentOrder.indexOf(id) : 3 + configured.items.findIndex(item => item.id === id);
       return rank(left.id) - rank(right.id);
     });
-    const selected = (contextual || confirmingTransfer ? ordered : configured.items).slice(0, contextual || confirmingTransfer ? 2 : 3);
+    const selected = (contextual || confirmingTransfer && !customGrid ? ordered : configured.items).slice(0, customGrid ? 9 : contextual || confirmingTransfer ? 2 : 3);
     const values = selected.map(({id}) => {
+      if(id.startsWith('module-lab-empty-'))return {id,key:id,label:t('Emplacement libre'),detail:'',value:'',progress:null,playing:false};
       const community = communityStore.get(id);
       if (community) return {id,key:id,label:community.manifest.name[i18n.locale()],value:'',detail:community.manifest.description[i18n.locale()],progress:null,playing:false};
       const card = id === 'focus' ? focusCardValues(focus, focusSettings) : null;
@@ -1828,7 +1930,8 @@
     activityStage.append(activityMain, activitySide);
     activityStage.addEventListener('click', activitySceneCommand);
   }
-  function activitySummaryCard(id) {
+  function activitySummaryCard(id, assignment=homeLayout?.items?.find(item=>item.id===id)) {
+    if(usesCompactSummary(id,assignment))return compactModuleCard(id,assignment);
     if (communityCards.has(id)) return communityCards.get(id);
     if (activityCards.has(id)) return activityCards.get(id);
     if (id === 'music') {activityCards.set(id, player); return player;}
@@ -1860,13 +1963,29 @@
     card.querySelector('img').addEventListener('error', event => {event.target.hidden = true;});
     activityCards.set(id, card); return card;
   }
+  function renderShelfSummaryContents(card) {
+    const title=t('Étagère'),detail=shelfError || (shelfLoaded ? shelfItems.length ? shelfItems[0].name : t('Déposer des fichiers') : t('Chargement…'));
+    card.dataset.complete='false';card.dataset.playing='false';card.dataset.indeterminate='true';
+    card.style.setProperty('--activity-progress','0');card.setAttribute('aria-label',[title,detail].filter(Boolean).join(' · '));
+    text(card.querySelector('.activity-card-status-label'),t('Fichiers gardés'));
+    text(card.querySelector('.activity-card-title'),title);text(card.querySelector('.activity-card-detail'),detail);
+    text(card.querySelector('.activity-card-value'),shelfLoaded?localSendCount(shelfItems.length):'—');
+    for(const selector of ['.activity-card-ring','.activity-card-progress','.activity-card-times','.activity-card-completion','img'])card.querySelector(selector).hidden=true;
+    card.querySelector('.activity-card-art').hidden=false;
+    card.querySelector('.activity-promote').setAttribute('aria-label',t('Afficher l’activité')+' · '+title);
+    const preview=card.querySelector('.activity-module-preview'),signature=JSON.stringify(shelfItems.slice(0,3).map(file=>[file.id,file.name]));
+    if(preview.dataset.files!==signature){preview.dataset.files=signature;preview.replaceChildren(...shelfItems.slice(0,3).map(file=>{const name=document.createElement('span');name.textContent=file.name;return name;}));}
+    const action=card.querySelector('.activity-card-action');action.dataset.sceneCommand='shelf-open';action.disabled=false;action.setAttribute('aria-label',t('Ouvrir'));action.querySelector('path').setAttribute('d','M8 5l8 7-8 7');
+  }
   function renderActivitySceneValues() {
     if (!activityStage || byId('nook-layout').dataset.layout !== 'activities') return;
     if (activityMain.dataset.activity === 'music') text(player.querySelector('.music-playing-label'), t(music.playing && !connectionLost ? 'EN LECTURE' : 'Musique'));
     const values = new Map(sceneActivities().map(item => [item.id, item]));
     for (const snapshot of activityScene.inspect().items) {
+      const assignment=homeLayout?.items?.find(item=>item.id===snapshot.id);
       const item = snapshot.complete ? snapshot : values.get(snapshot.id) || snapshot, card = activityCards.get(item.id);
-      if (communityCards.has(item.id)) {const host=communityCards.get(item.id); if (activityStage.contains(host)) renderCommunityCard(item.id,host.dataset.presentation); continue;}
+      if(usesCompactSummary(item.id,assignment)){renderCompactModule(item,assignment);continue;}
+      if (communityCards.has(item.id)) {const host=communityCards.get(item.id); if (activityStage.contains(host)) renderCommunityCard(item.id,host.dataset.modulePresentation || host.dataset.presentation); continue;}
       if (!card || !activityStage.contains(card)) continue;
       if (item.id === 'music') continue; // The same live player owns every music placement.
       if (item.id === 'tasks') {tasksComponent.render(); continue;}
@@ -1892,11 +2011,8 @@
       if (isWeather) {
         card.querySelector('.activity-card-art svg').replaceChildren(byId('weather-condition-icon').querySelector('path').cloneNode(true));
         text(card.querySelector('.activity-module-preview'), [t('ressenti') + ' ' + weatherCopy.feelsLike, weatherCopy.rain + ' ' + weatherCopy.rainQualifier].join(' · '));
-        renderWeatherDesign(card.querySelector('.weather-design'), card.dataset.presentation, {inline:weatherInlineDetail && view === 'nook' && byId('nook-layout').dataset.weatherSplit === 'true'});
-      } else if (isShelf) {
-        const preview = card.querySelector('.activity-module-preview'), signature = JSON.stringify(shelfItems.slice(0, 3).map(file => [file.id, file.name]));
-        if (preview.dataset.files !== signature) {preview.dataset.files = signature; preview.replaceChildren(...shelfItems.slice(0, 3).map(file => {const name = document.createElement('span'); name.textContent = file.name; return name;}));}
-      }
+        renderWeatherDesign(card.querySelector('.weather-design'), card.dataset.modulePresentation || card.dataset.presentation, {inline:weatherInlineDetail && view === 'nook' && byId('nook-layout').dataset.weatherSplit === 'true'});
+      } else if (isShelf) renderShelfSummaryContents(card);
       const action = card.querySelector('.activity-card-action'), path = action.querySelector('path');
       action.dataset.sceneCommand = isFocus ? 'focus-toggle' : isMusic ? 'music-toggle' : isWeather ? 'weather-open' : isShelf ? 'shelf-open' : isTransfer ? 'transfer-cancel' : 'file-open';
       action.disabled = !!item.complete || (isMusic ? commandBusy || connectionLost || !music.canToggle : isFocus ? false : isWeather || isShelf ? false : isTransfer ? nearbyBusy || !['preparing', 'waiting', 'sending', 'receiving'].includes(nearby.transfer?.status) : fileBusy);
@@ -1910,16 +2026,112 @@
     }
     activitySide.setAttribute('aria-label', t('Activités en cours'));
   }
+
+  const compactModuleCards=new Map();
+  function usesCompactSummary(id,assignment){return assignment?.fits===false||assignment?.compact&&!moduleDefinitions[id]?.community||id.startsWith('module-lab-empty-');}
+  function layoutContract(id){
+    if(id?.startsWith('module-lab-empty-'))return {id,layout:Object.fromEntries(ModuleLayout.PRESENTATIONS.map(p=>[p,{min:{width:1,height:1},ideal:{width:200,height:260}}]))};
+    if(id==='transfer'||id==='file'){const contract=ModuleLayout.getBuiltinContract('weather');contract.id=id;return contract;}
+    return moduleDefinitions[id]?.contract||ModuleLayout.getBuiltinContract(id==='tasks'?'focus':id);
+  }
+  function slotViewport(count=moduleLab?.ids.length||getHomeSlots().filter(Boolean).length){
+    const config=ISLAND_CONFIG.activities, extra=moduleLab?ModuleLayout.metrics.labInset:0;
+    const scale=openPanelScale(appearance.format);
+    const width=Math.min(openPanelWidth(appearance.format,{lab:!!moduleLab}),Math.max(1,(window.innerWidth-ISLAND_CONFIG.layout.side*2)/scale))-config.side*2;
+    const limit=(desktop?desktopMaxHeight-8:window.innerHeight-96)/scale;
+    const surfaceHeight=count===1?config.fullHeight:config.sceneHeight;
+    return {width:Math.max(0,width),height:Math.max(0,Math.min(surfaceHeight+extra,limit)-config.sceneTop-config.bottom-extra),density:'regular'};
+  }
+  function planHomeSlots(items){
+    if (moduleLab) return ModuleLayout.planGrid([{id:moduleLab.id,presentation:moduleLab.presentation,column:0,row:0}], {...slotViewport(),getContract:layoutContract});
+    if (!moduleLab && !focus.sessionSummary && islandPage !== 'tasks' && !scenarioController?.getPreferences().selected && moduleSettings.grid) {
+      const plan = ModuleLayout.planGrid(moduleSettings.grid.filter(entry=>items.some(item=>item.id===entry.id)),{...slotViewport(items.length),getContract:layoutContract});
+      return {...plan,items:items.map(item=>plan.items.find(entry=>entry.id===item.id)).filter(Boolean)};
+    }
+    return ModuleLayout.planSlots(items,{...slotViewport(items.length),getContract:layoutContract,forced:moduleLab?{id:moduleLab.id,presentation:moduleLab.presentation}:null});
+  }
+  function modulePlacementCandidate(value,index,id){
+    const next=normalizeModules(value);if(!next.enabled.includes(id))next.enabled.push(id);
+    const placed=assignModuleSlot(next,index,id);
+    const entries=layout=>modulePlacementPlan(layout).items.map(item=>({id:item.id}));
+    const before=entries(value),after=entries(placed);
+    const prior=ModuleLayout.planSlots(before,{...slotViewport(before.length),getContract:layoutContract}),plan=ModuleLayout.planSlots(after,{...slotViewport(after.length),getContract:layoutContract});
+    const blocked=plan.items.find(item=>!item.fits&&(item.id===id||prior.items.find(before=>before.id===item.id)?.fits));
+    return {available:!blocked,reason:blocked?.reason||null,value:placed};
+  }
+  function applySlotRect(node,item){if(!node||!item)return;for(const key of ['x','y','width','height'])node.style.setProperty('--slot-'+key,item[key]+'px');}
+  function applySceneGeometry(plan){
+    activityStage.dataset.slotEngine='1';activityStage.style.height=plan.height+'px';activityStage.style.width=plan.width+'px';activityStage.style.marginTop=(moduleLab?ModuleLayout.metrics.labInset:0)+'px';
+    applySlotRect(activityMain,plan.items[0]);ModuleLayout.applyTokens(activityStage);
+  }
+  function compactModuleCard(id,assignment){
+    let card=compactModuleCards.get(id);
+    if(!card){
+      card=document.createElement('article');card.className='activity-card activity-card-secondary module-compact-card';card.dataset.activity=id;card.dataset.module=id;
+      const copy=document.createElement('div');copy.className='module-compact-copy';
+      const title=document.createElement('button');title.type='button';title.dataset.scenePromote=id;title.className='module-compact-title';
+      const detail=document.createElement('span');detail.className='module-compact-detail';copy.append(title,detail);card.append(copy);
+      const action=document.createElement('button');action.type='button';action.className='module-compact-action';action.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path/></svg>';card.append(action);compactModuleCards.set(id,card);
+    }
+    card.hidden=false;ModuleLayout.applyHost(card,assignment||{id,slot:'main',presentation:'small',legacyPresentation:'rail',fits:true});return card;
+  }
+  function renderCompactModule(item,assignment){
+    const card=compactModuleCard(item.id,assignment),title=card.querySelector('.module-compact-title'),detail=card.querySelector('.module-compact-detail'),action=card.querySelector('.module-compact-action');
+    title.textContent=moduleDefinitions[item.id]?t(moduleDefinitions[item.id].label):item.label||t('Emplacement libre');detail.textContent=[item.value,item.detail].filter(Boolean).join(' · ');
+    if(item.id.startsWith('module-lab-empty-')){title.disabled=true;action.hidden=true;detail.textContent='';return;}
+    const unavailable=assignment?.fits===false;card.dataset.unavailable=String(unavailable);
+    if(unavailable){detail.textContent=t(assignment.reason==='unsupported-presentation'?'Format non pris en charge.':'Espace insuffisant pour ce format.');action.dataset.scenePromote=item.id;delete action.dataset.sceneCommand;action.setAttribute('aria-label',t('Ouvrir')+' '+title.textContent);action.querySelector('path').setAttribute('d','m9 5 7 7-7 7');action.disabled=false;return;}
+    delete action.dataset.scenePromote;action.hidden=false;
+    if(item.id==='transfer'||item.id==='file'){delete action.dataset.sceneCommand;action.dataset.scenePromote=item.id;action.disabled=false;action.setAttribute('aria-label',t('Ouvrir')+' '+title.textContent);action.querySelector('path').setAttribute('d','m9 5 7 7-7 7');return;}
+    const isMusic=item.id==='music',isFocus=item.id==='focus',isWeather=item.id==='weather',emptyFocus=isFocus&&!focus.tasks.some(task=>!task.done);
+    action.dataset.sceneCommand=isMusic?'music-toggle':isFocus?'focus-toggle':isWeather?'weather-open':'shelf-open';
+    action.disabled=isMusic&&(commandBusy||connectionLost||!music.canToggle);action.setAttribute('aria-label',t(emptyFocus?'Nouvelle tâche':isFocus&&!focusIsActive()?'Démarrer Focus':isMusic||isFocus?item.playing?'Mettre en pause':'Reprendre':'Ouvrir'));
+    action.querySelector('path').setAttribute('d',emptyFocus?'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6Z':isMusic?byId('music-play-icon').getAttribute('d'):isFocus?item.playing?'M6 5h4v14H6ZM14 5h4v14h-4Z':'M8 5v14l11-7Z':'m9 5 7 7-7 7');
+    if(isWeather){title.textContent=getWeatherSummary().narrative.city;action.dataset.sceneCommand='weather-open';}
+  }
+  function labIds(id,presentation){return [id];}
+  function beginModuleLab({id,presentation='full'}={}){
+    if(disposed||!moduleDefinitions[id]||!isModuleEnabled(id))return {ok:false,reason:'module-disabled'};
+    if(!ModuleLayout.supports(layoutContract(id),presentation))return {ok:false,reason:'unsupported-presentation'};
+    const ids=labIds(id,presentation),prior=moduleLab;
+    const candidate={id,presentation,ids,origin:prior?.origin||captureRouteOrigin()};moduleLab=candidate;
+    const plan=planHomeSlots(ids.map(value=>({id:value}))),assignment=plan.items.find(item=>item.id===id);
+    if(!assignment?.fits){moduleLab=prior;return {ok:false,reason:'insufficient-space'};}
+    if(getModuleEditorActive())closeModuleEditor(false);
+    if(view!=='nook'){moduleLab=null;selectViewButton({dataset:{view:'nook'}});moduleLab=candidate;}
+    view='nook';islandPage='music';activityScene.reset();sceneConfigurationSignature='';
+    notch.dataset.moduleLab='true';setState('open');renderHomeLayout();update();renderModuleLabControls();return {ok:true,assignment:JSON.parse(JSON.stringify(assignment))};
+  }
+  function endModuleLab(restore=true){
+    if(!moduleLab)return false;const origin=moduleLab.origin;moduleLab=null;notch.dataset.moduleLab='false';moduleLabToolbar?.remove();moduleLabToolbar=null;activityScene.reset();sceneConfigurationSignature='';
+    if(restore)restoreFocusRoute(origin||{view:'nook',page:'music'});return true;
+  }
+  function renderModuleLabControls(){
+    if(!moduleLab){moduleLabToolbar?.remove();moduleLabToolbar=null;return;}
+    if(!moduleLabToolbar){moduleLabToolbar=document.createElement('div');moduleLabToolbar.className='module-lab-toolbar';moduleLabToolbar.setAttribute('role','group');moduleLabToolbar.setAttribute('aria-label','Module Lab');
+      const back=document.createElement('button');back.type='button';back.textContent='←';back.setAttribute('aria-label',t('Revenir'));back.addEventListener('click',()=>endModuleLab());
+      const select=document.createElement('select');select.setAttribute('aria-label',t('Module'));select.dataset.labModule='true';
+      const presentation=document.createElement('select');presentation.setAttribute('aria-label',t('Présentation'));presentation.dataset.labPresentation='true';
+      const status=document.createElement('span');status.setAttribute('role','status');status.className='module-lab-status';
+      const change=()=>{const result=beginModuleLab({id:select.value,presentation:presentation.value});status.textContent=result.ok?'':t(result.reason==='unsupported-presentation'?'Format non pris en charge.':'Espace insuffisant pour ce format.');};
+      select.addEventListener('change',()=>{const supported=Object.keys(layoutContract(select.value).layout);presentation.value=supported.includes(presentation.value)?presentation.value:supported[0];change();});presentation.addEventListener('change',change);
+      moduleLabToolbar.append(back,select,presentation,status);panel.append(moduleLabToolbar);
+    }
+    const select=moduleLabToolbar.querySelector('[data-lab-module]'),presentation=moduleLabToolbar.querySelector('[data-lab-presentation]');
+    select.replaceChildren(...getModuleDefinitions().filter(definition=>isModuleEnabled(definition.id)).map(definition=>{const option=document.createElement('option');option.value=definition.id;option.textContent=t(definition.label);return option;}));select.value=moduleLab.id;
+    presentation.replaceChildren(...ModuleLayout.PRESENTATIONS.map(value=>{const option=document.createElement('option');option.value=value;option.textContent=value;option.disabled=!ModuleLayout.supports(layoutContract(moduleLab.id),value);return option;}));presentation.value=moduleLab.presentation;
+  }
+
   function renderActivityScene() {
     const home = byId('nook-layout'), eligible = view === 'nook' && !getModuleEditorActive() && islandPage !== 'essential';
-    if (!eligible) {stopActivityReflow(); activityMotionSignature=''; return false;}
-    const configuration = JSON.stringify([getHomeSlots(), !!focus.sessionSummary]);
+    if (!eligible) {stopActivityReflow(); activityMotionSignature='';for(const definition of Object.values(moduleDefinitions))ModuleLayout.clearHost(byId(definition.element));return false;}
+    const configuration = JSON.stringify([getHomeSlots(), moduleSettings.grid, !!focus.sessionSummary, moduleLab?.presentation]);
     if (configuration !== sceneConfigurationSignature) {activityScene.reset(); sceneConfigurationSignature = configuration;}
     const completed = [];
-    if (isModuleEnabled('focus') && (focus.complete || focus.pomodoro?.finished)) completed.push('focus');
-    if (nearby.transfer?.status === 'complete') completed.push('transfer');
-    if (isModuleEnabled('shelf') && fileJob.status === 'complete') completed.push('file');
-    const snapshot = activityScene.update(sceneActivities(), {completed, preserveOrder: true});
+    if (!moduleLab && isModuleEnabled('focus') && (focus.complete || focus.pomodoro?.finished)) completed.push('focus');
+    if (!moduleLab && nearby.transfer?.status === 'complete') completed.push('transfer');
+    if (!moduleLab && isModuleEnabled('shelf') && fileJob.status === 'complete') completed.push('file');
+    const snapshot = activityScene.update(sceneActivities(), {completed, preserveOrder: true, allowedIds:moduleLab?.ids||[], maxItems:moduleSettings.grid&&!moduleLab?9:3});
     const motionSignature = JSON.stringify(snapshot.items.map(item => [item.id,!!item.complete]));
     const structuralChange = !!activityMotionSignature && motionSignature !== activityMotionSignature;
     const previousPresentation = structuralChange ? captureActivityPresentation() : null;
@@ -1931,34 +2143,38 @@
     home.dataset.layout = 'activities'; home.dataset.grid = 'activities'; home.dataset.scenario = ''; home.dataset.primary = snapshot.primary || ''; home.dataset.sceneComplete = String(!!snapshot.items[0]?.complete); home.dataset.activityCount = String(snapshot.items.length);
     home.dataset.weatherSplit = String(snapshot.items.length === 2 && snapshot.items.some(item => item.id === 'weather') && snapshot.items.some(item => item.id === 'music'));
     home.dataset.balancedPanel = String(snapshot.items.length === 2 && snapshot.items.some(item => item.id === 'music') && snapshot.items.some(item => ['focus','weather'].includes(item.id)));
-    homeLayout = {mode: 'activities', primary: snapshot.primary, rail: [...snapshot.rail], items: snapshot.items.map((item, index) => ({id: item.id, complete: !!item.complete, presentation: snapshot.items.length === 1 ? 'full' : snapshot.items.length === 3 && index ? 'rail' : 'scene'}))};
+    const slotPlan=planHomeSlots(snapshot.items);
+    homeLayout = {...slotPlan, mode:'activities', slotMode:slotPlan.mode, primary:snapshot.primary, rail:[...snapshot.rail]};
+    applySceneGeometry(slotPlan);
     if (!snapshot.items.length) {
       stopActivityReflow();
       for (const definition of Object.values(moduleDefinitions)) {const element = byId(definition.element); if (element.parentElement !== panel) panel.append(element); element.hidden = true;}
       activityStage.remove(); byId('home-main').hidden = true; byId('home-side').hidden = true; byId('home-empty').hidden = false; home.inert = false; renderMusicQueue(); musicQueueLifecycle(); return true;
     }
-    const primary = snapshot.items[0], component = moduleDefinitions[primary.id] && (['music', 'focus', 'tasks'].includes(primary.id) || communityCards.has(primary.id)) && !primary.complete ? byId(moduleDefinitions[primary.id].element) : null;
+    const primary = snapshot.items[0], primaryAssignment=slotPlan.items[0], component = !usesCompactSummary(primary.id,primaryAssignment)&&moduleDefinitions[primary.id] && (['music', 'focus', 'tasks'].includes(primary.id) || communityCards.has(primary.id)) && !primary.complete ? byId(moduleDefinitions[primary.id].element) : null;
     for (const definition of Object.values(moduleDefinitions)) {
-      const element = byId(definition.element), parent = element === component ? activityMain : (['music', 'focus', 'tasks'].includes(definition.id) || communityCards.has(definition.id)) && snapshot.rail.includes(definition.id) ? activitySide : panel;
+      const assignment=slotPlan.items.find(item=>item.id===definition.id);
+      const element = byId(definition.element), parent = element === component ? activityMain : assignment && !usesCompactSummary(definition.id,assignment) && (['music', 'focus', 'tasks'].includes(definition.id) || communityCards.has(definition.id)) && snapshot.rail.includes(definition.id) ? activitySide : panel;
       if (element.parentElement !== parent) parent.append(element);
-      element.hidden = !builtinVisible(definition.id); element.dataset.module = definition.id;
+      element.hidden = parent === panel || !builtinVisible(definition.id); element.dataset.module = definition.id;
     }
-    const presentation = snapshot.items.length === 1 ? 'full' : 'scene';
+    const presentation = primaryAssignment.legacyPresentation;
     activityMain.dataset.activity = primary.id; activityMain.dataset.module = primary.id === 'transfer' ? 'localsend' : primary.id === 'file' ? 'shelf' : primary.id; activityMain.dataset.presentation = presentation;
     const primaryDescription = [primary.id === 'music' ? primary.label : t(primary.label), primary.detail].filter(Boolean).join(' · ');
     activityMain.setAttribute('aria-label', primaryDescription); activityMain.title = primaryDescription;
     const primaryContent = component || activitySummaryCard(primary.id);
     primaryContent.dataset.presentation = presentation; primaryContent.dataset.module = activityMain.dataset.module; primaryContent.dataset.activity = primary.id;
+    ModuleLayout.clearHost(activityMain);ModuleLayout.applyHost(primaryContent,primaryAssignment);
     if (primary.id === 'tasks') tasksComponent.render();
     if (activityMain.firstElementChild !== primaryContent || activityMain.children.length !== 1) activityMain.replaceChildren(primaryContent);
-    for (const id of snapshot.rail) {const card = activitySummaryCard(id); card.dataset.presentation = snapshot.items.length === 2 ? 'scene' : 'rail'; card.dataset.activity = id; if (['music', 'focus'].includes(id)) {card.classList.add('activity-card', 'activity-card-secondary'); card.hidden = false;} if (id === 'tasks') {card.hidden = false; tasksComponent.render();} if (card.parentElement !== activitySide) activitySide.append(card);}
-    for (const card of [...activitySide.children]) if (!snapshot.rail.includes(card.dataset.activity)) card.remove();
+    for (const id of snapshot.rail) {const card = activitySummaryCard(id),assignment=slotPlan.items.find(item=>item.id===id);ModuleLayout.applyHost(card,assignment);applySlotRect(card,assignment); card.dataset.presentation = assignment.legacyPresentation; card.dataset.activity = id; if (['music', 'focus'].includes(id)) {card.classList.add('activity-card', 'activity-card-secondary'); card.hidden = false;} if (id === 'tasks') {card.hidden = false; tasksComponent.render();} if (card.parentElement !== activitySide) activitySide.append(card);}
+    for (const card of [...activitySide.children]) if (!snapshot.rail.includes(card.dataset.activity) || card !== activitySummaryCard(card.dataset.activity)) card.remove();
     snapshot.rail.forEach((id, index) => {const card = activitySummaryCard(id); if (activitySide.children[index] !== card) activitySide.insertBefore(card, activitySide.children[index] || null);});
     activitySide.hidden = !snapshot.rail.length;
     if (activityStage.parentElement !== home) home.append(activityStage);
     for (const child of [...home.children]) if (![activityStage, byId('home-main'), byId('home-side'), byId('home-empty')].includes(child)) child.remove();
     byId('home-main').hidden = true; byId('home-side').hidden = true; byId('home-empty').hidden = true; home.inert = false;
-    renderActivitySceneValues(); renderMusicQueue(); musicQueueLifecycle();
+    renderActivitySceneValues(); renderMusicQueue(); musicQueueLifecycle(); renderModuleLabControls();
     if (previousPresentation) animateActivityPromotion(previousPresentation);
     return true;
   }
@@ -1967,10 +2183,18 @@
     if (disposed || (promote || action)?.disabled) return;
     if (promote?.dataset.scenePromote) {
       const id=promote.dataset.scenePromote;
+      if(moduleDefinitions[id]?.community){
+        let result;
+        for(const presentation of ModuleLayout.PRESENTATIONS.filter(value=>ModuleLayout.supports(layoutContract(id),value))){result=beginModuleLab({id,presentation});if(result.ok)return;}
+        const card=compactModuleCards.get(id)||communityCards.get(id);let status=card?.querySelector('.module-compact-detail,.community-module-error');
+        if(card&&!status){status=document.createElement('p');status.className='community-module-error';card.append(status);}
+        if(status){status.setAttribute('role','alert');status.textContent=t('Espace insuffisant pour ce format.');}return;
+      }
       if (id === 'transfer') {
         if (nearby.incoming) openLocalSend('receive', nearby.incoming);
-        else {selectViewButton({dataset: {view: localSendContext ? 'localsend' : 'tray'}}); setState('open');}
-      } else if (id === 'file') {selectViewButton({dataset: {view: 'files'}}); setState('open');}
+        else if(localSendContext){selectViewButton({dataset:{view:'localsend'}});setState('open');}
+        else openActivityDetail('tray');
+      } else if (id === 'file') openActivityDetail('files');
       else if (moduleDefinitions[id]?.view && moduleDefinitions[id].view !== 'nook') {
         openActivityDetail(moduleDefinitions[id].view);
       }
@@ -1985,8 +2209,8 @@
     }
     else if (['music-toggle', 'music-previous', 'music-next'].includes(action.dataset.sceneCommand)) void performMusicCommand({command: action.dataset.sceneCommand.slice(6)});
     else if (action.dataset.sceneCommand === 'transfer-cancel' && nearby.transfer?.id) void nearbyRequest({command: 'cancel', id: nearby.transfer.id});
-    else if (action.dataset.sceneCommand === 'file-open') {selectViewButton({dataset: {view: 'files'}}); setState('open');}
-    else if (['weather-open', 'shelf-open'].includes(action.dataset.sceneCommand)) {selectViewButton({dataset: {view: moduleDefinitions[action.dataset.sceneCommand.split('-')[0]].view}}); setState('open');}
+    else if (action.dataset.sceneCommand === 'file-open') openActivityDetail('files');
+    else if (['weather-open', 'shelf-open'].includes(action.dataset.sceneCommand)) openActivityDetail(moduleDefinitions[action.dataset.sceneCommand.split('-')[0]].view);
   }
   function renderHomeLayout({skipUpdate = false} = {}) {
     const home = byId('nook-layout'), main = byId('home-main'), side = byId('home-side'), editing = getModuleEditorActive();
@@ -2019,32 +2243,15 @@
       main.hidden = true; side.hidden = true; byId('home-empty').hidden = plan.length > 0; home.inert = false;
       renderIslandNavigation(); renderHomeSummaries(); if (!skipUpdate) update(); return;
     }
-    const slots = getHomeSlots(), items = homeModuleLayout(slots, 0, 16, homeModuleContext()).items;
-    const placed = home.hidden ? [] : items;
     for (const definition of Object.values(moduleDefinitions)) {
-      const component = byId(definition.element), item = placed.find(item => item.id === definition.id);
-      let parent = panel;
-      if (item && !item.compact) {
-        if (!homeCells.has(item.id)) { const cell = document.createElement('div'); cell.className = 'home-module'; cell.dataset.module = item.id; homeCells.set(item.id, cell); }
-        parent = homeCells.get(item.id);
-      }
-      if (component.parentElement !== parent) parent.append(component);
+      const component = byId(definition.element);
+      if (component.parentElement !== panel) panel.append(component);
       component.hidden = !builtinVisible(definition.id); component.dataset.module = definition.id;
     }
-    for (const item of placed) {
-      if (!homeCells.has(item.id)) { const cell = document.createElement('div'); cell.className = 'home-module'; cell.dataset.module = item.id; homeCells.set(item.id, cell); }
-      const cell = homeCells.get(item.id); cell.dataset.homeSlot = String(slots.indexOf(item.id));
-      cell.style.setProperty('--module-min-width', item.minWidth + 'px'); cell.style.setProperty('--module-min-height', item.minHeight + 'px');
-      if (item.compact && !cell.querySelector('[data-module-open]')) {
-        const button = document.createElement('button'); button.type = 'button'; button.dataset.moduleOpen = item.id; button.className = 'home-summary';
-        const label = document.createElement('span'), value = document.createElement('strong'), detail = document.createElement('small'); label.textContent = moduleLabels[item.id]; button.append(label, value, detail); cell.replaceChildren(button);
-      } else if (!item.compact) cell.querySelector('[data-module-open]')?.remove();
-    }
-    const primaryCell = placed[0] ? homeCells.get(placed[0].id) : null, secondaryCells = placed.slice(1).map(item => homeCells.get(item.id));
-    if (main.firstElementChild !== primaryCell || main.children.length !== Number(!!primaryCell)) main.replaceChildren(...(primaryCell ? [primaryCell] : []));
-    if (side.children.length !== secondaryCells.length || secondaryCells.some((cell, index) => side.children[index] !== cell)) side.replaceChildren(...secondaryCells);
-    home.dataset.primary = items[0]?.id || ''; home.inert = editing;
-    side.hidden = !secondaryCells.length; byId('home-empty').hidden = !!items.length || editing; main.hidden = !primaryCell;
+    main.replaceChildren(); side.replaceChildren();
+    const slots = getHomeSlots().filter(Boolean);
+    home.dataset.primary = slots[0] || ''; home.inert = editing;
+    side.hidden = true; byId('home-empty').hidden = slots.length > 0 || editing; main.hidden = true;
     renderHomeSummaries();
     if (!skipUpdate) update();
   }
@@ -2338,11 +2545,6 @@
   const filePost = (url, value) => fileRequest(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Notchy': '1'}, body: JSON.stringify(value)});
   function renderFiles() {
     if (disposed) return;
-    if (view === 'nook' && !getModuleEditorActive()) {
-      const compact = homeModuleLayout(getHomeSlots(), 0, 16, homeModuleContext()).items.find(item => item.id === 'files')?.compact;
-      const showingSummary = !!homeCells.get('files')?.querySelector('[data-module-open]');
-      if (compact !== undefined && compact !== showingSummary) renderHomeLayout();
-    }
     filePlayer.hidden = !builtinVisible('files');
     const item = currentFile(), running = fileJob.status === 'running';
     byId('file-content').dataset.mode = fileMode;
@@ -2602,16 +2804,19 @@
   }
   function renderWeatherDesign(host, presentation, {interactive = false, inline = false, calendarTodayCount = weather.calendarTodayCount} = {}) {
     const detailed = interactive || inline;
+    const canonical = ModuleLayout.PRESENTATIONS.includes(presentation) ? presentation : presentation === 'rail' ? 'small' : presentation === 'scene' ? 'side' : 'full';
     const failure = (typeof weather.error === 'string' && weather.error) || (!weatherPickerOpen ? weatherError : '');
-    const values = weatherDesignValues({...weather, calendarTodayCount}, detailed ? 'full' : presentation), next = localizedWeatherNarrative({...weather, busy: weatherBusy, error:failure || weather.error});
+    const values = weatherDesignValues({...weather, calendarTodayCount}, detailed || ['side','tall'].includes(canonical) ? 'full' : ModuleLayout.legacyPresentation(canonical)), next = localizedWeatherNarrative({...weather, busy: weatherBusy, error:failure || weather.error});
     const sharedFailure = !weatherBusy && !!failure && values.size !== 'rail' && !!window.NotchEmpty;
     const revealResult = host.dataset.state === 'loading' && next.state === 'ready' && !weatherError && !weather.error && !document.hidden && host.getClientRects().length > 0;
     const condition = t(weather.condition || 'Conditions indisponibles'), locale = i18n.locale() === 'en' ? 'en-GB' : 'fr-FR', freshness = weatherFreshness(weather);
     const hourIcons = values.hours.map(hour => weather.hours?.find(item => item.time === hour.time)?.icon || weather.icon || 'unknown');
-    const signature = JSON.stringify([values,next,condition,freshness,weather.icon,hourIcons,weather.isDay,locale,interactive,inline,interactive && weatherPickerOpen,failure]);
+    const signature = JSON.stringify([values,next,condition,freshness,weather.icon,hourIcons,weather.isDay,locale,canonical,interactive,inline,interactive && weatherPickerOpen,failure]);
     if (host.dataset.weatherDesign === signature) return;
     host.dataset.weatherDesign = signature; host.dataset.size = values.size; host.dataset.state = next.state;
     host.dataset.weatherView = detailed ? 'detail' : 'summary'; host.dataset.weatherInline = String(inline);
+    host.dataset.weatherPresentation = canonical;
+    host.dataset.weatherWideTemperature = String(values.celsius!==null&&(values.celsius<0||values.celsius>=100));
     host.dataset.condition = weather.icon || 'unknown'; host.dataset.day = String(weather.isDay !== false); host.dataset.calendarKnown = String(values.calendarTodayCount !== null); host.setAttribute('aria-busy',String(weatherBusy)); host.title = freshness;
     const make = (className,value,tag = 'span') => {const node = document.createElement(tag); node.className = className; if (value !== undefined) node.textContent = value; return node;};
     const glyph = (className,kind) => {const node = byId('weather-condition-icon').cloneNode(true); node.removeAttribute('id'); node.setAttribute('class',className); node.setAttribute('viewBox','0 0 100 100'); node.setAttribute('aria-hidden','true'); node.setAttribute('focusable','false'); node.dataset.weatherGlyph = kind; node.innerHTML = weatherGlyphMarkup(detailed && kind === 'moon' ? 'moon-small' : kind); return node;};
@@ -2630,14 +2835,49 @@
     };
     const celsius = values.celsius === null ? '—°C' : values.celsius+'°C', fahrenheit = values.fahrenheit === null ? '—°F' : values.fahrenheit+'°F';
     if (!detailed) {
-      const stack = make('weather-typography'), weekday = make('weather-typography-line weather-typography-weekday'); weekday.append(make('',day),glyph('weather-typography-sky','sunrise'));
-      const degrees = make('weather-typography-line weather-typography-degrees'), c = make('weather-typography-celsius'); degrees.setAttribute('aria-label',t('Température en degrés Celsius et Fahrenheit'));
-      c.append(make('weather-design-temperature',celsius),glyph('weather-typography-thermometer','thermometer')); degrees.append(c,make('weather-typography-fahrenheit',fahrenheit));
-      const description = make('weather-typography-line weather-typography-condition weather-design-condition'); description.title = condition; description.append(make('weather-typography-condition-label',condition),glyph('weather-typography-cloud',weather.icon || 'unknown'));
-      stack.append(weekday,calendar(),city(),degrees,description);
-      const fresh = make('weather-design-freshness',freshness); fresh.hidden = true; host.replaceChildren(make('weather-design-eyebrow',t('MÉTÉO')),stack,fresh);
-      if (revealResult) stack.classList.add('experience-weather-result'); return;
+      host.classList.add('weather-slot'); host.classList.remove('weather-detail');
+      const heading = make('weather-slot-heading'), options = make('weather-slot-options',undefined,'button');
+      options.type='button'; options.dataset.weatherCommand='details'; options.setAttribute('aria-label',t('Voir la météo à {city}',{city:next.city}));
+      options.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h11M5 17h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      heading.append(make('weather-design-eyebrow',t('MÉTÉO')),options);
+      const body=make('weather-slot-body'), fresh=make('weather-slot-freshness',failure?uiMessage(failure):freshness);
+      const dateButton=calendar(), cityButton=city();
+      const briefDate=new Intl.DateTimeFormat(locale,{weekday:'short',day:'numeric',month:'short'}).format(today);
+      const place=()=>{cityButton.prepend(glyph('weather-slot-location','location'));return cityButton;};
+      const reading=()=>{const node=make('weather-slot-reading');node.setAttribute('aria-label',t('Température en degrés Celsius et Fahrenheit'));node.append(make('weather-slot-temperature',values.celsius===null?'—°':values.celsius+'°'),make('weather-slot-fahrenheit',fahrenheit));return node;};
+      const description=()=>{const node=make('weather-slot-condition');node.title=condition;node.append(glyph('weather-slot-condition-icon',weather.icon||'unknown'),make('weather-slot-condition-label',condition));return node;};
+      const range=t('Min {min}° · Max {max}°',{min:values.min??'—',max:values.max??'—'});
+      if(canonical==='full'){
+        const hero=make('weather-slot-hero'),meta=make('weather-slot-meta');dateButton.querySelector('.weather-typography-label').textContent=day+' '+shortDate;
+        meta.append(dateButton,make('weather-slot-dot','·'),place());hero.append(meta,reading(),description(),make('weather-slot-narrative',condition+' · '+next.city+', '+celsius+'. '+range+'.'));
+        const details=make('weather-slot-details',undefined,'details'),summary=make('weather-slot-details-toggle',t('Détails'),'summary'),grid=make('weather-slot-metrics');
+        summary.insertAdjacentHTML('beforeend','<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+        details.open=host.dataset.weatherDetailsExpanded!=='false';details.addEventListener('toggle',()=>{host.dataset.weatherDetailsExpanded=String(details.open);});
+        const clock=value=>typeof value==='string'?value.slice(11,16):'—';
+        for(const [label,value]of [['Ressenti',values.feelsLike===null?'—':values.feelsLike+'°'],['Humidité',values.humidity===null?'—':Math.round(values.humidity)+' %'],['Vent',values.windSpeed===null?'—':Math.round(values.windSpeed)+' km/h'],['Indice UV',values.uvIndex===null?'—':String(values.uvIndex)],['Lever',clock(values.sunrise)],['Coucher',clock(values.sunset)]]){
+          const cell=make('weather-slot-metric');cell.append(make('weather-slot-metric-label',t(label)),make('weather-slot-metric-value',value));grid.append(cell);
+        }
+        details.append(summary,grid);body.append(hero,details);host.replaceChildren(heading,body,fresh);
+      }else if(canonical==='main'){
+        const stack=make('weather-slot-narrative-stack'),weekday=make('weather-slot-weekday');weekday.append(make('',day),glyph('weather-slot-sky',weather.isDay===false?'moon':'sun'));
+        const degrees=make('weather-slot-degrees');degrees.append(make('',celsius),glyph('weather-slot-thermometer','thermometer'),make('',fahrenheit));
+        const line=make('weather-slot-condition-line');line.title=condition;line.append(make('weather-slot-condition-label',condition),glyph('weather-slot-line-icon',weather.icon||'unknown'));
+        stack.append(weekday,dateButton,cityButton,degrees,line);
+        const aside=make('weather-slot-aside'),humidity=t('Humidité')+' '+(values.humidity===null?'—':Math.round(values.humidity)+' %');
+        aside.append(glyph('weather-slot-illustration',weather.icon||'unknown'),make('weather-slot-range',range),make('weather-slot-humidity',humidity));body.append(stack,aside);host.replaceChildren(heading,body,fresh);
+      }else if(canonical==='side'||canonical==='tall'){
+        heading.replaceChildren(place(),dateButton);dateButton.querySelector('.weather-typography-label').textContent=new Intl.DateTimeFormat(locale,{day:'numeric',month:'short'}).format(today);
+        body.append(reading(),description(),make('weather-slot-range',range));
+        const hours=make('weather-slot-hours');
+        if(canonical==='side')for(const hour of values.hours){const cell=make('weather-slot-hour'),at=new Date(hour.time);cell.append(make('',new Intl.DateTimeFormat(locale,{hour:'numeric'}).format(at)),glyph('weather-slot-hour-icon',weather.hours?.find(item=>item.time===hour.time)?.icon||weather.icon||'unknown'),make('weather-slot-hour-temperature',hour.temperature+'°'));hours.append(cell);}
+        host.replaceChildren(heading,body,...(hours.children.length?[hours]:[fresh]));
+      }else{
+        const copy=make('weather-slot-small-copy');dateButton.querySelector('.weather-typography-label').textContent=briefDate;copy.append(cityButton,dateButton);
+        const content=make('weather-slot-small-content');content.append(glyph('weather-slot-small-icon',weather.icon||'unknown'),make('weather-slot-small-temperature',values.celsius===null?'—°':values.celsius+'°'),make('weather-slot-divider'),copy);if(canonical==='wide')content.append(description());host.replaceChildren(content);
+      }
+      if(revealResult)body.classList.add('experience-weather-result');return;
     }
+    host.classList.remove('weather-slot');
     const hero = make('weather-detail-hero',undefined,'header'), location = make('weather-detail-location',undefined,'div');
     location.append(glyph('weather-detail-location-icon','location'),city()); hero.append(location,calendar(true));
     if(inline){const back=make('weather-inline-back','×','button');back.type='button';back.dataset.weatherCommand='inline-close';back.setAttribute('aria-label',t('Revenir à la météo'));back.title=t('Revenir à la météo');hero.append(back);}
@@ -3345,9 +3585,11 @@
     frame = 0;
     if (disposed) return;
     const value = motion.step(now, {snap: !motionEnabled() || document.hidden});
-    const width = Math.max(1, Math.min(value.width, ISLAND_CONFIG.states.expanded.width * 1.03, Math.max(1, window.innerWidth - 32 - Math.max(0, value.shoulder) * 2)));
-    const height = Math.min(value.height, Math.max(ISLAND_CONFIG.states.expanded.height, ISLAND_CONFIG.activities.expandedHeight, calendarHeightLimit) * 1.03);
-    geometry = shape({...value, width, height}, window.innerWidth);
+    const scale = 1 + (openPanelScale(appearance.format, {welcome: view === 'welcome'}) - 1) * Math.max(0, Math.min(1, value.progress));
+    const width = Math.max(1, Math.min(value.width, ISLAND_CONFIG.states.expanded.width * 1.03, Math.max(1, (window.innerWidth - 32) / scale - Math.max(0, value.shoulder) * 2)));
+    const height = Math.min(value.height, Math.max(ISLAND_CONFIG.states.expanded.height, ISLAND_CONFIG.activities.durationDetailHeight, ISLAND_CONFIG.activities.fullHeight+(moduleLab?ModuleLayout.metrics.labInset:0), calendarHeightLimit) * 1.03);
+    geometry = shape({...value, width, height});
+    notch.style.setProperty('--panel-scale', String(scale));
     const band = Math.max(0, Math.min(value.band, geometry.height));
     notch.style.setProperty('--calendar-body-height', Math.max(0, geometry.height - band - ISLAND_CONFIG.layout.bottom) + 'px');
     for (const [name, number] of Object.entries({width, height: geometry.height, radius: geometry.radius, band, shoulder: geometry.shoulder, 'surface-width': geometry.totalWidth})) {
@@ -3358,7 +3600,7 @@
     bandCut.setAttribute('transform', `translate(${-geometry.shoulder} 0)`);
     panelCut.setAttribute('transform', `translate(${-geometry.shoulder} ${-band})`);
     desktopPointer();
-    if (desktop) void desktop.sendGeometry({width: geometry.totalWidth, height: geometry.height, radius: geometry.radius, shoulder: geometry.shoulder, band, state}).then(result => { if (result?.maxHeight) desktopMaxHeight = result.maxHeight; }).catch(() => {});
+    if (desktop) void desktop.sendGeometry({width: geometry.totalWidth * scale, height: geometry.height * scale, radius: geometry.radius * scale, shoulder: geometry.shoulder * scale, band: band * scale, state}).then(result => { if (result?.maxHeight) desktopMaxHeight = result.maxHeight; }).catch(() => {});
     notch.style.setProperty('--menu-opacity', String(Math.max(0, Math.min(1, value.progress))));
     if (motion.isActive() && !document.hidden) frame = window.requestAnimationFrame(paint);
     else if (!calendar?.isOpen()) calendarHeightLimit = 0;
@@ -3380,20 +3622,24 @@
     // The content has its final dimensions throughout the surface spring.
     const calendarOpen = typeof calendar !== 'undefined' && !!calendar?.isOpen();
     notch.dataset.calendarOpen = String(calendarOpen);
+    if(moduleLab&&view!=='nook')endModuleLab(false);
     const scene = !calendarOpen && view === 'nook' && !getModuleEditorActive() && homeLayout?.mode === 'activities', sceneLayout = ISLAND_CONFIG.activities;
     notch.dataset.activityScene = String(scene);
-    const showFooter = !calendarOpen && !ia && core && !scene;
+    const durationDetail=['focus','tasks'].includes(view);
+    const showFooter = !calendarOpen && !ia && core && !scene && !durationDetail;
     islandFooter.hidden = !showFooter;
-    const activityHeight = calendarOpen ? calendar.preferredHeight + layout.header + layout.bottom : scene ? homeLayout.items.length > 2 ? sceneLayout.expandedHeight : sceneLayout.sceneHeight : ISLAND_CONFIG.states.expanded.height;
+    const labInset=moduleLab?ModuleLayout.metrics.labInset:0;
+    const activityHeight = calendarOpen ? calendar.preferredHeight + layout.header + layout.bottom : scene ? homeLayout.height+sceneLayout.sceneTop+sceneLayout.bottom+labInset : durationDetail ? sceneLayout.durationDetailHeight : ISLAND_CONFIG.states.expanded.height;
     if (calendarOpen) calendarHeightLimit = Math.max(calendarHeightLimit, activityHeight);
-    const welcomeSize = view === 'welcome' ? welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest : welcomeStage === 'logo' ? {width: ISLAND_CONFIG.welcome.introWidth, height: ISLAND_CONFIG.welcome.introHeight} : ISLAND_CONFIG.welcome : {width: ISLAND_CONFIG.formats[appearance.format], height: activityHeight};
-    const width = Math.min(welcomeSize.width, Math.max(1, window.innerWidth - layout.side * 2));
-    const height = Math.max(closed.band, Math.min(welcomeSize.height, desktop ? desktopMaxHeight - 8 : window.innerHeight - 96));
+    const scale = openPanelScale(appearance.format, {welcome: view === 'welcome'});
+    const welcomeSize = view === 'welcome' ? welcomeStage === 'idle' ? {width: ISLAND_CONFIG.states.rest.width / scale, height: ISLAND_CONFIG.states.rest.height / scale} : welcomeStage === 'logo' ? {width: ISLAND_CONFIG.welcome.introWidth, height: ISLAND_CONFIG.welcome.introHeight} : ISLAND_CONFIG.welcome : {width: openPanelWidth(appearance.format, {lab: !!moduleLab, detail: durationDetail}), height: activityHeight};
+    const width = Math.min(welcomeSize.width, Math.max(1, (window.innerWidth - layout.side * 2) / scale));
+    const height = Math.max(closed.band, Math.min(welcomeSize.height, (desktop ? desktopMaxHeight - 8 : window.innerHeight - 96) / scale));
     const showHeader = view !== 'welcome' && view !== 'localsend' && !fileDragging;
     const band = showHeader ? scene ? sceneLayout.sceneTop : layout.header : 0;
     const panelHeight = Math.max(0, height - band - (scene ? sceneLayout.bottom : layout.bottom) - (showFooter ? layout.footer : 0));
     notch.style.setProperty('--island-side', (scene ? sceneLayout.side : layout.side) + 'px');
-    notch.style.setProperty('--scene-gap', sceneLayout.gap + 'px');
+    notch.style.setProperty('--scene-gap', (scene ? homeLayout.gap : sceneLayout.gap) + 'px');
     notch.style.setProperty('--island-header-height', layout.header + 'px');
     menu.hidden = state !== 'open' || !showHeader; menu.inert = menu.hidden || !!closingTo;
     notch.style.setProperty('--panel-height', panelHeight + 'px');
@@ -3403,10 +3649,10 @@
     notch.style.setProperty('--closed-width', closed.width + 'px');
     notch.style.setProperty('--closed-height', closed.band + 'px');
     expandedLayer.style.width = width + 'px'; expandedLayer.style.height = height + 'px';
-    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : ISLAND_CONFIG.states.expanded.radius + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
+    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius / scale : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : ISLAND_CONFIG.states.expanded.radius + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
     protectLayoutResize(target.width, target.height);
     motion.setTarget(target, {snap: !motionEnabled() || document.hidden});
-    paint(); ia?.render(view,getModuleEditorActive()); renderLocalSend(); syncCalendarLayer(); recheckCollapse();
+    paint(); ia?.render(view,false); renderLocalSend(); syncCalendarLayer(); recheckCollapse();
   }
 
   function setState(next) {
@@ -3514,18 +3760,19 @@
   }
   function recheckCollapse() { scenarioController?.flush(); if (collapseDeferred && !disposed && !pointerInside && !protectedInteraction()) scheduleCollapse(); }
   function enter(event) {
-    if (event && nativePointerPresence === false) return;
+    // Once native tracking is active, contour movement is not pointer movement.
+    if (event && nativePointerPresence !== null) return;
     pointerInside = true; awaitingPointerEntry = false; window.clearTimeout(collapseTimer); collapseTimer = 0; collapseDeferred = false;
     dismissMusicTrackFeedback();
     if (closingTo) { setState('open'); return; }
     window.clearTimeout(hoverTimer);
     if (state === 'rest') hoverTimer = window.setTimeout(() => {hoverTimer = 0; if (pointerInside && state === 'rest' && !disposed) setState('compact');}, ISLAND_CONFIG.delays.hover);
   }
-  function leave() { window.clearTimeout(hoverTimer); hoverTimer = 0; pointerInside = false; scenarioController?.flush(); scheduleCollapse(); }
+  function leave(event) { if (event && nativePointerPresence !== null) return; window.clearTimeout(hoverTimer); hoverTimer = 0; pointerInside = false; scenarioController?.flush(); scheduleCollapse(); }
   function nativePointer(value) {
     const inside = value?.inside;
     if (disposed || document.hidden || typeof inside !== 'boolean') return;
-    if (inside && value.moved === false && !pointerInside) return;
+    if (inside && value.moved === false && !pointerInside && (state !== 'open' || closingTo)) return;
     nativePointerPresence = inside;
     if (value.moved === true) layoutResizeClick = null;
     if (value.moved === true && keyboardNavigation) {
@@ -3572,7 +3819,7 @@
   }
   function showFileChooser(input) { fileDialogOpen = true; desktop?.setDialogOpen?.(true); input.click(); }
   function closeFileChooser() { fileDialogOpen = false; desktop?.setDialogOpen?.(false); recheckCollapse(); }
-  function outside(event) { if (state === 'open' && !notch.contains(event.target)) { if (welcome?.isActive()) { finishWelcome('rest'); return; } if (getModuleEditorActive()) closeModuleEditor(false); setState('rest'); } }
+  function outside(event) { if (state === 'open' && !notch.contains(event.target) && !event.composedPath?.().includes(notch)) { if (welcome?.isActive()) { finishWelcome('rest'); return; } if (getModuleEditorActive()) closeModuleEditor(false); setState('rest'); } }
   function key(event) {
     if (event.defaultPrevented) return;
     if (calendar?.isOpen() && event.key === 'Escape') {event.preventDefault(); calendar.close(); return;}
@@ -3586,6 +3833,7 @@
       else if (view === 'module-library') moduleLibrary?.back();
       else if (view === 'weather' && weatherPickerOpen) closeWeatherPicker();
       else if(view==='nook'&&weatherInlineDetail&&byId('nook-layout').dataset.weatherSplit==='true')closeWeatherInline();
+      else if (moduleLab) endModuleLab();
       else if (view === 'focus' && focusToolReturn) {const origin=focusToolReturn; focusToolReturn=null; restoreFocusRoute(origin);}
       else if (view === detailView && detailReturn) returnFromDetail();
       else if (settingsRoute(view)) {if(view !== 'settings') selectViewButton({dataset:{view:'settings'}}); else returnFromDetail();}
@@ -3604,12 +3852,13 @@
   }
   function menuHover(event) {
     const button=event.target.closest('button[data-view]'); if (!button || button.hidden || !menu.contains(button)) return;
-    const bounds=button.getBoundingClientRect(), parent=menu.getBoundingClientRect();
-    menu.style.setProperty('--hover-x',(bounds.left-parent.left)+'px'); menu.style.setProperty('--hover-width',bounds.width+'px');
+    const bounds=button.getBoundingClientRect(), parent=menu.getBoundingClientRect(), scale=parent.width/menu.offsetWidth||1;
+    menu.style.setProperty('--hover-x',((bounds.left-parent.left)/scale)+'px'); menu.style.setProperty('--hover-width',(bounds.width/scale)+'px');
   }
   function selectViewButton(button) {
     if (!button || calendar?.isOpen() && calendar.isBusy()) return;
     if (!button.restoring && button.dataset.view === 'settings' && !settingsRoute(view) && view !== 'module-library' && !getModuleEditorActive()) {settingsReturn=captureRouteOrigin();if(view==='search')settingsReturn.view=searchReturnView;}
+    if (moduleLab) endModuleLab(false);
     if (view === 'focus' && button.dataset.view !== 'focus') {focusConfigurationReturn = null; focusComponent.leaveRoute?.();}
     if (view === 'tasks' && button.dataset.view !== 'tasks') tasksComponent?.leaveRoute?.();
     calendar?.close({restoreFocus:false});
@@ -3839,7 +4088,7 @@
     reduced.removeEventListener('change', islandMotionPreference);
   }
 
-  window.notchy = Object.freeze({
+  const app = Object.freeze({
     setLanguage: i18n.setLocale,
     getLanguage: i18n.locale,
     setState,
@@ -3852,6 +4101,9 @@
     flushScenario: () => scenarioController.flush(),
     getModules,
     getModuleDefinitions,
+    beginModuleLab,
+    endModuleLab,
+    getModuleLayoutContract:id=>JSON.parse(JSON.stringify(layoutContract(id))),
     showWelcome,
     getWelcome: () => welcome?.inspect(),
     getModuleFeedback: () => moduleFeedback ? {...moduleFeedback} : null,
@@ -3871,7 +4123,7 @@
     showModuleLibrary,
     getCommunityModules: () => communityStore.list(),
     dispose,
-    inspect: () => ({state, view, geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, scenarios: scenarioController?.inspect(), morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
+    inspect: () => ({state, view, geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, layout:homeLayout?.version?JSON.parse(JSON.stringify(homeLayout)):null, moduleLab:moduleLab?{id:moduleLab.id,presentation:moduleLab.presentation}:null, scenarios: scenarioController?.inspect(), morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
     }),
   });
   window.addEventListener('pagehide', dispose, {once: true});
@@ -3905,7 +4157,7 @@
       if(!isModuleEnabled(id)){openModuleEditor();modulePicked=id;renderModules();update();return;}
       openActivityDetail(definition.view); if(id==='focus')focusComponent.command('link-task');
     },
-    getPlacements() {const layout=getModules();return Array.from({length:3},(_,index)=>{const id=layout.slots[index];return {index,id:layout.enabled.includes(id)?id:null,label:layout.enabled.includes(id)?communityStore.get(id)?.manifest.name[i18n.locale()] || moduleLabels[id] || id:''};});},
+    getPlacements(moduleId) {const layout=getModules();return Array.from({length:3},(_,index)=>{const id=layout.slots[index],candidate=modulePlacementCandidate(layout,index,moduleId);return {index,id:layout.enabled.includes(id)?id:null,label:layout.enabled.includes(id)?communityStore.get(id)?.manifest.name[i18n.locale()] || moduleLabels[id] || id:'',available:candidate.available,reason:candidate.reason};});},
     onDialog(input) {if(input) showFileChooser(input); else {closeFileChooser(); if(view==='module-library') openFromOutside();}}});
   const removeCommunityChange = communityStore.subscribe(() => {
     const previousIds=Object.values(moduleDefinitions).filter(item=>item.community).map(item=>item.id).join(',');
@@ -3914,10 +4166,11 @@
     try {window.localStorage.setItem(moduleStorageKey,JSON.stringify(moduleSettings));} catch {}
     if(previousIds!==communityStore.list().map(item=>item.manifest.id).join(',')) activityScene.reset(); renderModules(); renderHomeLayout();
   });
-  experience = window.NotchyExperience.create({healthHost: byId('health-player'), modulesHost: byId('modules-experience'), t, onAction: experienceAction, onModulesChange(value) {if (!moduleEditing) return; moduleDraftOrder = value.order; moduleDraft = normalizeModules({enabled: value.order.filter(id => value.enabled.includes(id)), slots: value.order.filter(id => value.enabled.includes(id)).slice(0,3)}); moduleMessage = ''; renderModules();}});
-  byId('modules-experience').querySelector('.experience-heading-actions').append(modulesPlayer.querySelector('.module-editor-actions'));
-  const libraryButton = document.createElement('button'); libraryButton.type='button'; libraryButton.className='experience-back'; libraryButton.textContent=t('Bibliothèque'); libraryButton.dataset.moduleLibrary=''; libraryButton.addEventListener('click',showModuleLibrary);
-  byId('modules-experience').querySelector('.experience-heading-actions').prepend(libraryButton);
+  experience = window.NotchyExperience.create({healthHost: byId('health-player'), modulesHost: byId('modules-experience'), modulesToolbarHost:byId('module-editor-toolbar'), layout:ModuleLayout, getModuleContract:layoutContract, renderModulePreview:renderEditorPreview, t, onAction: experienceAction, onModulesChange(value) {if (!moduleEditing) return; moduleDraftOrder = value.order; moduleDraft = normalizeModules({enabled: value.order.filter(id => value.enabled.includes(id)), slots: value.order.filter(id => value.enabled.includes(id)).slice(0,3), ...(Array.isArray(value.grid)?{grid:value.grid}:{})}); moduleMessage = ''; renderModules();}});
+  const labButton=document.createElement('button');labButton.type='button';labButton.className='experience-back';labButton.textContent='Module Lab';labButton.dataset.moduleLabOpen='';
+  labButton.title=t('Vérifier les modules avec leurs données réelles.');
+  labButton.addEventListener('click',()=>{const id=getModules().slots.find(id=>isModuleEnabled(id))||getModuleDefinitions().find(item=>isModuleEnabled(item.id))?.id;if(id){const contract=layoutContract(id);beginModuleLab({id,presentation:Object.keys(contract.layout)[0]});}});
+  byId('settings-player').querySelector('.settings-experience-links').append(labButton);
   const emptyLibraryButton=document.createElement('button'); emptyLibraryButton.type='button'; emptyLibraryButton.dataset.moduleLibraryEmpty=''; emptyLibraryButton.textContent=t('Bibliothèque de modules'); emptyLibraryButton.addEventListener('click',showModuleLibrary); byId('home-empty').append(emptyLibraryButton);
   sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction});
   ia = window.NotchyIA.create({document,t,
@@ -3947,4 +4200,6 @@
   renderSettings();
   let welcomeDone = false; try { welcomeDone = window.localStorage.getItem(welcomeStorageKey) === 'done'; } catch {}
   if (!welcomeDone) showWelcome();
-})(typeof window === 'object' ? window : null);
+  window.notchy = app;
+  return app;
+});

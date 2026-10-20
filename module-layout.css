@@ -1,0 +1,78 @@
+/* Shared slot geometry; the approved renderer styles remain the visual source. */
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-main,
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-rail-cards>.activity-card{container:module-slot / size}
+#notch #nook-layout[data-layout="activities"] .activity-stage[data-slot-engine="1"]{display:block;position:relative;gap:0;overflow:visible}
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-main,
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-rail-cards>.activity-card{position:absolute!important;left:var(--slot-x);top:var(--slot-y);width:var(--slot-width)!important;height:var(--slot-height)!important;min-width:0;min-height:0;max-width:none;max-height:none;margin:0}
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-rail-cards{display:contents}
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-main:not([data-activity="weather"]):not(:has(>#focus-player,>#music-player,>.community-module-host,>.module-compact-card,>.activity-module-summary)),
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-rail-cards>.activity-module-summary:not([data-activity="weather"]){padding:var(--module-padding)}
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-main:has(>.community-module-host),
+#notch #nook-layout .activity-stage[data-slot-engine="1"] .community-module-host{padding:0}
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-main:has(>.activity-module-summary){padding:0}
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-main>.activity-module-summary:not([data-activity="weather"]){padding:var(--module-padding)}
+#notch #nook-layout .activity-stage[data-slot-engine="1"] :is(.activity-main,.activity-module-summary)[data-activity="weather"]{padding:0}
+#notch #nook-layout .activity-stage[data-slot-engine="1"] :is(.activity-main,.activity-card){border-radius:var(--radius-module);background-color:var(--surface-card,#17171a)}
+#notch #nook-layout .activity-stage[data-slot-engine="1"] .activity-main:has(>[data-activity^="module-lab-empty-"]){background:transparent}
+#notch #nook-layout .activity-stage[data-slot-engine="1"] #focus-player[data-module-slot]{background:var(--surface-card,#17171a)!important;border-radius:var(--radius-module)!important}
+/* Shelf Small keeps the same real summary and its existing Tray action. */
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"]{padding:var(--space-16);overflow:hidden}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] .activity-promote{grid-template-columns:minmax(0,1fr);grid-template-rows:var(--space-24) var(--space-28);align-content:center;gap:var(--space-8);min-width:0;min-height:0;padding-right:calc(var(--space-32) + var(--space-12))}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] .activity-card-body{grid-column:1;grid-row:1;min-width:0;min-height:0;gap:var(--space-8);padding:0}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] .activity-card-art{flex:0 0 var(--space-24);width:var(--space-24);height:var(--space-24);border-radius:var(--space-8)}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] .activity-card-art svg{width:var(--space-16);height:var(--space-16)}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] .activity-card-title{font-size:var(--body-size);line-height:var(--space-20)}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] .activity-card-value{grid-column:1;grid-row:2;margin:0;font-size:var(--measure-22-px);line-height:var(--space-28);min-height:0}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] :is(.activity-card-eyebrow,.activity-card-detail,.activity-module-preview){display:none}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] .activity-card-actions{position:absolute;inset:auto var(--space-16) var(--space-16) auto;margin:0}
+#notch #nook-layout .activity-module-summary[data-activity="shelf"][data-module-presentation="small"] .activity-card-action{flex:0 0 var(--space-32);width:var(--space-32);height:var(--space-32);padding:var(--space-8)}
+#music-player[data-module-presentation="small"] .music-controls .music-favorite{display:none}
+#music-player[data-module-presentation="small"]{container:music-panel / inline-size}
+#notch #nook-layout .activity-stage[data-slot-engine="1"] [data-slot-fits="false"]{position:relative}
+.module-slot-unavailable{position:absolute;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:var(--gap-between-modules);padding:var(--module-padding);background:var(--color-000,#000);color:var(--text-primary,#fff);font:500 12px/1.4 var(--font-ui);text-align:center}
+.module-slot-unavailable button{border:0;border-radius:var(--radius-module);padding:8px 12px;background:var(--surface-control,#202024);color:inherit;font:inherit;cursor:pointer}
+.module-slot-unavailable button:focus-visible{outline:2px solid var(--activity-transfer);outline-offset:2px}
+[data-module-slot="overlay"]{--module-padding:var(--space-16)}
+
+/* Below the reference canvas minimum, expose the same state at readable size. */
+#notch #nook-layout .activity-stage[data-slot-engine="1"]>.activity-main:has(>.module-compact-card){padding:0}
+#notch #nook-layout .activity-stage[data-slot-engine="1"] .module-compact-card{
+  display:grid;grid-template-columns:minmax(0,1fr) var(--measure-32-px,32px);grid-template-rows:minmax(0,1fr);align-items:center;gap:var(--gap-between-modules,var(--space-8,8px));
+  padding:var(--module-compact-padding,var(--space-12,12px));min-width:0;min-height:0;overflow:hidden;
+  border-radius:var(--radius-module,var(--ui-radius-card));background:var(--surface-card,#17171a);color:var(--text-primary,#fff);font-family:var(--font-ui);box-shadow:none;
+}
+#notch .module-compact-copy{display:flex;flex-direction:column;justify-content:center;gap:0;min-width:0;max-width:100%;overflow:hidden}
+#notch .module-compact-title{
+  display:block;flex:none;width:100%;min-width:0;min-height:var(--measure-24-px,24px);max-width:100%;margin:0;padding:var(--measure-3-px,3px) 0;border:0;border-radius:0;
+  background:transparent;color:inherit;font:650 var(--text-s,12px)/var(--measure-18-px,18px) var(--font-ui);letter-spacing:-.01em;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;touch-action:manipulation;
+  transition:color var(--dur-fast,200ms) var(--ease-standard,ease);
+}
+#notch .module-compact-detail{display:block;min-width:0;margin:0;color:var(--text-secondary,#c9c9ce);font:500 var(--measure-11-px,11px)/var(--measure-14-px,14px) var(--font-ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+#notch .module-compact-action{
+  display:grid;place-items:center;align-self:center;flex:none;width:var(--measure-32-px,32px);height:var(--measure-32-px,32px);min-width:var(--measure-32-px,32px);min-height:var(--measure-32-px,32px);margin:0;padding:0;border:0;border-radius:50%;
+  background:var(--border-subtle,#26262a);color:var(--color-fff,#fff);cursor:pointer;touch-action:manipulation;transition:background var(--dur-fast,200ms) var(--ease-standard,ease),filter var(--dur-fast,200ms) var(--ease-standard,ease);
+}
+#notch .module-compact-action svg{display:block;width:var(--measure-16-px,16px);height:var(--measure-16-px,16px);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+#notch .module-compact-action[data-scene-command$="-toggle"] svg{fill:currentColor;stroke:none}
+#notch .module-compact-title:hover:not(:disabled){color:var(--activity-color,var(--activity-transfer,#86b7ff))}
+#notch .module-compact-action:hover:not(:disabled){filter:brightness(1.2)}
+#notch .module-compact-action:active:not(:disabled){filter:brightness(1.35)}
+#notch .module-compact-title:disabled,#notch .module-compact-action:disabled{cursor:default;opacity:.45}
+#notch :is(.module-compact-title,.module-compact-action):focus-visible{outline:var(--measure-2-px,2px) solid var(--activity-transfer,#86b7ff);outline-offset:var(--measure-2-px,2px)}
+#notch #nook-layout .activity-stage[data-slot-engine="1"] .module-compact-card[data-activity^="module-lab-empty-"]{grid-template-columns:minmax(0,1fr);border:1px dashed var(--border-subtle,#26262a);background:transparent}
+#notch .module-compact-card[data-activity^="module-lab-empty-"] :is(.module-compact-title,.module-compact-detail){text-align:center}
+
+/* The Lab reserves its own 40 px band; changing a format never moves the menu. */
+#notch .module-lab-toolbar{position:absolute;z-index:5;inset:0 0 auto;display:flex;align-items:center;gap:var(--space-8,8px);width:100%;height:var(--measure-32-px,32px);min-width:0;color:var(--text-primary,#fff);font:500 var(--text-s,12px)/1.3 var(--font-ui)}
+#notch .module-lab-toolbar :is(button,select){box-sizing:border-box;height:var(--measure-32-px,32px);min-height:var(--measure-32-px,32px);min-width:0;margin:0;border:0;border-radius:var(--r-control,16px);background:var(--surface-control,#202024);color:inherit;font:inherit;cursor:pointer}
+#notch .module-lab-toolbar>button{display:grid;place-items:center;flex:0 0 var(--measure-32-px,32px);width:var(--measure-32-px,32px);padding:0;font-size:var(--text-l,18px);line-height:1}
+#notch .module-lab-toolbar select{flex:1 1 0;padding:0 var(--space-8,8px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#notch .module-lab-toolbar [data-lab-presentation]{flex:0 0 var(--measure-80-px,80px);width:var(--measure-80-px,80px)}
+#notch .module-lab-toolbar option{background:var(--surface-control,#202024);color:var(--text-primary,#fff)}
+#notch .module-lab-status{flex:0 1 auto;max-width:30%;min-width:0;color:var(--activity-focus);font-size:var(--measure-11-px,11px);line-height:var(--measure-14-px,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#notch .module-lab-status:empty{display:none}
+#notch .module-lab-toolbar :is(button,select):hover{background:var(--border-subtle,#26262a)}
+#notch .module-lab-toolbar :is(button,select):focus-visible{outline:var(--measure-2-px,2px) solid var(--activity-transfer,#86b7ff);outline-offset:calc(-1 * var(--measure-2-px,2px))}
+#notch :is(.module-compact-card,.module-compact-action,.module-lab-toolbar)[hidden]{display:none!important}
+#notch[data-calendar-open="true"] .module-lab-toolbar{visibility:hidden;pointer-events:none}
+@media(prefers-reduced-motion:reduce){[data-module-presentation]{scroll-behavior:auto}}

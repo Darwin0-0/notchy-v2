@@ -6,11 +6,13 @@ Start with the [Reading manifest](examples/module.manifest.json), the [JSON Sche
 
 Open **Market** in the main navigation, **Settings → Modules → Library**, or **Library** in the home editor. Search by name or description, select a category, then open a module's detail page. The catalog includes Notchy's existing Music, Tasks & Focus, Weather and Shelf modules alongside the local declarative examples. **Installed** reflects the real enabled state of a built-in module. **Remove** asks for confirmation and removes it from Nook while retaining its saved placement, tasks, sessions and files; **Install** enables it again. Built-ins remain available locally and require no download. Community examples use **Get** before installation; removing a community module also removes its own local state after confirmation.
 
-The Market also includes My modules and Studio. Preview a manifest before confirming installation. **Place in Nook** shows all three positions and their current occupants: choose one, then confirm the named replacement. Cancel, Back or Escape leaves the saved arrangement unchanged; displaced modules remain enabled in reserve. Studio provides a JSON editor and a temporary blank test island. Its example controls use an in-memory registry, separate from installed modules and the saved home; Back or Escape returns to Studio. Application developers can open the same screen with `window.notchy.showModuleLibrary()` and inspect installed definitions/state with `window.notchy.getCommunityModules()`.
+The Market also includes My modules and Studio. Preview a manifest before confirming installation. Preview and Studio expose all four canonical formats, disable unsupported choices and start on a supported format, including for main-only modules. Shelf now supports Full, Main, Side and Small through the same central contract; its Small summary shows the real file count and opens Tray without moving or copying files. **Place in Nook** shows all three positions and their current occupants: choose one, then confirm the named replacement. Cancel, Back or Escape leaves the saved arrangement unchanged; displaced modules remain enabled in reserve. Studio provides a JSON editor and a temporary blank test island. Its example controls use an in-memory registry, separate from installed modules and the saved home; Back or Escape returns to the preserved Studio draft. Application developers can open the same screen with `window.notchy.showModuleLibrary()` and inspect installed definitions/state with `window.notchy.getCommunityModules()`.
 
 This v2 runtime is deliberately limited to host-rendered fields and actions. It does not load JavaScript, HTML, CSS, arbitrary images, executable files or remote services. The earlier v1 manifest was a design proposal and cannot be imported; use v2 below. Built-in Music, Tasks & Focus, Weather and LocalSend retain their reviewed application and native implementations.
 
 The built-in Tasks & Focus module has one canonical ID, `focus`. Its task list and timer are internal views of the same module and share one persisted session; `tasks` is accepted only as a legacy placement alias.
+
+Placement availability comes from the shared host plan, including the other modules that would remain visible. The Market disables a rejected destination and displays its reason. It rechecks the host's availability immediately before confirmation; a changed constraint leaves the saved arrangement and module state untouched. The UI does not infer a slot's capabilities from its numeric position.
 
 ## Try the blank island
 
@@ -20,9 +22,9 @@ From the repository root, run:
 node sdk/serve.cjs
 ```
 
-Open the loopback address printed by the script. The island starts empty. Choose **Reading**, **Water break** or **Import JSON**, try its real controls, then switch among **Full**, **Scene** and **Rail**, and between English and French. **Export manifest** saves the current validated definition. **Clear island** removes the example and its development state.
+Open the loopback address printed by the script. The island starts empty. Choose **Reading**, **Water break** or **Import JSON**, try its real controls, then switch among its supported **Full**, **Main**, **Side** and **Small** presentations, and between English and French. **Export manifest** saves the current validated definition. **Clear island** removes the example and its development state.
 
-The host uses the same `module-runtime.js` as the app. It is not a screenshot or a mock API. It saves its own development library in browser storage, separate from the installed application. No Tauri, Rust, npm installation or network connection is needed. To validate a file without opening a browser:
+The host uses the same `module-runtime.js`, `module-contracts.js` and module CSS as the app. It is not a screenshot or a mock API. It saves its own development library in browser storage, separate from the installed application. No Tauri, Rust, npm installation or network connection is needed. Test **Full**, **Main**, **Side** and **Small** at the contract's **Minimum** and **Ideal** dimensions. Unsupported formats are disabled. **Defaults**, **Long text** and **Fail the next local save** exercise real state and a rejected storage write. To validate a file without opening a browser:
 
 ```sh
 node sdk/validate.cjs sdk/starter.manifest.json
@@ -67,6 +69,7 @@ The complete [Reading example](examples/module.manifest.json) can be installed d
 | `fields` | 1–8 typed local state fields, described below. |
 | `actions` | 0–8 host-owned operations. Every target must refer to a declared field of the correct type. |
 | `presentations` | All three keys, `full`, `scene` and `rail`, are required. Each lists 1–8 field IDs and 0–8 action IDs to show. References and duplicates are checked. |
+| `layout` | Optional strict supported-format contract keyed by `full`, `main`, `side` and/or `small`, each with `min` and `ideal` width/height. Missing keys are unsupported. Existing manifests without it retain host defaults. See [the shared layout rules](MODULE_LAYOUT.md). |
 | `progress` | Optional real progress derived from two numeric fields; no fabricated activity or timer. |
 | `appearance` | Only `accent`, a six-digit hex color. Geometry, typography, contrast, backgrounds and motion belong to the host. |
 | `$schema` | Optional editor hint, at most 512 characters. Never fetched or executed by Notchy. |
@@ -108,7 +111,7 @@ Actions cannot invoke a shell, access the clipboard, open a path, send a request
 
 Both references must identify different numeric fields. `valueField.min` must be nonnegative; `targetField.min` must be positive. The host renders a labelled native progress element, clamped to the target, and the actual `completed / target` values. An over-target count remains visible as data; the progress fill stays at 100%. No background events or invented percentages are created.
 
-### Three presentations
+### Render views and host presentations
 
 | Presentation | Role | Recommended content |
 | --- | --- | --- |
@@ -116,7 +119,7 @@ Both references must identify different numeric fields. `valueField.min` must be
 | `scene` | The main card or one of two cards. | Essential fields and normal-use controls. |
 | `rail` | A smaller secondary card. | One clear value and its essential action. |
 
-These are separately selected field/action lists, not scaled screenshots. Keep the smaller view concise. The host chooses actual layout and size according to the current module arrangement and work area; a manifest cannot resize the native window, move the navbar or change another module. Switching layouts or language preserves one shared state. Follow [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) for application dimensions and spacing.
+These legacy-compatible field/action lists remain the v2 render data. The central host now assigns **full**, **main**, **side**, **tall**, **wide** or **small**: full uses `full`, main/side/tall use `scene`, and wide/small use `rail`. They are deliberate content arrangements, not scaled screenshots. An optional `layout` declares supported host formats and their minimum/ideal dimensions. The host chooses actual layout and size according to the current module arrangement and work area; a manifest cannot resize the native window, move the navbar or change another module. Switching layouts or language preserves one shared state. Follow [MODULE_LAYOUT.md](MODULE_LAYOUT.md) for the layout contract and [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) for the visual reference.
 
 ## Imports, versions and storage
 
@@ -131,7 +134,7 @@ The runtime returns normalized, deeply frozen objects so callers cannot mutate a
 
 ## Host API
 
-`module-runtime.js` exposes `window.NotchyModules` in a browser and `module.exports` in Node. It has no dependencies.
+`module-runtime.js` exposes `window.NotchyModules` in a browser and `module.exports` in Node. It has no third-party dependencies. Browser hosts load `tokens.js`, then `module-contracts.js`, then `module-runtime.js`; Node loads the shared files through CommonJS. Legacy browser hosts can still render the original v2 views, but canonical formats and explicit layout metadata require the shared layout host.
 
 ```javascript
 const store = NotchyModules.createStore({
@@ -176,6 +179,7 @@ Without `persist`, methods remain synchronous for ordinary local storage or an i
 | `validateManifest(object)` | A normalized frozen manifest, or a validation error. |
 | `parseManifest(jsonText)` | Byte-limited JSON parsing followed by the same validation. |
 | `normalizeState(validatedManifest, value)` | Declared fields only, repaired/clamped and frozen. |
+| `getLayoutContract(manifest)` | The normalized canonical `{id, layout}` contract from the shared host, including legacy-compatible defaults. Does not modify stored manifest bytes. |
 | `validateRegistry(value)` | Safe frozen `{registryVersion: 1, modules: [{manifest, state}]}`; malformed entries are omitted. |
 | `createStore({storage?, key?, onChange?, persist?})` | A local persistent or in-memory library. Constructor does not save. An optional persistence hook enables queued asynchronous mutations. |
 | `store.list()`, `store.get(id)`, `store.snapshot()` | Frozen live entries, one entry or null, or the entire registry. |
@@ -187,13 +191,13 @@ Without `persist`, methods remain synchronous for ordinary local storage or an i
 | `render(host, manifest, state, options)` | Renders accessible plain DOM and returns a disposer. Re-rendering the same host disposes its previous listeners and preserves focus in a matching control. |
 | `catalog`, `limits` | Frozen bundled sample manifests and runtime limits. |
 
-The renderer uses `.module-runtime-*` host classes and a validated `--module-accent` CSS variable. A presentation without `onAction` is a disabled preview. Host code owns error reporting: handle a thrown import or storage failure visibly, and keep the previous installed module usable. The runtime creates no timers, global listeners or network traffic.
+The renderer accepts canonical `full`, `main`, `side` and `small` presentation options, checks explicit supported formats, then translates to the retained v2 field/action lists. Its `data-module-presentation` identifies the requested canonical format; `.module-runtime-*` classes retain legacy compatibility and `--module-accent` is validated. A presentation without `onAction` is a disabled preview. Host code owns error reporting: handle an unsupported format, thrown import or storage failure visibly, and keep the previous installed module usable. The runtime creates no timers, global listeners or network traffic.
 
 ## Verify before sharing
 
 Validate with the runtime as well as the Draft 2020-12 schema. JSON Schema describes structure; runtime checks additionally verify unique IDs, references, type-compatible actions, default/bound relationships and progress semantics.
 
-Test all three presentations, both languages, long/empty text, keyboard focus, numeric bounds, save/reload, upgrades, removal and failed imports. Keep reset actions out of a tiny rail when they would be too easy to press. The bundled Water break target is a personal counter, not a health recommendation or an automatic daily schedule.
+Test every supported host presentation at minimum and ideal dimensions, both languages, long/empty text, keyboard focus, numeric bounds, save/reload, upgrades, removal and failed imports. Keep reset actions out of a small card when they would be too easy to press. The bundled Water break target is a personal counter, not a health recommendation or an automatic daily schedule.
 
 Run the full repository suite before a contribution:
 

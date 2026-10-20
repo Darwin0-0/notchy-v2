@@ -1,0 +1,14 @@
+'use strict';
+const Bridge=require('../../focus-duration.js');
+function fixture(saved,{canonical=false}={}){
+  const storage=new Map(saved?[[Bridge.KEY,JSON.stringify(saved)]]:[]),writes=[],components=[],callbacks=[],changes=[],opens=[],observers=[],intervals=new Set();let language='fr',languageChanged;
+  const document={createElement(){return{className:'',style:{},remove(){this.removed=true;}};}};
+  const win={localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>{writes.push(value);storage.set(key,value);}},setTimeout:callback=>(callbacks.push(callback),1),setInterval:callback=>(intervals.add(callback),callback),clearInterval:callback=>intervals.delete(callback),ResizeObserver:class{constructor(callback){this.callback=callback;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}},NotchyI18n:{locale:()=>language,t:value=>value,onChange(callback){languageChanged=callback;return()=>{languageChanged=null;};}},NotchyDuration:{mount(host,options){let view=options.view,size='full';const calls={sizes:[],languages:[],fits:0};const component={ready:Promise.resolve(),calls,options,inspect:()=>({view,size}),setPresentation(value){size=value;calls.sizes.push(value);},fit(){calls.fits++;},setLanguage(value){calls.languages.push(value);},showSettings(){view='settings';options.onViewChange({view});},showTimer(){view='timer';options.onViewChange({view});},showTasks(){view='tasks';options.onViewChange({view});},startCreate(){view='create-title';options.onViewChange({view});},cancelEdit(){view=options.view;options.onViewChange({view});},dispose(){this.disposed=true;}};components.push(component);return component;}}};document.defaultView=win;
+  const host=(presentation='full',width=535,height=260)=>({ownerDocument:document,dataset:{presentation},clientWidth:width,clientHeight:height,hidden:false,children:[],append(node){this.children.push(node);}});
+  if(canonical){const legacyMount=win.NotchyDuration.mount;win.NotchyDuration.mount=function(...args){const component=legacyMount(...args),legacyInspect=component.inspect;let modulePresentation=null;component.calls.presentations=[];component.setModulePresentation=value=>{if(value===modulePresentation)return false;modulePresentation=value;component.calls.presentations.push(value);return true;};component.inspect=()=>({...legacyInspect(),modulePresentation});return component;};}
+  const focusHost=host(),focus=Bridge.create({host:focusHost,changed:value=>changes.push(value),openDuration:kind=>opens.push(kind),closeConfiguration(){throw Error('leaveRoute must suppress restoration callbacks');}});
+  return{focus,focusHost,host,components,changes,opens,observers,writes,flush(){while(callbacks.length)callbacks.shift()();},tick(){for(const callback of intervals)callback();},language(value){language=value;languageChanged?.();}};
+}
+const settle=()=>new Promise(resolve=>setImmediate(resolve));
+
+module.exports={fixture,settle};

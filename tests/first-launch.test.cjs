@@ -11,7 +11,7 @@ function fixture(saved = new Map()) {
     getModuleEditorActive: () => false, closeModuleEditor: () => {}, clearModuleFeedback: () => {}, byId: () => ({}), motionEnabled: () => true, update: () => {}};
   const lifecycle = source.slice(source.indexOf('  let welcome = null;'), source.indexOf('  let moduleFeedback = null,'));
   const create = source.match(/^  welcome = window\.NotchyWelcome\.create\(.+$/m)[0];
-  const firstLaunch = source.slice(source.indexOf('  let welcomeDone = false;'), source.lastIndexOf('})(typeof window'));
+  const firstLaunch = source.slice(source.indexOf('  let welcomeDone = false;'), source.lastIndexOf('  window.notchy = app;'));
   vm.runInNewContext(`let disposed=false,view='nook',state='rest',welcomeStage='idle';
     const panel={scrollTop:100,scrollLeft:50};
     const selectViewButton=button=>{view=button.dataset.view;}; const setState=value=>{state=value;};

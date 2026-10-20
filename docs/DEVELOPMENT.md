@@ -1,6 +1,8 @@
 # Development
 
-Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. The interface uses plain JavaScript and CSS: `notch.js` coordinates the island, `duration-core.js` owns the shared task and timer state, `duration-module.js` renders its views, and `focus-duration.js` connects them to the host and existing Focus storage. `focus.js` retains the compatibility model and presentation helpers; `welcome.js` owns onboarding. Dedicated components handle settings, sharing and local search, with shared design tokens and French/English text.
+Notchy targets Windows with a Rust engine, a Tauri WebView interface and small Windows helpers for media, audio, location and OCR. The running application does not require Node.js. `app.js` is the single startup entry: it waits for the document and starts the shell once. `notch.js` coordinates the island, `duration-core.js` owns shared task and timer state, `duration-module.js` renders its views, and `focus-duration.js` connects that component to the host and existing Focus storage. `focus.js` retains only the compatibility model and projections needed to preserve saved data; `welcome.js` owns onboarding. Dedicated modules handle settings, sharing and local search.
+
+Run `npm run build` to generate `dist/`. The [frontend manifest](../scripts/frontend-manifest.json) defines source order and the complete packaged asset list. The dependency-free builder joins the classic browser modules into one `app.bundle.js`, preserves CSS and assets, validates inputs, and removes stale generated files. Cargo invokes the same builder automatically before embedding the interface. Edit the readable sources rather than the generated bundle; no npm installation is needed. See [frontend build](../scripts/README.md).
 
 ## Installing and first launch
 
@@ -19,7 +21,7 @@ Prerequisites:
 - Windows 10/11 x64, WebView2 and .NET Framework 4.x.
 - Rust with the MSVC x64 toolchain.
 - Visual Studio C++ build tools with a Windows SDK.
-- Node.js for JavaScript tests and optional installer packaging.
+- Node.js 22 or later for the frontend build and JavaScript tests; set `NOTCHY_NODE` if its executable is not on `PATH`.
 
 Clone the repository and open a **64-bit PowerShell** in its folder:
 
@@ -31,7 +33,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Build-Notchy.ps1 -Release
 
 [Build-Notchy.ps1](../Build-Notchy.ps1) first compiles the helpers from [native/](../native/) using the Windows .NET Framework compiler, then builds Rust with `Cargo.lock`. The portable application and its helpers are placed in `build/release/`. Omit `-Release` for `build/debug/`.
 
-After building, double-click `Notchy V2.cmd`. It prefers a release build, otherwise uses the debug build. LocalSend starts automatically with either. This launcher passes the repository folder as the data root. A release executable without `--data-root` uses the Windows application-data folder; a debug executable defaults to the repository folder.
+After building, double-click `Notchy V2.cmd`. It prefers a release build, otherwise uses the debug build. LocalSend starts automatically with either. This launcher passes the repository folder as the data root. A release executable without `--data-root` uses the Windows application-data folder; a debug executable defaults to the isolated `.development/profile` folder.
 
 Close the executable and its helpers before rebuilding the same output folder. The build above creates the portable application. WebView2 is a shared Windows runtime, separate from Notchy’s files.
 
@@ -72,6 +74,7 @@ Run `node sdk/serve.cjs` and open the loopback address printed by the server. Th
 From the repository root:
 
 ```powershell
+npm run build
 node --test tests/*.test.cjs
 $notchyPreviousTauriConfig = $env:TAURI_CONFIG
 $notchyPreviousTemp = $env:TEMP

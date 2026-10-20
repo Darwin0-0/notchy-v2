@@ -1,0 +1,164 @@
+{
+  "primitive": {
+    "neutral-0": "#000000",
+    "neutral-50": "#0b0b0d",
+    "neutral-100": "#141417",
+    "neutral-150": "#17171a",
+    "neutral-200": "#1c1c1f",
+    "neutral-250": "#202024",
+    "neutral-300": "#26262a",
+    "neutral-400": "#3a3a3f",
+    "neutral-500": "#6b6b73",
+    "neutral-600": "#a1a1a6",
+    "neutral-700": "#c9c9ce",
+    "neutral-800": "#f5f5f7",
+    "neutral-900": "#ffffff",
+    "orange-500": "#ff7a45",
+    "orange-900": "#1a0a02",
+    "blue-400": "#86b7ff",
+    "green-400": "#6ee7b7",
+    "red-400": "#f87171",
+    "sky-300": "#9db8d9",
+    "pink-300": "#f08a9a",
+    "mint-400": "#6ee7c4",
+    "amber-500": "#ff9f1c"
+  },
+  "semantic": {
+    "surface.base": "neutral-0",
+    "surface.card": "neutral-150",
+    "surface.raised": "neutral-200",
+    "surface.control": "neutral-250",
+    "border.subtle": "neutral-300",
+    "text.primary": "neutral-900",
+    "text.secondary": "neutral-700",
+    "text.tertiary": "neutral-600",
+    "text.muted": "neutral-500",
+    "accent.focus": "orange-500",
+    "accent.break": "blue-400",
+    "status.positive": "green-400",
+    "status.negative": "red-400",
+    "media.accent": "mint-400",
+    "media.music": "pink-300",
+    "weather.sky": "sky-300",
+    "on.accent": "orange-900"
+  },
+  "type": {
+    "numeral-xl": {
+      "size": 96,
+      "lineHeight": 1,
+      "weight": 300,
+      "tracking": "-.03em"
+    },
+    "numeral": {
+      "size": 34,
+      "lineHeight": 1,
+      "weight": 700,
+      "tracking": "-.01em"
+    },
+    "title-l": {
+      "size": 26,
+      "lineHeight": 1.15,
+      "weight": 700,
+      "tracking": "-.01em"
+    },
+    "title": {
+      "size": 18,
+      "lineHeight": 1.25,
+      "weight": 700,
+      "tracking": "0"
+    },
+    "headline": {
+      "size": 16,
+      "lineHeight": 1.3,
+      "weight": 700,
+      "tracking": "0"
+    },
+    "body": {
+      "size": 15,
+      "lineHeight": 1.45,
+      "weight": 400,
+      "tracking": "0"
+    },
+    "callout": {
+      "size": 13,
+      "lineHeight": 1.4,
+      "weight": 500,
+      "tracking": "0"
+    },
+    "label": {
+      "size": 11,
+      "lineHeight": 1.2,
+      "weight": 700,
+      "tracking": ".14em"
+    }
+  },
+  "space": [
+    4,
+    8,
+    12,
+    16,
+    24,
+    32
+  ],
+  "radius": {
+    "r-panel": 40,
+    "r-card": 24,
+    "r-control": 16,
+    "r-chip": 12
+  },
+  "grid": {
+    "cell": [
+      260,
+      112
+    ],
+    "gap": 16,
+    "padding": 16,
+    "panel": [
+      844,
+      464
+    ],
+    "formats": {
+      "small": {
+        "cols": 1,
+        "rows": 1,
+        "w": 260,
+        "h": 112
+      },
+      "wide": {
+        "cols": 2,
+        "rows": 1,
+        "w": 536,
+        "h": 112
+      },
+      "tall": {
+        "cols": 1,
+        "rows": 2,
+        "w": 260,
+        "h": 240
+      },
+      "side": {
+        "cols": 1,
+        "rows": 3,
+        "w": 260,
+        "h": 368
+      },
+      "main": {
+        "cols": 2,
+        "rows": 3,
+        "w": 536,
+        "h": 368
+      },
+      "full": {
+        "cols": 3,
+        "rows": 3,
+        "w": 812,
+        "h": 368
+      }
+    }
+  },
+  "spring": {
+    "spring-soft": "réponse .50 · amortissement 1,0",
+    "spring-snappy": "réponse .35 · amortissement .85",
+    "spring-bouncy": "réponse .45 · amortissement .70"
+  }
+}

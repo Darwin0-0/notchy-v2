@@ -1,0 +1,49 @@
+{
+  "bundle": "app.bundle.js",
+  "scripts": [
+    "tokens.js",
+    "module-contracts.js",
+    "i18n.js",
+    "welcome.js",
+    "focus.js",
+    "duration-core.js",
+    "duration-module.js",
+    "focus-duration.js",
+    "empty-states.js",
+    "experience.js",
+    "sharing-experience.js",
+    "ia.js",
+    "search.js",
+    "module-runtime.js",
+    "module-library.js",
+    "calendar.js",
+    "notch.js",
+    "app.js"
+  ],
+  "assets": [
+    "index.html",
+    "tokens.css",
+    "ia.css",
+    "empty-states.css",
+    "notch.css",
+    "welcome.css",
+    "experience.css",
+    "experience-polish.css",
+    "focus-experience.css",
+    "sharing-experience.css",
+    "search.css",
+    "module-layout.css",
+    "module-library.css",
+    "calendar.css",
+    "duration-module.css",
+    "duration-integration.css",
+    "assets/duration-dm-sans.woff2",
+    "assets/duration-FONT-LICENSE.txt"
+  ],
+  "copies": [
+    {
+      "source": "assets/spotify.ico",
+      "destination": "spotify.ico"
+    }
+  ]
+}

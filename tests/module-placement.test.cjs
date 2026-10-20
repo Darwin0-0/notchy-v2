@@ -3,18 +3,53 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const {modulePlacementPlan, normalizeModules, assignModuleSlot, createActivityScene, activitySnapshot} = require('../notch.js');
+const {modulePlacementPlan, normalizeModules, assignModuleSlot, createActivityScene, activitySnapshot, getModuleDefinitions} = require('../notch.js');
+const ModuleLayout=require('../module-contracts.js'),runtime=require('../module-runtime.js');
 
 const ids = ['music', 'focus', 'weather', 'shelf'];
 
 test('community placement requires an explicit valid slot and preserves all other home modules', () => {
   const source=fs.readFileSync(require.resolve('../notch.js'),'utf8'), begin=source.indexOf('  function placeCommunityModule('), end=source.indexOf('  function renderCommunityCard(',begin);
-  const calls=[], scope={Number,assignModuleSlot,communityStore:{get:id=>id==='weather'?{}:null},moduleLibrary:{hide(){calls.push('hide');}},
+  const calls=[], scope={moduleSettings:{grid:null},Number,assignModuleSlot,normalizeModules,modulePlacementPlan,ModuleLayout,layoutContract:id=>ModuleLayout.getBuiltinContract(id),slotViewport:()=>({width:792,height:364}),t:value=>value,communityStore:{get:id=>id==='weather'?{}:null},moduleLibrary:{hide(){calls.push('hide');}},
     getModules:()=>({enabled:ids.filter(id=>id!=='weather'),slots:['music','focus','shelf']}),setModules(value){calls.push(value);},selectViewButton(){},openFromOutside(){}};
-  vm.runInNewContext(source.slice(begin,end)+'this.place=placeCommunityModule;',scope);
+  const candidateStart=source.indexOf('  function modulePlacementCandidate('),candidateEnd=source.indexOf('  function applySlotRect(',candidateStart);
+  vm.runInNewContext(source.slice(candidateStart,candidateEnd)+source.slice(begin,end)+'this.place=placeCommunityModule;',scope);
   for(const slot of [undefined,null,-1,3,'0',.5])assert.throws(()=>scope.place('weather',slot));
   assert.throws(()=>scope.place('missing',0));assert.deepEqual(calls,[]);
   scope.place('weather',1);assert.equal(calls[0],'hide');assert.deepEqual(Array.from(calls[1].slots.slice(0,3)),['music','weather','shelf']);assert(calls[1].enabled.includes('focus'));assert(calls[1].enabled.includes('weather'));
+});
+
+test('placing a community module from a custom grid opens a draft without overwriting occupied cells or committed settings',()=>{
+  const source=fs.readFileSync(require.resolve('../notch.js'),'utf8'),begin=source.indexOf('  function placeCommunityModule('),end=source.indexOf('  async function changeBuiltinAvailability(',begin);
+  const store=runtime.createStore();store.install(runtime.catalog[0]);
+  const profile={enabled:['music','focus','weather'],slots:['music','focus','weather',null],grid:[{id:'music',presentation:'main',column:0,row:0},{id:'focus',presentation:'tall',column:2,row:0},{id:'weather',presentation:'small',column:2,row:2}]},before=structuredClone(profile),calls=[];
+  const scope={Number,Set,moduleSettings:profile,moduleDraft:null,modulePicked:null,moduleMessage:'',communityStore:store,t:value=>value,moduleLibrary:{hide(){calls.push('hide');}},
+    openModuleEditor(){calls.push('editor');scope.moduleDraft=structuredClone(profile);},renderModules(){calls.push('render');},
+    modulePlacementCandidate(){assert.fail('a grid placement cannot be replaced through the old three-slot planner');},setModules(){assert.fail('opening a grid draft does not commit it');},selectViewButton(){assert.fail('the draft owns its navigation');},openFromOutside(){assert.fail('the editor opens its own host');}};
+  vm.runInNewContext(source.slice(begin,end)+'this.place=placeCommunityModule;',scope);
+  for(const destination of [undefined,null,-1,3,.5,'0'])assert.throws(()=>scope.place('community.reading',destination));
+  assert.throws(()=>scope.place('community.missing',0));assert.deepEqual(calls,[]);
+  scope.place('community.reading',0);assert.deepEqual(calls,['hide','editor','render']);
+  assert.equal(scope.modulePicked,'community.reading');assert(scope.moduleDraft.enabled.includes('community.reading'));assert.deepEqual(scope.moduleDraft.grid,before.grid);assert.deepEqual(profile,before);
+  scope.moduleDraft.grid[0].column=2;assert.deepEqual(profile,before,'a pending editor draft cannot mutate a committed placement');
+  assert.equal(store.get('community.reading').state.completed,0,'placement does not reset or modify community values');
+});
+
+test('community placement simulation rejects unsupported formats and preserves another module that currently fits',()=>{
+  const source=fs.readFileSync(require.resolve('../notch.js'),'utf8'),definitions=Object.fromEntries(getModuleDefinitions().map(definition=>[definition.id,definition]));
+  const mainOnly=structuredClone(runtime.catalog[0]);mainOnly.id='community.main-only';mainOnly.layout={main:{min:{width:240,height:180},ideal:{width:356,height:260}}};
+  const tall=structuredClone(runtime.catalog[1]);tall.id='community.tall';tall.layout={full:{min:{width:180,height:200},ideal:{width:440,height:260}},main:{min:{width:180,height:200},ideal:{width:360,height:260}},side:{min:{width:144,height:200},ideal:{width:260,height:368}},tall:{min:{width:144,height:200},ideal:{width:260,height:240}}};
+  for(const manifest of [mainOnly,tall])definitions[manifest.id]={id:manifest.id,community:true,contract:runtime.getLayoutContract(runtime.validateManifest(manifest))};
+  const width=ModuleLayout.surfaceLimits.richMinWidth-ModuleLayout.metrics.padding*2;
+  const scope={moduleDefinitions:definitions,ModuleLayout,slotViewport:()=>({width,height:260}),layoutContract:id=>definitions[id]?.contract};
+  const coreStart=source.indexOf('  function normalizeModules('),coreEnd=source.indexOf('  function moduleEditorPresentation(',coreStart),candidateStart=source.indexOf('  function modulePlacementCandidate('),candidateEnd=source.indexOf('  function applySlotRect(',candidateStart);
+  vm.runInNewContext(source.slice(coreStart,coreEnd)+source.slice(candidateStart,candidateEnd)+'this.candidate=modulePlacementCandidate;',scope);
+  const original={enabled:['music','focus','community.main-only'],slots:['music','focus',null,null]},before=JSON.stringify(original);
+  const denied=scope.candidate(original,1,'community.main-only');assert.equal(denied.available,false);assert.equal(denied.reason,'unsupported-presentation');assert.equal(JSON.stringify(original),before);
+  const accepted=scope.candidate(original,0,'community.main-only');assert.equal(accepted.available,true);assert.equal(accepted.value.slots[0],'community.main-only');assert(accepted.value.enabled.includes('music'));assert.equal(JSON.stringify(original),before);
+  const withTall={enabled:['music','community.tall','focus'],slots:['music','community.tall',null,null]},tallBefore=JSON.stringify(withTall);
+  assert.equal(ModuleLayout.planSlots([{id:'music'},{id:'community.tall'}],{width,height:260,getContract:scope.layoutContract}).items[1].fits,true);
+  const breakingOther=scope.candidate(withTall,2,'focus');assert.equal(breakingOther.available,false);assert.equal(breakingOther.reason,'insufficient-space');assert.equal(JSON.stringify(withTall),tallBefore);
 });
 
 test('each catalogue module receives its template and share from its actual placement', () => {
@@ -81,6 +116,16 @@ test('configured Weather or Shelf stays primary when Focus starts, while promoti
 test('configured idle modules never become invented live activities in the closed band', () => {
   assert.equal(modulePlacementPlan({enabled: ids, slots: ids}).count, 3);
   assert.deepEqual(activitySnapshot({music: {available: false}, focus: {minutes: 25}, weather: {temperature: 22}, shelf: {count: 3}}), []);
+});
+
+test('Module Lab placeholders enter a scene only through the current explicit allowlist',()=>{
+  const scene=createActivityScene(),first='module-lab-empty-1',second='module-lab-empty-2';
+  const values=[{id:'music',key:'music'},{id:first,key:first},{id:'unrelated-module',key:'unknown'},{id:second,key:second}],before=structuredClone(values);
+  scene.update(values,{preserveOrder:true});assert.deepEqual(scene.inspect().items.map(item=>item.id),['music']);assert.equal(scene.promote(first),false);
+  scene.update(values,{preserveOrder:true,allowedIds:[first,second]});assert.deepEqual(scene.inspect().items.map(item=>item.id),['music',first,second]);assert.equal(scene.inspect().items.some(item=>item.id==='unrelated-module'),false);
+  assert.equal(scene.promote(first),true);assert.equal(scene.inspect().primary,first);
+  scene.update(values,{preserveOrder:true});assert.deepEqual(scene.inspect().items.map(item=>item.id),['music']);assert.equal(scene.promote(first),false);assert.deepEqual(values,before);
+  const ordinary=createActivityScene();ordinary.update(values,{preserveOrder:true});assert.deepEqual(ordinary.inspect().items.map(item=>item.id),['music']);
 });
 
 test('a temporary transfer uses one rail and returns to the surviving configured primary', () => {

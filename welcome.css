@@ -1,25 +1,94 @@
-/* Head geometry comes from the V1 robot renderer; only its two white eyes loop. */
-#welcome-player[data-welcome-design="mimo-head"] .welcome-brand { top: var(--measure-20-px); height: var(--measure-56-px); gap: var(--space-3); }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-mascot { display: block; flex: 0 0 var(--measure-56-px); width: var(--measure-56-px); height: var(--measure-56-px); }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-mascot { transform-origin: center; }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo { display: block; width: var(--measure-56-px); height: var(--measure-56-px); overflow: hidden; }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-wordmark { font-size: var(--measure-26-px); line-height: var(--measure-32-px); letter-spacing: -.03em; }
-#welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"]:is([data-mimo-beat="wake"],[data-mimo-beat="awake"],[data-mimo-beat="curious"]) .welcome-wordmark { opacity: 0; }
-#welcome-player[data-welcome-design="mimo-head"] :is(.welcome-mimo-features,.welcome-mimo-eyelids) { transform-box: view-box; transform-origin: var(--measure-32-px) var(--measure-32-px); }
-#welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"][data-mimo-beat="wake"] .welcome-mimo-eyelids { transform: scaleY(.12); }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-title { top: var(--measure-88-px); font-size: var(--measure-17-px); line-height: var(--measure-23-px); }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-description { top: var(--measure-118-px); width: min(var(--measure-292-px),calc(100% - var(--measure-36-px))); color: var(--color-c3c3ca); line-height: var(--measure-18-px); }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-intro > .welcome-actions { top: var(--measure-170-px); gap: var(--measure-10-px); }
-#welcome-player[data-welcome-design="mimo-head"] button { height: var(--measure-36-px); border-radius: var(--radius-control); }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-language select { border-radius: var(--radius-art); }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions button { border-radius: var(--radius-control); }
-#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-eye { transform-box: fill-box; transform-origin: center; animation: none; }
-#welcome-player[data-welcome-design="mimo-head"][data-welcome-motion="true"] .welcome-mimo-eye { animation: mimo-head-blink var(--time-6800) ease-in-out infinite; }
-#welcome-player[data-welcome-design="mimo-head"] :is(.welcome-ripple,.welcome-file-nudge,.welcome-arrow-nudge) { animation: none!important; }
-@keyframes mimo-head-blink {
-  0%,35%,38%,78%,81%,100% { transform: scaleY(1); }
-  36.1%,79.1% { transform: scaleY(.12); }
+/* NotchyIntro.dc.html: the authored 570 × 350 composition. The shell applies
+   the discreet .8 display scale; do not scale the content a second time.
+   This renderer never runs the export's automatic 30 s loop. */
+#notch #welcome-player[data-welcome-design="mimo-head"] {
+ --welcome-accent:#ff7a45; --welcome-ink:#1a0a02;
+ position:absolute;top:0;left:50%;width:min(570px,100%);height:100%;min-height:0;padding:0;
+ transform:translateX(-50%);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;
+ background:#000;color:#fff;font-family:var(--font-ui);container-type:inline-size;
 }
-@media (prefers-reduced-motion: reduce) {
-  #welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-eye { animation: none; transform: none; }
+#welcome-player[data-welcome-design="mimo-head"] .welcome-card {position:relative;width:100%;height:350px;min-height:350px;text-align:center}
+#welcome-player[data-welcome-design="mimo-head"]:is([data-welcome-stage="idle"],[data-welcome-stage="logo"]) {overflow:hidden}
+#welcome-player[data-welcome-design="mimo-head"]:is([data-welcome-stage="idle"],[data-welcome-stage="logo"]) .welcome-card {height:100%;min-height:0}
+#welcome-player[data-welcome-design="mimo-head"] :is(.welcome-intro,.welcome-tutorial,.welcome-slide) {position:absolute;inset:0;width:100%;height:350px;box-sizing:border-box}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-brand {position:absolute;top:31.5px;left:0;right:0;height:64px;min-height:0;margin:0;display:flex;align-items:center;justify-content:center;gap:22px}
+#welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"] .welcome-brand {top:32px}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mascot {display:block;flex:0 0 64px;width:64px;height:64px;transform-origin:center}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo {display:block;width:64px;height:64px;overflow:visible}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-wordmark {display:block;margin:0;font:800 46px/1.2 var(--font-ui);letter-spacing:-.02em}
+#welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"]:is([data-mimo-beat="wake"],[data-mimo-beat="awake"],[data-mimo-beat="curious"]) .welcome-wordmark {opacity:0}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-features {transform-box:view-box;transform-origin:0 0}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-eyelids {transform-box:view-box;transform-origin:32px 32px}
+#welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"][data-mimo-beat="wake"] .welcome-mimo-eyelids {transform:scaleY(.12)}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-title {position:absolute;top:134px;left:24px;right:24px;margin:0;display:flex;flex-wrap:wrap;justify-content:center;gap:0 .28em;color:#fff;font:700 26px/1.2 var(--font-ui);letter-spacing:-.01em}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-word {display:inline-block}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-description {position:absolute;top:178px;left:50%;width:min(440px,calc(100% - 48px));max-width:none;margin:0;translate:-50% 0;text-align:center;color:#c9c9ce;font:400 18px/1.4 var(--font-ui)}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-actions {position:absolute;top:272px;left:24px;right:24px;margin:0;display:flex;justify-content:center;align-items:center;gap:16px}
+#welcome-player[data-welcome-design="mimo-head"] button {box-sizing:border-box;width:168px;min-width:0;max-width:100%;height:54px;min-height:0;margin:0;padding:0 16px;border:0;border-radius:14px;font:700 18px/1.2 var(--font-ui);cursor:pointer;transition:filter 200ms ease,scale 150ms cubic-bezier(.2,.8,.2,1)}
+#welcome-player[data-welcome-design="mimo-head"] button:active:not(:disabled) {scale:.92}
+#welcome-player[data-welcome-design="mimo-head"] button:hover:not(:disabled) {filter:brightness(1.12)}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-primary {background:var(--welcome-accent);color:var(--welcome-ink)}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-secondary {background:#1c1c1f;color:#fff}
+#welcome-player[data-welcome-design="mimo-head"] button:disabled {opacity:1;background:#0e0e10;color:#4a4a50;cursor:default}
+#welcome-player[data-welcome-design="mimo-head"] :is(button,select):focus-visible {outline:2px solid #fff;outline-offset:3px}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-language {position:absolute;top:18px;right:20px;display:block;margin:0;color:#fff}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-language select {box-sizing:border-box;appearance:none;width:78px;height:36px;min-height:0;margin:0;padding:0 34px 0 16px;border:0;border-radius:12px;background:#1a1a1c;color:#fff;font:700 15px/1 var(--font-ui);cursor:pointer;color-scheme:dark}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-language-arrow {position:absolute;top:10px;right:12px;pointer-events:none}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial-top {position:absolute;top:26px;left:40px;right:40px;height:22px;min-height:0;margin:0;display:flex;align-items:center;justify-content:space-between}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-counter {color:#6b6b73;font:700 17px/22px var(--font-ui)}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-skip {width:auto;min-width:0;height:22px;padding:0;border-radius:0;background:transparent;color:#8e8e93;font:700 17px/22px var(--font-ui)}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-skip:hover {background:transparent;color:#fff}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-illustration {position:absolute;top:60px;left:0;right:0;height:78px;display:flex;justify-content:center;align-items:center;color:var(--welcome-accent)}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-drawing {display:block;width:auto;height:auto;max-width:100%;max-height:78px;margin:0;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-step-title {position:absolute;top:168px;left:24px;right:24px;margin:0;color:#fff;font:700 26px/1.2 var(--font-ui);letter-spacing:-.01em;text-align:center}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-step-text {position:absolute;top:210px;left:50%;width:min(480px,calc(100% - 64px));min-height:0;max-width:none;margin:0;translate:-50% 0;color:#b9b9bf;font:400 17px/1.4 var(--font-ui);text-align:center}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions {top:276px}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions button {width:168px;height:54px;min-width:0;min-height:0;padding:0 16px;border-radius:14px;font:700 18px/1.2 var(--font-ui)}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-eye {transform-box:fill-box;transform-origin:center;animation:none}
+#welcome-player[data-welcome-design="mimo-head"][data-welcome-motion="true"]:is([data-welcome-stage="logo"],[data-welcome-stage="welcome"]) .welcome-mimo-eye {animation:mimo-head-blink 5s ease-in-out infinite}
+/* The same head is mounted in About; gaze, perspective and blinking stay independent. */
+.welcome-mimo[data-mimo-active] {transform-origin:50% 50%;overflow:visible}
+.welcome-mimo[data-mimo-active] .welcome-mimo-eye {transform-box:fill-box;transform-origin:center;animation:none}
+.welcome-mimo[data-mimo-active="true"] .welcome-mimo-eye {animation:mimo-head-blink 5s ease-in-out infinite}
+#welcome-player[data-welcome-design="mimo-head"] :is(.welcome-line,.welcome-check) {stroke-dasharray:1 1;stroke-dashoffset:0;animation:none}
+#welcome-player[data-welcome-design="mimo-head"] :is(.welcome-ripple,.welcome-arrow-nudge,.welcome-file-nudge,.welcome-drop-arrow,.welcome-timer-hand) {animation:none}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-line {animation:welcome-intro-draw 1s cubic-bezier(.2,.8,.2,1) both}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-check {animation:welcome-intro-draw 500ms cubic-bezier(.2,.8,.2,1) both}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-check-first {animation-delay:700ms}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-check-second {animation-delay:1200ms}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-check-third {animation-delay:1700ms}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-ripple {transform-box:fill-box;transform-origin:center;animation:welcome-intro-ping 1.6s ease-out infinite}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-arrow-nudge {animation:welcome-intro-bob 1.6s ease-in-out infinite}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-timer-hand {transform-origin:44px 39px;animation:welcome-intro-tick 6s linear infinite}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-file-nudge {animation:welcome-intro-file 900ms cubic-bezier(.2,.8,.2,1) 600ms both}
+#welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-drop-arrow {animation:welcome-intro-bob-down 1.4s ease-in-out infinite}
+@keyframes mimo-head-blink {0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
+@keyframes welcome-intro-draw {from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes welcome-intro-ping {from{transform:scale(1);opacity:.7}to{transform:scale(2.1);opacity:0}}
+@keyframes welcome-intro-bob {0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes welcome-intro-bob-down {0%,100%{transform:translateY(0)}50%{transform:translateY(3px)}}
+@keyframes welcome-intro-tick {to{transform:rotate(360deg)}}
+@keyframes welcome-intro-file {from{opacity:0;transform:translateY(-36px)}to{opacity:1;transform:translateY(0)}}
+@container (max-width:440px) {
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-brand {top:60px;gap:16px;height:56px}
+ #welcome-player[data-welcome-design="mimo-head"] :is(.welcome-mascot,.welcome-mimo) {width:56px;height:56px;flex-basis:56px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-wordmark {font-size:40px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-title {font-size:24px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-description {top:198px;font-size:16px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-actions {gap:12px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-actions button {flex:1 1 0;max-width:168px;padding:0 8px;font-size:16px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial-top {left:24px;right:24px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-slide {display:flex;flex-direction:column;align-items:center;gap:12px;padding:60px 24px 86px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-illustration {position:static;flex:0 0 64px;width:100%;height:64px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-drawing {max-height:64px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-step-title {position:static;width:100%;font-size:22px;line-height:1.15}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-step-text {position:static;translate:none;width:100%;font-size:15px;line-height:1.4}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions {top:272px}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions button {font-size:16px}
+}
+@media(prefers-reduced-motion:reduce) {#welcome-player[data-welcome-design="mimo-head"] *,.welcome-mimo[data-mimo-active] .welcome-mimo-eye {animation:none!important;transition:none!important}}
+@media(forced-colors:active) {
+ #welcome-player[data-welcome-design="mimo-head"] {background:Canvas;color:CanvasText}
+ #welcome-player[data-welcome-design="mimo-head"] :is(.welcome-title,.welcome-step-title,.welcome-description,.welcome-step-text,.welcome-counter,.welcome-skip,.welcome-illustration) {color:CanvasText}
+ #welcome-player[data-welcome-design="mimo-head"] .welcome-primary {background:Highlight;color:HighlightText;forced-color-adjust:none}
 }

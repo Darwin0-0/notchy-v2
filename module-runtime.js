@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./module-contracts.js') : root && root.NotchyLayout);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.NotchyModules = api;
-})(typeof window === 'undefined' ? null : window, function () {
+})(typeof window === 'undefined' ? null : window, function (layoutHost) {
   'use strict';
 
   const limits = Object.freeze({ manifestBytes: 65536, registryBytes: 196608, modules: 12, fields: 8, actions: 8, text: 512 });
@@ -12,6 +12,7 @@
   const versionPattern = /^(?:0|[1-9]\d{0,3})\.(?:0|[1-9]\d{0,3})\.(?:0|[1-9]\d{0,3})$/;
   const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
   const renderedHosts = new WeakMap();
+  const renderedDrafts = new WeakMap();
 
   function fail(message) { throw new Error('Module: ' + message); }
   function bytes(text) {
@@ -68,7 +69,7 @@
     return values;
   }
   function validateManifest(value) {
-    object(value, ['$schema', 'manifestVersion', 'id', 'version', 'name', 'description', 'permissions', 'fields', 'actions', 'presentations', 'progress', 'appearance'],
+    object(value, ['$schema', 'manifestVersion', 'id', 'version', 'name', 'description', 'permissions', 'fields', 'actions', 'presentations', 'progress', 'appearance', 'layout'],
       ['manifestVersion', 'id', 'version', 'name', 'description', 'permissions', 'fields', 'actions', 'presentations', 'appearance'], 'manifest');
     if (value.manifestVersion !== 2) fail('unsupported manifestVersion; use 2');
     if (value.$schema !== undefined) text(value.$schema, 512, '$schema');
@@ -133,6 +134,11 @@
     const output = { manifestVersion: 2, id: value.id, version: value.version, name: localized(value.name, 80, 'name'),
       description: localized(value.description, 280, 'description'), permissions: [], fields, actions, presentations: views,
       appearance: { accent: value.appearance.accent.toUpperCase() } };
+    if (value.layout !== undefined) {
+      if (!layoutHost) fail('the layout host is required for layout declarations');
+      try { output.layout = layoutHost.normalizeLayout(value.layout); }
+      catch (error) { fail('layout: ' + error.message); }
+    }
     if (value.progress !== undefined) {
       object(value.progress, ['valueField', 'targetField', 'label'], ['valueField', 'targetField', 'label'], 'progress');
       const progress = { valueField: identifier(value.progress.valueField, 'progress.valueField'), targetField: identifier(value.progress.targetField, 'progress.targetField'), label: localized(value.progress.label, 80, 'progress.label') };
@@ -289,13 +295,28 @@
   function render(host, input, inputState, options) {
     if (!host || !host.ownerDocument || typeof host.replaceChildren !== 'function') fail('render needs a host element');
     const manifest = validateManifest(input), state = normalizeState(manifest, inputState), config = options || {};
-    const presentation = presentations.includes(config.presentation) ? config.presentation : 'full';
+    const requested = config.presentation || 'full';
+    const canonical = (layoutHost?.PRESENTATIONS || ['full', 'main', 'side', 'tall', 'wide', 'small']).includes(requested);
+    if (canonical && layoutHost && !layoutHost.supports(layoutHost.getCommunityContract(manifest), requested)) fail('unsupported presentation: ' + requested);
+    if (canonical && requested !== 'full' && !layoutHost) fail('the layout host is required for this presentation');
+    const presentation = canonical && layoutHost ? layoutHost.legacyPresentation(requested) : presentations.includes(requested) ? requested : 'full';
     const language = config.language === 'fr' ? 'fr' : 'en', view = manifest.presentations[presentation];
-    const doc = host.ownerDocument, listeners = [], focusTargets = new Map();
+    const doc = host.ownerDocument, listeners = [], captureDrafts = [], focusTargets = new Map();
     const active = doc.activeElement;
     const previousFocus = active && host.contains(active) ? { action: active.dataset.moduleAction, field: active.dataset.moduleField, start: active.selectionStart, end: active.selectionEnd } : null;
     const previousDisposer = renderedHosts.get(host);
     if (previousDisposer) previousDisposer();
+    let drafts = renderedDrafts.get(host);
+    if (!drafts || drafts.id !== manifest.id || config.resetDrafts === true) {
+      drafts = {id: manifest.id, fields: new Map()}; renderedDrafts.set(host, drafts);
+    }
+    // A presentation/locale change is not a save. Only acknowledged changes
+    // to this field (or an explicit host reset) supersede its local draft.
+    for (const [id, draft] of drafts.fields) {
+      const field = manifest.fields.find(field => field.id === id);
+      if (!field || field.type !== 'text' || state[id] === draft.value) drafts.fields.delete(id);
+      else draft.value = draft.value.slice(0, field.maxLength);
+    }
     const make = (tag, className, content) => {
       const element = doc.createElement(tag);
       element.className = className;
@@ -305,6 +326,8 @@
     const on = (element, type, handler) => { element.addEventListener(type, handler); listeners.push(() => element.removeEventListener(type, handler)); };
     const card = make('section', 'module-runtime module-runtime--' + presentation);
     card.dataset.moduleId = manifest.id;
+    card.dataset.modulePresentation = canonical ? requested : presentation === 'full' ? 'full' : presentation === 'scene' ? 'main' : 'small';
+    if (layoutHost) layoutHost.applyTokens(card);
     card.setAttribute('aria-label', manifest.name[language]);
     card.style.setProperty('--module-accent', manifest.appearance.accent);
     card.append(make('h3', 'module-runtime-title', manifest.name[language]));
@@ -344,13 +367,25 @@
       if (action.type === 'increment') button.disabled = button.disabled || (action.amount > 0 ? state[field.id] >= field.max : state[field.id] <= field.min);
       if (action.type === 'set-text') {
         const form = make('form', 'module-runtime-editor'), label = make('label', 'module-runtime-input-label', field.label[language]);
-        const input = make('input', 'module-runtime-input');
-        input.type = 'text'; input.maxLength = field.maxLength; input.value = state[field.id]; input.disabled = button.disabled;
+        const input = make('input', 'module-runtime-input'), draft = drafts.fields.get(field.id);
+        input.type = 'text'; input.maxLength = field.maxLength; input.value = draft ? draft.value : state[field.id]; input.disabled = button.disabled;
+        const initialValue = input.value;
+        if (draft && typeof input.setSelectionRange === 'function' && typeof draft.start === 'number') input.setSelectionRange(draft.start, draft.end);
+        function remember() {
+          const value = input.value.slice(0, field.maxLength);
+          if (value === state[field.id]) drafts.fields.delete(field.id);
+          else drafts.fields.set(field.id, {value, start: input.selectionStart, end: input.selectionEnd});
+        }
+        on(input, 'input', remember); on(input, 'select', remember);
+        captureDrafts.push(() => {
+          if (input.value !== initialValue) remember();
+          else {const current = drafts.fields.get(field.id); if (current && current.value === input.value) {current.start = input.selectionStart; current.end = input.selectionEnd;}}
+        });
         input.dataset.moduleField = field.id;
         focusTargets.set('field:' + field.id, input);
         input.setAttribute('aria-label', field.label[language]);
         label.append(input); form.append(label, button); button.type = 'submit';
-        on(form, 'submit', event => { event.preventDefault(); dispatch(action, input.value); });
+        on(form, 'submit', event => { event.preventDefault(); remember(); dispatch(action, input.value); });
         controls.append(form);
       } else {
         on(button, 'click', () => dispatch(action));
@@ -366,7 +401,10 @@
         if (previousFocus.field && typeof target.setSelectionRange === 'function' && typeof previousFocus.start === 'number') target.setSelectionRange(previousFocus.start, previousFocus.end);
       }
     }
+    let disposed = false;
     function dispose() {
+      if (disposed) return; disposed = true;
+      captureDrafts.splice(0).forEach(capture => capture());
       listeners.splice(0).forEach(unsubscribe => unsubscribe());
       if (card.parentNode === host) card.remove();
       if (renderedHosts.get(host) === dispose) renderedHosts.delete(host);
@@ -406,5 +444,9 @@
     })
   ]);
 
-  return Object.freeze({ limits, catalog, validateManifest, parseManifest, validateRegistry, normalizeState, createStore, render });
+  function getLayoutContract(input) {
+    if (!layoutHost) fail('the layout host is required');
+    return layoutHost.getCommunityContract(validateManifest(input));
+  }
+  return Object.freeze({ limits, catalog, validateManifest, parseManifest, validateRegistry, normalizeState, createStore, getLayoutContract, render });
 });

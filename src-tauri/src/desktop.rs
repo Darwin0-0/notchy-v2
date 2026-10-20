@@ -410,7 +410,7 @@ mod tests {
     }
     #[test]
     fn plain_rest_compact_and_open_contours_keep_their_existing_quadratic_corners() {
-        for (width, height, radius) in [(128., 10., 6.), (240., 40., 20.), (594., 324., 32.)] {
+        for (width, height, radius) in [(128., 10., 6.), (240., 40., 20.), (594., 324., 32.), (708., 324., 32.), (744., 324., 32.), (780., 324., 32.), (824., 428., 14.), (860., 464., 14.), (900., 464., 14.), (900., 496., 14.), (900., 504., 14.), (570., 350., 38.)] {
             let geometry = Geometry { width, height, band: height, radius, shoulder: 0., state: NotchState::Rest };
             for y in [0., height - radius, height - radius / 2., height - 0.01] {
                 let expected = if y < height - radius { 0. } else {
@@ -440,6 +440,15 @@ mod tests {
             Geometry { width: 128., height: 10., band: 10., radius: 6., shoulder: 0., state: NotchState::Rest },
             Geometry { width: 240., height: 40., band: 40., radius: 20., shoulder: 0., state: NotchState::Compact },
             Geometry { width: 594., height: 324., band: 48., radius: 32., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 708., height: 324., band: 48., radius: 32., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 744., height: 324., band: 48., radius: 32., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 780., height: 324., band: 48., radius: 32., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 824., height: 428., band: 48., radius: 14., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 860., height: 464., band: 48., radius: 14., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 900., height: 464., band: 48., radius: 14., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 900., height: 496., band: 48., radius: 14., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 900., height: 504., band: 48., radius: 14., shoulder: 0., state: NotchState::Open },
+            Geometry { width: 570., height: 350., band: 48., radius: 38., shoulder: 0., state: NotchState::Open },
             Geometry { width: 280., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Rest },
             Geometry { width: 340., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Rest },
             Geometry { width: 400., height: 42., band: 42., radius: 22., shoulder: 20., state: NotchState::Rest },
@@ -449,7 +458,7 @@ mod tests {
             let class: Vec<u16> = "STATIC".encode_utf16().chain(Some(0)).collect();
             let window = TestWindow(unsafe {
                 CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_POPUP,
-                    0, 0, (960. * scale).round() as i32, (332. * scale).round() as i32,
+                    0, 0, (960. * scale).round() as i32, (512. * scale).round() as i32,
                     std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
             });
             assert!(!window.0.is_null(), "create a real hidden Windows region host");

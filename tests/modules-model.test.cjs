@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {getModuleDefinitions,normalizeModules,assignModuleSlot,moduleEditorPresentation,FocusModel,moduleActivitySnapshot:snapshot,moduleActivityChange:change}=require('../notch.js');
+const {ISLAND_CONFIG,getModuleDefinitions,normalizeModules,assignModuleSlot,moduleEditorPresentation,FocusModel,moduleActivitySnapshot:snapshot,moduleActivityChange:change}=require('../notch.js');
 
 test('module contracts have unique routes, bounded sizes and declared band capabilities',()=>{
  const definitions=getModuleDefinitions(); assert.equal(definitions.length,4);
@@ -16,11 +16,11 @@ test('module contracts have unique routes, bounded sizes and declared band capab
 test('module editor keeps three visible destinations inside the panel and preserves the legacy reserve',()=>{
  const two={enabled:['music','shelf','focus','weather'],slots:['music','shelf',null,null]},before=JSON.stringify(two);
  const placed=moduleEditorPresentation(two),adding=moduleEditorPresentation(two,'focus');
- assert.deepEqual(placed.indices,[0,1,2]);assert.equal(placed.width,594);assert.equal(placed.height,260);
+ assert.deepEqual(placed.indices,[0,1,2]);assert.equal(placed.width,ISLAND_CONFIG.states.expanded.width);assert.equal(placed.height,368);
  assert.deepEqual(placed.slots,['music','shelf',null]);assert.deepEqual(placed.presentations,['scene','rail','rail']);
  assert.deepEqual(adding,placed,'choosing a catalogue module never grows the editor or hides another destination');
  const four=assignModuleSlot(assignModuleSlot(two,2,'focus'),3,'weather'), full=moduleEditorPresentation(four);
- assert.equal(full.width,594);assert.deepEqual(full.indices,[0,1,2]);assert.deepEqual(full.slots,['music','shelf','focus']);
+ assert.equal(full.width,ISLAND_CONFIG.states.expanded.width);assert.deepEqual(full.indices,[0,1,2]);assert.deepEqual(full.slots,['music','shelf','focus']);
  const moved=assignModuleSlot(four,1,'weather');assert.deepEqual(moved.slots,['music','weather','focus','shelf'],'placing the reserve swaps rather than discards the visible module');
  assert.deepEqual(moduleEditorPresentation(moved).slots,['music','weather','focus']);
  const empty=moduleEditorPresentation({enabled:[],slots:[]});assert.deepEqual(empty.indices,[0,1,2]);assert.deepEqual(empty.slots,[null,null,null]);assert.equal(empty.free,0);
@@ -46,7 +46,7 @@ test('file tools stay an internal Shelf route without becoming an installable mo
  const start=source.indexOf('  function builtinVisible('),end=source.indexOf('  const homeCells',start);
  let editing=false;
  const scope={moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),getModuleEditorActive:()=>editing,
-  getHomeSlots:()=>[],homeModuleLayout:()=>({items:[]}),homeModuleContext:()=>({}),getModuleEditorOrder:()=>[],isModuleEnabled:()=>false};
+  getHomeSlots:()=>[],getModuleEditorOrder:()=>[],isModuleEnabled:()=>false};
  require('node:vm').runInNewContext(`let view='files';${source.slice(start,end)}this.api={builtinVisible,set view(value){view=value;}};`,scope);
  assert.equal(scope.api.builtinVisible('files'),true);assert(!getModuleDefinitions().some(row=>row.id==='files'));
  editing=true;assert.equal(scope.api.builtinVisible('files'),false);

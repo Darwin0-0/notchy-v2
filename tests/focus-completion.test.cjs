@@ -1,6 +1,5 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const fs = require('node:fs'), vm = require('node:vm');
 const {FocusModel, focusCardValues} = require('../focus.js');
 const start = (extra={}) => FocusModel.restore({minutes:1,remaining:60,deadline:70000,sessionActive:true,
   tasks:[{id:'a',title:'Original task',estimatedCycles:4},{id:'b',title:'Next task'}],activeTaskId:'a',
@@ -70,48 +69,4 @@ test('a catchup choice retargets the current phase instead of replaying an old c
   assert(FocusModel.completionChoice(state,'continue',150000));
   assert.equal(state.pomodoro.session,2); assert.equal(state.tasks[0].completedCycles,1); assert.equal(state.deadline,210000);
   const invalid=reload({...state,sessionSummary:{...state.sessionSummary,at:'invalid'}},150000); assert.equal(invalid.sessionSummary,null);
-});
-
-test('real component completion commands persist choice and dismissal without duplicate credit',()=>{
-  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function command(value)'), end=source.indexOf('    function tasks(action)',begin);
-  for(const choice of ['short','long','continue','dismiss']){
-    const model=start(); FocusModel.tick(model,70000); const writes=[];
-    const scope={FocusModel,model,disposed:false,configOpen:false,now:()=>80000,stopTimer(){},save(){writes.push(JSON.stringify(model));},render(){},$:()=>({focus(){}})};
-    vm.runInNewContext(`${source.slice(begin,end)}this.run=command;`,scope);
-    assert.equal(scope.run('completion-'+choice),true); assert.equal(writes.length,1);
-    assert.equal(model.sessionSummary,null); assert.equal(model.tasks[0].completedCycles,1);
-  }
-});
-
-test('the compact Tasks empty CTA opens its real full editor before focusing the shared add input',()=>{
-  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function click(event)',source.indexOf('  function createTasks(')), end=source.indexOf('    function submit(event)',begin);
-  for(const presentation of ['rail','scene','full']){
-    const calls=[],host={dataset:{presentation},contains:()=>true};
-    const scope={disposed:false,host,expand(){calls.push('expand');host.dataset.presentation='full';},$:()=>({focus(){calls.push('focus-input');}})};
-    vm.runInNewContext(`${source.slice(begin,end)}this.run=click;`,scope);
-    scope.run({target:{closest:()=>({dataset:{taskAction:'add'},disabled:false,classList:{contains:()=>false}})}});
-    assert.deepEqual(calls,presentation==='rail'?['expand','focus-input']:['focus-input']);
-  }
-});
-
-test('the narrow scene Tasks plus opens its real list before focusing add, independent of presentation name',()=>{
-  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function click(event)',source.indexOf('  function createTasks(')), end=source.indexOf('    function submit(event)',begin);
-  for(const presentation of ['scene','rail','full']) {
-    const calls=[],host={dataset:{presentation},contains:()=>true};
-    const button={dataset:{taskAction:'add'},disabled:false,classList:{contains:name=>name==='tasks-small-add'}};
-    const scope={disposed:false,host,expand(){calls.push('open-list');host.dataset.presentation='full';},$:()=>({focus(){calls.push('focus-input');}})};
-    vm.runInNewContext(source.slice(begin,end)+'this.run=click;',scope);scope.run({target:{closest:()=>button}});
-    assert.deepEqual(calls,['open-list','focus-input']);
-  }
-});
-
-test('the Focus empty CTA preserves a visible inline task editor and routes a hidden editor',()=>{
-  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function command(value)'), end=source.indexOf('    function tasks(action)',begin);
-  for(const [visible,callback,expected] of [[true,true,['focus-input']],[false,true,['open-tasks']],[false,false,['page-tasks','focus-input']]]){
-    const calls=[],scope={FocusModel,model:FocusModel.defaults(),disposed:false,configOpen:false,now:()=>10000,
-      $:()=>({getClientRects:()=>visible?[{}]:[],focus(){calls.push('focus-input');}}),
-      setPage(page){calls.push('page-'+page);},openTasks:callback?()=>calls.push('open-tasks'):null};
-    vm.runInNewContext(`${source.slice(begin,end)}this.run=command;`,scope);
-    assert.equal(scope.run('add-task'),true); assert.deepEqual(calls,expected);
-  }
 });

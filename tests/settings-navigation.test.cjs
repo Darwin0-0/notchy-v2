@@ -19,14 +19,14 @@ test('module editing selects Modules even when entered from a home or detail rou
   }
 });
 
-test('Scenarios and Health use their real routes instead of a stale local section', () => {
-  for (const route of ['modules', 'scenarios', 'health']) {
+test('Modules and Health use their real routes instead of a stale local section', () => {
+  for (const route of ['modules', 'health']) {
     assert.equal(ia.tabForRoute(route, false, 'appearance'), route);
   }
 });
 
 test('leaving settings hides its tabs while preserving the requested section for a later return', () => {
-  for (const route of ['nook', 'music', 'focus', 'tasks', 'weather', 'tray', 'search', 'module-library', 'localsend', 'files', 'welcome']) {
+  for (const route of ['nook', 'music', 'focus', 'tasks', 'weather', 'tray', 'search', 'module-library', 'localsend', 'files', 'welcome', 'scenarios']) {
     assert.equal(ia.tabForRoute(route, false, 'appearance'), null, route);
   }
   assert.equal(ia.tabForRoute('settings', false, 'appearance'), 'appearance');
@@ -103,4 +103,8 @@ test('Escape from the replayed introduction restores its open settings origin', 
   scope.escape({key:'Escape',preventDefault(){prevented=true;}});
   assert.equal(prevented,true);
   assert.deepEqual(calls,['hide','settings','open']);
+});
+
+test('Scenarios is excluded from settings navigation without reassigning its internal route',()=>{
+  assert(!ia.TABS.includes('scenarios'));assert.equal(ia.tabForRoute('scenarios',false,'about'),null);assert.equal(ia.tabForRoute('settings',false,'scenarios'),'general');
 });

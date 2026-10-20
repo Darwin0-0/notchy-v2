@@ -38,10 +38,13 @@
     }
   };
   const preferenceKeys = new Set(config.keys);
+  // The trial uses a fresh port/origin on process launch, so native preferences
+  // seed an empty store. A same-origin UI reload must retain later confirmed imports.
+  const development = config.development === true;
   for (const [key, value] of Object.entries(config.preferences || {})) {
-    if (preferenceKeys.has(key) && typeof value === 'string' && (key === 'notchy-community-modules-v1' || localStorage.getItem(key) === null)) localStorage.setItem(key, value);
+    if (preferenceKeys.has(key) && typeof value === 'string' && (key === 'notchy-community-modules-v1' && !development || localStorage.getItem(key) === null)) localStorage.setItem(key, value);
   }
-  if (preferenceKeys.has('notchy-community-modules-v1') && !Object.hasOwn(config.preferences || {}, 'notchy-community-modules-v1')) localStorage.removeItem('notchy-community-modules-v1');
+  if (!development && preferenceKeys.has('notchy-community-modules-v1') && !Object.hasOwn(config.preferences || {}, 'notchy-community-modules-v1')) localStorage.removeItem('notchy-community-modules-v1');
   const nativeSet = Storage.prototype.setItem, nativeRemove = Storage.prototype.removeItem;
   Storage.prototype.setItem = function(key, value) {
     nativeSet.call(this, key, value);

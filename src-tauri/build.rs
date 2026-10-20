@@ -1,4 +1,4 @@
-use std::{env, fs, path::{Path, PathBuf}};
+use std::{env, fs, path::{Path, PathBuf}, process::Command};
 
 fn assert_plain_tree(path: &Path) {
     let metadata = fs::symlink_metadata(path).unwrap();
@@ -17,26 +17,22 @@ fn assert_plain_tree(path: &Path) {
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).parent().unwrap().canonicalize().unwrap();
     let dist = root.join("dist");
-    let assets = vec!["index.html", "tokens.css", "tokens.js", "ia.css", "ia.js", "empty-states.css", "empty-states.js", "notch.css", "welcome.css", "experience.css", "experience-polish.css", "focus-experience.css", "sharing-experience.css", "experience.js", "sharing-experience.js", "i18n.js", "notch.js", "focus.js", "welcome.js", "assets/manrope-latin.woff2", "assets/manrope-OFL.txt"];
-    let assets = assets.into_iter().chain(["search.css", "search.js", "module-runtime.js", "module-library.js", "module-library.css", "calendar.js", "calendar.css", "duration-core.js", "duration-module.js", "duration-module.css", "focus-duration.js", "duration-integration.css", "assets/duration-dm-sans.woff2", "assets/duration-FONT-LICENSE.txt", "assets/hanken-grotesk-latin.woff2", "assets/HankenGrotesk-OFL.txt"]).collect::<Vec<_>>();
-    for name in assets.iter().copied().chain(["assets/spotify.ico"]) {
-        let input = root.join(name).canonicalize().unwrap();
-        assert!(input.starts_with(&root), "Public UI input must stay inside the project");
-        assert!(input.is_file(), "Public UI input must be a file");
-        println!("cargo:rerun-if-changed={}", input.display());
-    }
-    // Rebuild only this generated directory, so a stale asset cannot enter the executable.
+    println!("cargo:rerun-if-changed={}", root.join("scripts/frontend-manifest.json").display());
+    println!("cargo:rerun-if-changed={}", root.join("scripts/build-frontend.cjs").display());
+    println!("cargo:rerun-if-env-changed=NOTCHY_NODE");
+    // Preserve the native reparse-point guard before the shared builder replaces dist.
     if fs::symlink_metadata(&dist).is_ok() {
         assert_plain_tree(&dist);
         assert_eq!(dist.canonicalize().unwrap(), root.join("dist"));
         assert!(dist.is_dir(), "Generated dist must be a directory");
-        fs::remove_dir_all(&dist).unwrap();
     }
-    fs::create_dir_all(dist.join("assets")).unwrap();
-    for name in assets {
-        fs::copy(root.join(name), dist.join(name)).unwrap();
-    }
-    fs::copy(root.join("assets/spotify.ico"), dist.join("spotify.ico")).unwrap();
+    let output = Command::new(env::var_os("NOTCHY_NODE").unwrap_or_else(|| "node".into()))
+        // Node resolves a relative entry from cwd; Rust's Windows verbatim paths are not valid CLI entries.
+        .arg("scripts/build-frontend.cjs").arg("--cargo").current_dir(&root)
+        .output().expect("Node.js is required to build the frontend (set NOTCHY_NODE to its executable path)");
+    assert!(output.status.success(), "Frontend build failed:\n{}", String::from_utf8_lossy(&output.stderr));
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    assert_plain_tree(&dist);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&["desktop_command", "health_run", "settings_get", "settings_set", "favorites_list", "favorites_add", "discovery_validate", "discovery_scan", "discovery_first_candidates"])
     )).unwrap();

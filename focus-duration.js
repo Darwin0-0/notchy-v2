@@ -1,8 +1,8 @@
 (function(root,factory){
   'use strict';
-  if(typeof module==='object'&&module.exports) module.exports=factory(require('./duration-core.js'),require('./focus.js'));
-  if(root?.document){const api=factory(root.NotchyDurationCore,root.NotchyFocus);root.NotchyDurationIntegration=api;root.NotchyFocus=Object.freeze({...root.NotchyFocus,create:api.create,createTasks:api.createTasks});}
-})(typeof window==='object'?window:null,function(Core,Legacy){
+  if(typeof module==='object'&&module.exports) module.exports=factory(require('./duration-core.js'),require('./focus.js'),require('./module-contracts.js'));
+  if(root?.document){const api=factory(root.NotchyDurationCore,root.NotchyFocus,root.NotchyLayout);root.NotchyDurationIntegration=api;root.NotchyFocus=Object.freeze({...root.NotchyFocus,create:api.create,createTasks:api.createTasks});}
+})(typeof window==='object'?window:null,function(Core,Legacy,Layout){
   'use strict';
   const KEY='notchy-minimal-focus-v1',copy=value=>JSON.parse(JSON.stringify(value));
   function configuration(value={}){const s=Legacy.focusConfiguration(value);return {work:s.work,rest:s.rest,longRest:s.longRest,interval:s.total};}
@@ -53,21 +53,30 @@
     };
   }
   function presentationForPlacement({width,height}={}){
-    if(!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)return null;
-    if(width<240)return 'quarter';
-    return height<155?'half':height<210?'details':'full';
+    return Layout.resolveDurationLayouts({width,height})?.timer||null;
   }
-  function resizeView(host,component){
-    const width=host.clientWidth,height=host.clientHeight;if(!width||!height)return;
+  function resizeView(host,component,mount=host){
+    const width=mount.clientWidth||host.clientWidth,height=mount.clientHeight||host.clientHeight;if(!width||!height)return;
+    const assigned=['full','main','side','small','wide','tall'].includes(host.dataset.modulePresentation);
+    const canonical=typeof component.setModulePresentation==='function'?(assigned?host.dataset.modulePresentation:host.dataset.presentation==='full'?Layout.resolvePresentation(Layout.getBuiltinContract('focus'),'full',{width,height})?.presentation||null:null):null;
+    component.setModulePresentation?.(canonical);
     const current=component.inspect();
-    if(!['settings','create-title','create-duration','pomodoro'].includes(current.view)){
-      const size=current.view==='tasks'&&height<155?'quarter':presentationForPlacement({presentation:host.dataset.presentation,width,height});
+    if(!canonical&&!['settings','create-title','create-duration','pomodoro'].includes(current.view)){
+      const kind=current.view==='tasks'?'tasks':'timer',assigned=kind==='tasks'?host.dataset.durationTasks:host.dataset.durationTimer;
+      const supported=kind==='tasks'?['quarter','full']:['quarter','half','details','full'];
+      const size=supported.includes(assigned)?assigned:Layout.resolveDurationLayouts({width,height})?.[kind];
       if(size&&current.size!==size)component.setPresentation(size);
     }
     component.fit();
   }
   function elapsedPhaseEvent(previous,current,now){
-    if(!previous||previous.startedAt===null||previous.activeId!==current.activeId)return null;
+    if(!previous)return null;
+    const completed=current.tasks.find(task=>task.done&&previous.tasks.some(before=>before.id===task.id&&!before.done));
+    if(completed){
+      const phase=Core.phase(completed),next=current.tasks.find(task=>task.id===current.activeId&&!task.done&&!Core.phase(task).finished)||current.tasks.find(task=>!task.done&&!Core.phase(task).finished)||null;
+      return {kind:'complete',title:'Tâche terminée',detail:completed.title,boundary:{kind:'task',title:'Tâche terminée',detail:current.tasks.filter(task=>!task.done).length+' restantes',task:{id:completed.id,title:completed.title,totalMinutes:completed.totalMinutes,done:true},taskDone:true,interval:completed.settings.interval,phase:{...phase.current},from:{...phase.current},remainingMs:phase.remainingMs,fraction:phase.fraction,cycles:phase.cycles,remainingCount:current.tasks.filter(task=>!task.done).length,nextTask:next?{id:next.id,title:next.title,totalMinutes:next.totalMinutes}:null,at:now}};
+    }
+    if(previous.startedAt===null||previous.activeId!==current.activeId)return null;
     const before=previous.tasks.find(task=>task.id===previous.activeId),after=current.tasks.find(task=>task.id===current.activeId);
     if(!before||!after||before.done||after.done)return null;
     const first=Core.phase(before),last=Core.phase(after);
@@ -76,32 +85,38 @@
     // from real elapsed time so that manual skips and restarts stay silent.
     const expected=Core.phase(Core.materialize(previous,now).tasks.find(task=>task.id===current.activeId));
     if(expected.index!==last.index||expected.finished!==last.finished)return null;
-    return {kind:last.finished?'complete':'phase',title:last.finished?'Session terminée':last.current.kind==='focus'?'Concentration':'Pause',detail:after.title};
+    const kind=last.finished?'task':last.current.kind==='focus'?'break':last.current.kind==='long'?'cycle':'focus',title=last.finished?'Durée terminée':kind==='break'?'On reprend ?':kind==='cycle'?'Cycle terminé':'Session terminée',detail=last.finished?after.title:kind==='break'?'Retour au focus':(kind==='cycle'?'Longue pause · ':'Pause de ')+last.current.minutes+' min';
+    return {kind:last.finished?'complete':'phase',title:last.finished?'Session terminée':last.current.kind==='focus'?'Concentration':'Pause',detail:after.title,boundary:{kind,title,detail,task:{id:after.id,title:after.title,totalMinutes:after.totalMinutes,done:after.done},taskDone:false,interval:after.settings.interval,phase:{...last.current},from:{...first.current},remainingMs:last.remainingMs,fraction:last.fraction,cycles:last.cycles,remainingCount:current.tasks.filter(task=>!task.done).length,nextTask:null,at:now}};
   }
   function create(options={}){
     const host=options.host,win=host.ownerDocument.defaultView,doc=host.ownerDocument;
     const store=Core.createStore(persistence(win)),views=new Set(),mount=doc.createElement('div');mount.className='duration-mount';host.append(mount);host.dataset.durationModule='true';
     let disposed=false,loaded=false,enabled=true,emitting=false,routeLeaving=false,tick=null,previousObservation=null;
-    const editing=new Set(),viewStates=new Map();
+    const editing=new Set();
     function editView(kind,view){
-      const deep=['settings','create-title','create-duration'].includes(view),wasOpen=editing.has(kind),previous=viewStates.get(kind);viewStates.set(kind,view);
+      const deep=['settings','create-title','create-duration'].includes(view),wasOpen=editing.has(kind);
       if(deep)editing.add(kind);else editing.delete(kind);
       host.dataset.focusConfig=String(editing.size>0);
       if(routeLeaving)return;
-      if(deep&&!wasOpen||view==='pomodoro'&&previous!=='pomodoro'){if(options.openDuration)options.openDuration(kind);else options.openConfiguration?.();}
+      if(deep&&!wasOpen){if(options.openDuration)options.openDuration(kind);else options.openConfiguration?.();}
       if(!deep&&wasOpen&&!editing.size)options.closeConfiguration?.();
     }
     function leaveView(kind,component){routeLeaving=true;try{component.cancelEdit();editView(kind,'timer');}finally{routeLeaving=false;}}
     let initial=Core.fresh();try{initial=migrate(JSON.parse(win.localStorage.getItem(KEY)||'null'));}catch{}
     const state=()=>loaded?store.snapshot():copy(initial),locale=()=>win.NotchyI18n?.locale()||'fr';
     let renderedLanguage=locale();
-    const component=win.NotchyDuration.mount(mount,{store,embedded:true,view:'tasks',language:renderedLanguage,onViewChange({view}){editView('focus',view);resize();}});views.add(component);
+    const component=win.NotchyDuration.mount(mount,{store,embedded:true,view:'tasks',language:renderedLanguage,onRequestDetails(){options.openDuration?.('focus');},onViewChange({view}){editView('focus',view);resize();}});views.add(component);
     function summary(){const value=project(state());return Legacy.focusCardValues(value.state,value.settings,Date.now(),source=>win.NotchyI18n?.t(source)||source);}
     function emit(){if(!loaded||disposed||emitting)return;emitting=true;try{const current=state(),value=project(current),card=Legacy.focusCardValues(value.state,value.settings),event=elapsedPhaseEvent(previousObservation,current,Date.now());host.dataset.durationEmpty=String(!current.tasks.length);previousObservation=current;options.changed?.({...value,card,event});}finally{emitting=false;}}
-    function resize(){if(!disposed&&loaded)resizeView(host,component);}
+    function resize(){if(!disposed&&loaded)resizeView(host,component,mount);}
     const observer=new win.ResizeObserver(resize);observer.observe(host);
     const unsubscribe=store.subscribe(()=>{resize();emit();});const languageUnsubscribe=win.NotchyI18n?.onChange(()=>{const language=locale();if(language===renderedLanguage)return;renderedLanguage=language;for(const view of views)view.setLanguage(language);});
-    const ready=store.ready.then(async()=>{loaded=true;await component.ready;const saved=store.snapshot(),active=saved.tasks.find(task=>task.id===saved.activeId&&!task.done);if(active&&(saved.startedAt!==null||active.elapsedMs>0))await component.showTimer();resize();win.setTimeout(emit,0);tick=win.setInterval(emit,1000);return true;}).catch(error=>{console.error('Duration module:',error);return false;});
+    const ready=store.ready.then(async()=>{loaded=true;await component.ready;const saved=store.snapshot(),active=saved.tasks.find(task=>task.id===saved.activeId&&!task.done);previousObservation=saved;if(active&&(saved.startedAt!==null||active.elapsedMs>0))await component.showTimer();resize();win.setTimeout(emit,0);tick=win.setInterval(emit,1000);return true;}).catch(error=>{console.error('Duration module:',error);return false;});
+    function renderPreview(host,{presentation='main'}={}){
+      const mount=doc.createElement('div');mount.className='duration-mount';mount.style.cssText='width:100%;height:100%;min-width:0;min-height:0';host.append(mount);
+      const preview=win.NotchyDuration.mount(mount,{store,embedded:true,view:'tasks',language:locale(),preview:true});
+      let removed=false;return Object.freeze({ready:preview.ready.then(()=>{if(!removed){preview.setModulePresentation(presentation);preview.fit();}return !removed;}),dispose(){if(removed)return;removed=true;preview.dispose();mount.remove();}});
+    }
     const run=operation=>{void ready.then(ok=>ok&&operation()).catch(error=>console.error('Duration operation:',error));return true;};
     function command(value){
       if(['prepare','configure','pause-edit'].includes(value))return run(()=>component.showSettings());
@@ -116,9 +131,11 @@
       });
     }
     const controller=Object.freeze({durationStore:store,ready,component,views,editView,leaveView,
-      getState:()=>project(state()).state,getSettings:()=>project(state()).settings,summary,
-      command,tasks(action){return run(async()=>{if(['toggle','confirm-complete'].includes(action.type))await store.complete(action.id);else if(action.type==='select')await store.select(action.id);else if(action.type==='delete')await store.remove(action.id);else if(action.type==='add')await store.add(action.title,state().settings.work);});},
+      getState:()=>project(state()).state,getSettings:()=>project(state()).settings,summary,renderPreview,
+      command,startTask(id){return run(async()=>{await store.select(id);const current=store.snapshot(),task=current.tasks.find(task=>task.id===id);if(current.activeId!==id||!task||task.done||Core.phase(task).finished)return;if(current.startedAt===null)await store.toggleTimer(id);await component.showTimer();});},
+      tasks(action){return run(async()=>{if(['toggle','confirm-complete'].includes(action.type))await store.complete(action.id);else if(action.type==='select')await store.select(action.id);else if(action.type==='delete')await store.remove(action.id);else if(action.type==='add')await store.add(action.title,state().settings.work);});},
       leaveRoute(){leaveView('focus',component);},render:resize,preview:summary,setPage(){},lifecycle(value={}){enabled=value.enabled!==false;resize();},
+      requestDetails(kind='focus'){options.openDuration?.(kind);},
       inspect:()=>({replacement:'duration-module',active:summary().active,running:state().startedAt!==null,seconds:summary().seconds,configOpen:editing.size>0,taskPickerOpen:false,timerActive:!!tick&&enabled,disposed,loaded}),
       dispose(){if(disposed)return;disposed=true;observer.disconnect();unsubscribe();languageUnsubscribe?.();win.clearInterval(tick);for(const view of views)view.dispose();store.dispose();mount.remove();}
     });
@@ -128,12 +145,12 @@
     if(!host?.ownerDocument||!focus?.durationStore)throw new TypeError('A task host and shared Focus store are required');
     const doc=host.ownerDocument,win=doc.defaultView,mount=doc.createElement('div');mount.className='duration-mount';host.append(mount);host.dataset.durationModule='true';
     let disposed=false,loaded=false;
-    const component=win.NotchyDuration.mount(mount,{store:focus.durationStore,embedded:true,view:'tasks',language:win.NotchyI18n?.locale()||'fr',onViewChange({view}){focus.editView('tasks',view);render();}});
+    const component=win.NotchyDuration.mount(mount,{store:focus.durationStore,embedded:true,view:'tasks',language:win.NotchyI18n?.locale()||'fr',onRequestDetails(){focus.requestDetails?.('tasks');},onViewChange({view}){focus.editView('tasks',view);render();}});
     focus.views.add(component);
-    function render(){if(!disposed&&loaded)resizeView(host,component);}
+    function render(){if(!disposed&&loaded)resizeView(host,component,mount);}
     const observer=new win.ResizeObserver(render);observer.observe(host);
     const ready=focus.ready.then(async ok=>{if(!ok||disposed)return false;await component.ready;loaded=true;render();return true;});
     return Object.freeze({ready,component,render,focusInput(){void ready.then(ok=>ok&&component.startCreate());},leaveRoute(){focus.leaveView('tasks',component);},inspect:()=>({unified:true,loaded,disposed,...component.inspect()}),dispose(){if(disposed)return;disposed=true;observer.disconnect();focus.views.delete(component);focus.leaveView('tasks',component);component.dispose();mount.remove();}});
   }
-  return Object.freeze({KEY,migrate,project,persistence,presentationForPlacement,create,createTasks});
+  return Object.freeze({KEY,migrate,project,persistence,presentationForPlacement,elapsedPhaseEvent,create,createTasks});
 });

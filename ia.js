@@ -6,8 +6,9 @@
 })(typeof window === 'object' ? window : null, function () {
   'use strict';
   const PRIMARY = Object.freeze(['nook', 'tray', 'module-library', 'settings']);
-  const TABS = Object.freeze(['general', 'appearance', 'notch', 'modules', 'scenarios', 'health', 'about']);
-  const LABELS = Object.freeze({general:'Général',appearance:'Apparence',notch:'Encoche',modules:'Modules',scenarios:'Scénarios',health:'Santé',about:'À propos'});
+  const TABS = Object.freeze(['general', 'appearance', 'notch', 'modules', 'health', 'about']);
+  const LABELS = Object.freeze({general:'Général',appearance:'Apparence',notch:'Encoche',modules:'Modules',health:'Santé',about:'À propos'});
+  const ICON_COLORS = Object.freeze({general:'var(--accent-focus)',appearance:'var(--media-music)',notch:'var(--weather-sky)',modules:'var(--media-accent)',health:'var(--status-positive)',about:'var(--accent-break)',language:'var(--weather-sky)',startup:'var(--status-positive)',motion:'var(--amber-500)',radius:'var(--media-music)',replay:'var(--media-accent)',reset:'var(--status-negative)'});
   const ICONS = Object.freeze({general:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM9 3l1-1h4l1 3 3 1 3 3-1 3 1 3-3 3-3 1-1 3h-4l-1-3-3-1-3-3 1-3-1-3 3-3 3-1Z',appearance:'M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-4 2 2 0 0 1 2-3h2a3 3 0 0 0 3-3 9 9 0 0 0-9-8ZM7 9h.01M12 7h.01M17 9h.01M7 14h.01',notch:'M4 4h16v16H4ZM4 9h16M9 4v2h6V4',modules:'m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5',scenarios:'M3 3h7v7H3ZM14 3h7v7h-7ZM3 14h7v7H3ZM14 14h7v7h-7Z',health:'M3 12h4l3-8 4 16 3-8h4',about:'M12 11v6M12 7h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',language:'M3 5h12M9 3v2M5 5c0 7 7 11 7 11M13 5c0 7-7 11-10 12M13 21l5-12 5 12M15 17h6',startup:'M12 2v10M6 5a9 9 0 1 0 12 0',motion:'m13 3-9 11h7l-1 7L21 9h-8l1-6Z',radius:'M4 10V7a3 3 0 0 1 3-3h3M14 4h3a3 3 0 0 1 3 3v3M20 14v3a3 3 0 0 1-3 3h-3M10 20H7a3 3 0 0 1-3-3v-3',replay:'M3 11a9 9 0 1 1 2 7M3 4v7h7',reset:'M3 11a9 9 0 1 1 2 7M3 4v7h7'});
   async function invokeCore(name,args={}) {
     if (!['health_run','settings_get','settings_set','favorites_list','favorites_add','discovery_validate','discovery_scan','discovery_first_candidates'].includes(name)) throw new TypeError('Unknown native operation');
@@ -17,7 +18,7 @@
     return null;
   }
   function tabForRoute(view, editing = false, section = 'general') {
-    return editing ? 'modules' : view === 'settings' ? ['general','appearance','notch','about'].includes(section) ? section : 'general' : ['modules','scenarios','health'].includes(view) ? view : null;
+    return editing ? 'modules' : view === 'settings' ? ['general','appearance','notch','about'].includes(section) ? section : 'general' : ['modules','health'].includes(view) ? view : null;
   }
   function prepare(document) {
     const menu = document.getElementById('notch-menu');
@@ -32,7 +33,7 @@
     const settings=document.getElementById('settings-player'), menu=document.getElementById('notch-menu');
     const window=document.defaultView, translated=new Map();
     const node=(tag,className,source)=>{const el=document.createElement(tag);el.className=className;if(source){translated.set(el,source);el.textContent=t(source);}return el;};
-    const icon=id=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),path=document.createElementNS(svg.namespaceURI,'path');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');path.setAttribute('d',ICONS[id] || ICONS.general);svg.append(path);return svg;};
+    const icon=id=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),path=document.createElementNS(svg.namespaceURI,'path');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.dataset.settingsIcon=id;svg.style.setProperty('color',ICON_COLORS[id] || 'var(--text-tertiary)');path.setAttribute('d',ICONS[id] || ICONS.general);svg.append(path);return svg;};
     const general=node('div','ia-page');general.id='ia-general';
     const appearance=node('div','ia-page');appearance.id='ia-appearance';
     const notchPage=node('div','ia-page');notchPage.id='ia-notch';
@@ -60,21 +61,27 @@
     row(look,{id:'motion',title:'Animations',detail:'Des transitions fluides et naturelles',control:motionInput});
     row(group(appearance,'PRÉFÉRENCES VISUELLES'),{id:'reset',title:'Réinitialiser l’apparence',detail:'Format standard, arrondis et animations',command:'reset-appearance'});
     const essentials=group(notchPage,'TON ENCOCHE');
-    for(const button of settings.querySelectorAll('.settings-essentials > button')){button.className='ia-row';essentials.append(button);}
+    for(const button of settings.querySelectorAll('.settings-essentials > button')){if(button.dataset.settingsCommand==='scenarios'){button.remove();continue;}button.className='ia-row';essentials.append(button);}
     const moduleGroup=group(notchPage,'PERSONNALISATION');
     row(moduleGroup,{id:'modules',title:'Modules',detail:'Choisir et placer tes modules',command:'modules'});
     row(moduleGroup,{id:'modules',title:'Bibliothèque de modules',detail:'Découvrir ou importer un module',command:'library'});
     const brand=node('div','ia-about-brand'),logo=node('div','ia-about-logo');brand.append(logo,node('h2','ia-about-name','Notchy'));
     const version=node('span','ia-version');version.textContent='VERSION '+document.querySelector('meta[name="application-version"]').content;brand.append(version,node('p','ia-about-tagline','Musique, focus et fichiers. Juste quand tu en as besoin.'));about.append(brand);
-    row(group(about,'NOTCHY'),{id:'health',title:'Santé de Notchy',detail:'Vérifier les services et les connexions',command:'health'});
+    const aboutTools=group(about,'NOTCHY');
+    row(aboutTools,{id:'health',title:'Santé de Notchy',detail:'Vérifier les services et les connexions',command:'health'});
+    const labButton=settings.querySelector('[data-module-lab-open]');
+    if(labButton){
+      const labRow=row(aboutTools,{id:'modules',title:'Module Lab',detail:'Vérifier les modules avec leurs données réelles.'});
+      labButton.className='ia-row';labButton.replaceChildren(...labRow.childNodes);labRow.replaceWith(labButton);
+    }
     const oldClose=settings.querySelector('[data-settings-command="close"]');
     const header=node('header','ia-titlebar'),title=node('h2','','RÉGLAGES');header.append(title);oldClose.className='ia-close';oldClose.removeAttribute('data-i18n');oldClose.textContent='×';oldClose.setAttribute('aria-label',t('Fermer les réglages'));header.append(oldClose);
     settings.replaceChildren();
     const tabs=document.createElement('div'); tabs.className='ia-tabs'; tabs.setAttribute('role','tablist');tabs.setAttribute('aria-orientation','vertical');
     const body=document.createElement('div'); body.className='ia-settings-body';
-    const panels=new Map([['general',general],['appearance',appearance],['notch',notchPage],['about',about],...['modules','scenarios','health'].map(id=>[id,document.getElementById(id+'-player')])]);
+    const panels=new Map([['general',general],['appearance',appearance],['notch',notchPage],['about',about],...['modules','health'].map(id=>[id,document.getElementById(id+'-player')])]);
     const buttons=new Map();
-    let disposed=false, active=null, requested='general', healthEpoch=0, healthFlight=null, animation=null;
+    let disposed=false, active=null, requested='general', healthEpoch=0, healthFlight=null, animation=null, aboutMimo=null;
     for (const id of TABS) {
       const button=document.createElement('button'); button.type='button'; button.id='ia-tab-'+id; button.dataset.settingsTab=id; button.setAttribute('role','tab');
       const label=node('span','',LABELS[id]);button.append(icon(id),label);button.setAttribute('aria-controls',panels.get(id).id); tabs.append(button); buttons.set(id,button);
@@ -134,8 +141,15 @@
       oldClose.setAttribute('aria-label',t('Fermer les réglages'));tabs.setAttribute('aria-label',t('Réglages de Notchy'));
       startupInput.setAttribute('aria-label',t('Démarrer avec Windows'));motionInput.setAttribute('aria-label',t('Animations'));format.setAttribute('aria-label',t('Format'));
       desktopOnly.hidden=!document.getElementById('startup-control').hidden;
-      for (const [id,button] of buttons) {button.setAttribute('aria-selected',String(id===next));button.tabIndex=id===next?0:-1;panels.get(id).hidden=id!==next;}
+      for (const [id,button] of buttons) {
+        button.setAttribute('aria-selected',String(id===next));button.tabIndex=id===next?0:-1;
+        const panel=panels.get(id);
+        // The grid editor temporarily owns its panel outside the settings body.
+        if(body.contains(panel))panel.hidden=id!==next;
+      }
       if(next==='about'&&!logo.childElementCount){const mark=document.querySelector('.welcome-mimo');if(mark)logo.append(mark.cloneNode(true));}
+      if(!aboutMimo&&next==='about'){const mark=logo.querySelector('.welcome-mimo');if(mark&&window?.NotchyWelcome?.attachMimo)aboutMimo=window.NotchyWelcome.attachMimo(mark,{motion,active:false,scope:document});}
+      aboutMimo?.setActive(next==='about');
       if(changed&&next&&motion()&&!document.hidden&&typeof panels.get(next).animate==='function')animation=panels.get(next).animate([{opacity:.4,transform:'translateY(6px)'},{opacity:1,transform:'translateY(0)'}],{duration:220,easing:'cubic-bezier(.16,1,.3,1)'});
       for (const button of menu.querySelectorAll('[data-view]')) {
         button.hidden=!PRIMARY.includes(button.dataset.view);
@@ -146,7 +160,7 @@
       if (next==='health' && changed) void refreshHealth();
       for (const card of nook.querySelectorAll('[data-activity]')) if (card.classList.contains('activity-main') || card.classList.contains('activity-module-summary') || card.classList.contains('activity-card')) {card.removeAttribute('tabindex');card.setAttribute('role','group');card.setAttribute('aria-label',t({music:'Musique',focus:'Tâches & Focus',tasks:'Tâches & Focus',weather:'Météo',shelf:'Étagère'}[card.dataset.activity] || card.dataset.activity));}
     }
-    return {render, refreshHealth, dispose() {disposed=true;healthEpoch++;animation?.cancel();tabs.removeEventListener('click',select);tabs.removeEventListener('keydown',key);scan.removeEventListener('click',scanNetwork);nook.removeEventListener('click',openCard,true);}};
+    return {render, refreshHealth, dispose() {if(disposed)return;disposed=true;healthEpoch++;animation?.cancel();aboutMimo?.dispose();tabs.removeEventListener('click',select);tabs.removeEventListener('keydown',key);scan.removeEventListener('click',scanNetwork);nook.removeEventListener('click',openCard,true);}};
   }
   return Object.freeze({PRIMARY,TABS,tabForRoute,invokeCore,prepare,create});
 });

@@ -63,7 +63,7 @@ test('the painted spring sends valid native geometry on every large-panel closin
   motion.setTarget({...opened, height: 480, band: 40}); motion.step(0); motion.setTarget(closed);
   const node = () => ({attributes: {}, setAttribute(name, value) {this.attributes[name] = value;}});
   const scope = {
-    ISLAND_CONFIG, motion, shape, calendar: null, calendarHeightLimit: 0, document: {hidden: false}, motionEnabled: () => true, desktopPointer() {},
+    ISLAND_CONFIG, openPanelScale:require('../notch.js').openPanelScale, appearance:{format:'compact'},view:'nook', ModuleLayout:require('../module-contracts.js'), motion, shape, calendar: null, moduleLab: null, calendarHeightLimit: 0, document: {hidden: false}, motionEnabled: () => true, desktopPointer() {},
     window: {innerWidth: 960, cancelAnimationFrame() {}, requestAnimationFrame: () => 1},
     notch: {style: {values: {}, setProperty(name, value) {this.values[name] = value;}}},
     surface: node(), contour: node(), bandCut: node(), panelCut: node(),
@@ -74,8 +74,9 @@ test('the painted spring sends valid native geometry on every large-panel closin
       assert(value.shoulder >= 0 && value.shoulder <= value.height && value.shoulder * 2 < value.width);
       assert(value.radius >= 0 && value.radius <= Math.min(value.height, (value.width - value.shoulder * 2) / 2), `invalid native radius: ${JSON.stringify(value)}`);
       assert(value.shoulder + value.radius <= value.height);
-      assert.equal(parseFloat(scope.notch.style.values['--band']), value.band);
-      assert.equal(scope.panelCut.attributes.transform, `translate(${-value.shoulder} ${-value.band})`);
+      const css=scope.notch.style.values,scale=Number(css['--panel-scale']);
+      assert.equal(parseFloat(css['--band'])*scale, value.band);
+      assert.equal(scope.panelCut.attributes.transform, `translate(${-parseFloat(css['--shoulder'])} ${-parseFloat(css['--band'])})`);
       sent.push(value); return Promise.resolve({});
     }},
   };
@@ -98,9 +99,16 @@ test('the contour stays flush to the top with only rounded bottom corners in sma
   assert.equal(reduced.shoulder, 0); assert.equal(reduced.totalWidth, 128);
   const narrow = shape({...opened, width: 343}, 375);
   assert.equal(narrow.shoulder, 0); assert.equal(narrow.totalWidth, 343);
-  assert.equal(narrow.radius, 14); assert(!narrow.path.includes('NaN'));
+  assert.equal(narrow.radius, 40); assert(!narrow.path.includes('NaN'));
   assert(narrow.path.startsWith('M0 0 H343 V'));
   assert.equal((narrow.path.match(/Q/g) || []).length, 2);
+  for(const viewport of [64,96,160,375])for(const height of [10,40,112,464]){
+    const contour=shape({...opened,width:343,height},viewport);
+    assert(contour.width<=viewport-32);assert(contour.radius<=Math.min(contour.width/2,height));
+    assert(contour.path.startsWith('M0 0 H'+contour.width+' V'),'top edge stays flush at every bounded size');
+    assert.equal((contour.path.match(/Q/g)||[]).length,2,'only the bottom corners are rounded');
+    assert(!contour.path.includes('NaN'));
+  }
 });
 
 test('the discreet strip stays thin while a temporary notification has its own bounded preview', () => {
@@ -169,7 +177,7 @@ function interactionFixture() {
   const timers = new Map(), changes = [];
   let nextTimer = 0, focused = null, now = 1000, transfer = null, documentFocused=true;
   const scope = {
-    calendar:null,
+    calendar:null, moduleLab:null,
     ISLAND_CONFIG, Date: {now: () => now},
     scenarioController: null,
     geometry: {width: 780, height: 480},
@@ -178,7 +186,7 @@ function interactionFixture() {
     // The browser may retain :hover after Windows cuts the native window region.
     notch: {matches: () => true, contains: element => element?.inside === true, getBoundingClientRect: () => ({top: 0})},
     getModuleEditorActive: () => false, changes,
-    localSendBand: () => transfer, desktop: null, clearModuleFeedback() {}, dismissMusicTrackFeedback() {},
+    localSendBand: () => transfer, desktop: null, clearModuleFeedback() {}, dismissMusicTrackFeedback() {}, renderSearchRoute() {},
   };
   require('node:vm').runInNewContext(`
     let disposed=false,state='compact',view='nook',collapseTimer=0,hoverTimer=0,collapseDeferred=false,pointerInside=true,welcomeReady=false,
@@ -200,7 +208,7 @@ function interactionFixture() {
   function runDue() {
     for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
   }
-  return {api: scope.api, changes, focus: element => {focused = element;}, documentFocus:value=>{documentFocused=value;},transfer: value => {transfer = value;},
+  return {api: scope.api, changes, island:scope.notch, focus: element => {focused = element;}, documentFocus:value=>{documentFocused=value;},transfer: value => {transfer = value;},
     advance: milliseconds => {now += milliseconds; runDue();},
     flush: () => {if (timers.size) now = Math.max(now, ...[...timers.values()].map(timer => timer.at)); runDue();}};
 }
@@ -285,11 +293,42 @@ test('an external opening releases its first-entry protection on deactivation an
   }
 });
 
+test('an internal click stays internal when its action replaces the clicked node before bubbling ends',()=>{
+  const f=interactionFixture(),detached={inside:false};f.api.state='open';
+  f.api.outside({target:detached,composedPath:()=>[detached,f.island]});assert.equal(f.api.state,'open');
+  f.api.outside({target:detached,composedPath:()=>[detached]});assert.equal(f.api.state,'rest','a genuine outside click still closes the surface');
+});
+
+test('DOM geometry entry cannot reverse a close after native pointer tracking has taken over',()=>{
+  const f=interactionFixture();f.api.state='open';f.api.nativePointer({inside:true,moved:true});f.api.closing='rest';
+  f.api.enter({type:'pointerenter'});
+  assert.deepEqual(f.changes,[],'a contour change beneath the cursor is not a fresh native entry');
+  f.api.nativePointer({inside:false,moved:true});f.api.nativePointer({inside:true,moved:true});
+  assert.deepEqual(f.changes,['open'],'actual pointer reentry keeps the close animation interruptible');
+});
+
+test('DOM geometry departure cannot close content while native tracking still places the cursor inside',()=>{
+  const f=interactionFixture();f.api.state='open';f.api.nativePointer({inside:true,moved:true});
+  f.api.leave({type:'pointerleave'});f.advance(1000);
+  assert.equal(f.api.state,'open','DOM hit testing cannot contradict the native contour');
+  f.api.nativePointer({inside:false,moved:true});f.advance(280);
+  assert.equal(f.api.state,'rest','a real native departure still collapses normally');
+});
+
 test('a stationary native geometry acknowledgement cannot wake the closed notch', () => {
   const f=interactionFixture();f.api.state='rest';f.api.nativePointer({inside:false,moved:false});
   f.api.nativePointer({inside:true,moved:false});f.advance(1000);
   assert.equal(f.api.state,'rest','region changes beneath a stationary cursor do not count as entry');
   f.api.nativePointer({inside:true,moved:true});f.advance(120);assert.equal(f.api.state,'compact','a real entry still previews normally');
+});
+
+test('a stationary cursor reached again by open content cancels collapse without reversing an explicit close',()=>{
+  const f=interactionFixture();f.api.state='open';f.api.nativePointer({inside:false,moved:false});
+  f.api.nativePointer({inside:true,moved:false});f.advance(1000);
+  assert.equal(f.api.state,'open','returning from a smaller overlay keeps the home content available');
+  f.api.nativePointer({inside:false,moved:false});f.api.closing='rest';
+  const before=f.changes.length;f.api.nativePointer({inside:true,moved:false});
+  assert.equal(f.changes.length,before,'a contour passing beneath the cursor cannot undo an explicit close');
 });
 
 test('DOM mouse movement outside collapses when Windows omitted the leave event', () => {
@@ -676,7 +715,7 @@ function liveBandFixture() {
     setAttribute(name,value){this.attributes[name]=value;},getAttribute(name){return this.attributes[name]??null;},removeAttribute(name){delete this.attributes[name];},querySelector(selector){if(!selectors.has(selector))selectors.set(selector,element());return selectors.get(selector);},querySelectorAll(){return[];},cloneNode(){return element();},replaceChildren(...children){this.children=children;},append(...children){this.children.push(...children);}};};
   const byId = id => {if(!elements.has(id))elements.set(id,element());return elements.get(id);};
   const i18n = createI18n(null);
-  const scope = {activitySnapshot,i18n,t:i18n.t,byId,notch:element(),document:{createElement:()=>element()},focusCardValues:()=>({completed:1,total:4}),contentAnimations:new Map(),
+  const scope = {activitySnapshot,i18n,t:i18n.t,byId,notch:element(),document:{createElement:()=>element()},window:{NotchyDuration:{updateClock(node,value){node.textContent=value;}}},focusCardValues:()=>({completed:1,total:4}),contentAnimations:new Map(),
     animateIslandLayer(node,entering){node.inert=!entering;},
     isModuleEnabled:()=>true,motionEnabled:()=>true,text:(node,value)=>{node.textContent=value;},shelfGlyph:()=>element(),restContent:element(),toggle:element(),position:()=>30,focusLabel:()=>i18n.t('Concentration')};
   require('node:vm').runInNewContext(`

@@ -46,15 +46,28 @@
   }
 
   function highlightParts(value, query) {
-    const name = typeof value === 'string' ? value : '', needle = typeof query === 'string' ? query.trim() : '';
-    if (!needle) return [{text: name, matched: false}];
-    const pattern = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu'), parts = [];
-    let cursor = 0;
-    for (const match of name.matchAll(pattern)) {
-      const index = match.index;
-      if (index > cursor) parts.push({text: name.slice(cursor, index), matched: false});
-      parts.push({text: match[0], matched: true});
-      cursor = index + match[0].length;
+    const name = typeof value === 'string' ? value : '';
+    const fold = text => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    const words = [...new Set((typeof query === 'string' ? query : '').trim().split(/\s+/u).map(fold).filter(Boolean))];
+    if (!words.length) return [{text: name, matched: false}];
+    // Keep source offsets while folding, so accents, decomposed marks and emoji
+    // are rendered exactly as received. No query or filename becomes HTML.
+    const offsets = []; let folded = '', offset = 0, cluster = 0;
+    for (const character of name) {
+      const end = offset + character.length, text = fold(character);
+      if (text) {cluster = offsets.length; folded += text; for (let i = 0; i < text.length; i++) offsets.push({start: offset, end});}
+      else if (/\p{M}/u.test(character)) for (let i = cluster; i < offsets.length; i++) offsets[i].end = end;
+      offset = end;
+    }
+    const matches = [];
+    for (const word of words) for (let at = folded.indexOf(word); at !== -1; at = folded.indexOf(word, at + 1)) matches.push({start: offsets[at].start, end: offsets[at + word.length - 1].end});
+    matches.sort((a, b) => a.start - b.start || b.end - a.end);
+    const ranges = [];
+    for (const match of matches) {const last = ranges[ranges.length - 1]; if (last && match.start <= last.end) last.end = Math.max(last.end, match.end); else ranges.push({...match});}
+    const parts = []; let cursor = 0;
+    for (const match of ranges) {
+      if (match.start > cursor) parts.push({text: name.slice(cursor, match.start), matched: false});
+      parts.push({text: name.slice(match.start, match.end), matched: true}); cursor = match.end;
     }
     if (cursor < name.length || !parts.length) parts.push({text: name.slice(cursor), matched: false});
     return parts;
@@ -70,6 +83,7 @@
     const emptyApi = view?.NotchEmpty;
     let opened = false, disposed = false, hits = [], selected = -1, generation = 0, statusGeneration = 0;
     let debounce = null, poll = null, loading = false, acting = false, composing = false, error = '', statusError = false;
+    let cancelFocus = null;
     let status = {files: 0, indexing: false, shortcutUnavailable: false}, statusReady = false, reindexing = false, opener = null, emptyController = null, menuOpener = null;
     const element = (tag, className) => {const node = document.createElement(tag); if (className) node.className = className; return node;};
     const label = (key, values = {}) => {
@@ -117,6 +131,16 @@
     host.classList.add('notchy-search'); host.hidden = true; host.replaceChildren(heading, body, footer, announcer, contextMenu);
     host.setAttribute('aria-label', label('Recherche locale'));
 
+    function cancelInputFocus() {cancelFocus?.(); cancelFocus = null;}
+    function focusInput() {
+      cancelInputFocus(); input.focus({preventScroll: true});
+      // The shell or native WebView may become focusable just after onOpen.
+      // One paint retry handles that hand-off without polling or stealing focus
+      // from a result/action the user has deliberately reached in the meantime.
+      const retry = () => {cancelFocus = null; if (opened && !disposed && !host.contains(document.activeElement)) input.focus({preventScroll: true});};
+      if (typeof view?.requestAnimationFrame === 'function') {const frame = view.requestAnimationFrame(retry); cancelFocus = () => view.cancelAnimationFrame(frame);}
+      else {const timer = setTimeout(retry, 0); cancelFocus = () => clearTimeout(timer);}
+    }
     function emptyState(title, hint, retry = false) {
       if (emptyApi?.show) {
         if (!emptyController) emptyController = emptyApi.show(empty, {icon: icon('search')});
@@ -189,9 +213,9 @@
         row.id = prefix + '-result-' + list.children.length; row.tabIndex = -1; row.setAttribute('role', 'option'); row.dataset.resultId = hit.id;
         row.setAttribute('aria-label', hit.name + ', ' + label(hit.kind === 'folder' ? 'Dossier' : 'Fichier') + ', ' + hit.path);
         const name = element('span', 'search-result-name'), path = element('span', 'search-result-path');
-        for (const part of highlightParts(hit.name, input.value)) {const span = element(part.matched ? 'mark' : 'span'); span.textContent = part.text; name.append(span);}
+        for (const [node, value] of [[name, hit.name], [path, hit.path]]) for (const part of highlightParts(value, input.value)) {const span = element(part.matched ? 'mark' : 'span'); span.textContent = part.text; node.append(span);}
         row.setAttribute('aria-haspopup', 'menu'); row.setAttribute('aria-controls', contextMenu.id);
-        path.textContent = hit.path; path.title = hit.path; glyph.append(icon(hit.kind)); copy.append(name, path); row.append(glyph, copy); list.append(row);
+        path.title = hit.path; glyph.append(icon(hit.kind)); copy.append(name, path); row.append(glyph, copy); list.append(row);
       }
     }
     function closeMenu(restoreFocus = false) {
@@ -207,9 +231,10 @@
       menuOpener = anchor || (host.contains(document.activeElement) ? document.activeElement : input);
       contextMenu.hidden = false; more.setAttribute('aria-expanded', 'true'); list.children[selected]?.setAttribute('aria-expanded', 'true');
       const bounds = host.getBoundingClientRect(), menuBounds = contextMenu.getBoundingClientRect(), row = (anchor || list.children[selected]).getBoundingClientRect();
+      const scale = bounds.width / host.offsetWidth || 1;
       const x = point?.x ?? row.left, y = point?.y ?? row.bottom, inset = CONFIG.menuInset;
-      contextMenu.style.left = Math.max(inset, Math.min(x - bounds.left, bounds.width - menuBounds.width - inset)) + 'px';
-      contextMenu.style.top = Math.max(inset, Math.min(y - bounds.top, bounds.height - menuBounds.height - inset)) + 'px';
+      contextMenu.style.left = Math.max(inset, Math.min((x - bounds.left) / scale, (bounds.width - menuBounds.width) / scale - inset)) + 'px';
+      contextMenu.style.top = Math.max(inset, Math.min((y - bounds.top) / scale, (bounds.height - menuBounds.height) / scale - inset)) + 'px';
       menuItems.find(({item}) => !item.hidden)?.item.focus({preventScroll: true});
     }
     function readStatus(value) {
@@ -309,11 +334,11 @@
     function open() {
       if (disposed) return false;
       if (!opened) {opener = document.activeElement; opened = true; host.hidden = false; onOpen?.(); refresh();}
-      input.focus({preventScroll: true}); return true;
+      focusInput(); return true;
     }
     function close({restoreFocus = true, notify = true} = {}) {
       if (!opened || disposed) return false;
-      closeMenu();
+      closeMenu(); cancelInputFocus();
       opened = false; generation++; statusGeneration++; clearTimeout(debounce); clearTimeout(poll); debounce = poll = null;
       loading = false; host.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant');
       if (notify) onClose?.();
@@ -333,7 +358,8 @@
     listen(contextMenu, 'contextmenu', event => {event.preventDefault(); event.stopImmediatePropagation();});
     for (const {action, item} of menuItems) listen(item, 'click', event => {event.stopImmediatePropagation(); if (!item.hidden) void activate(action);});
     listen(more, 'click', () => contextMenu.hidden ? showMenu(selected, null, more) : closeMenu(true));
-    listen(document, 'pointerdown', event => {if (!contextMenu.hidden && !contextMenu.contains(event.target) && event.target !== more && !more.contains(event.target)) closeMenu();});
+    listen(document, 'pointerdown', event => {cancelInputFocus(); if (!contextMenu.hidden && !contextMenu.contains(event.target) && event.target !== more && !more.contains(event.target)) closeMenu();});
+    if (view) listen(view, 'focus', () => {if (opened && !disposed && !host.contains(document.activeElement)) focusInput();});
     listen(view || host, 'resize', () => closeMenu(true));
     listen(list, 'scroll', () => closeMenu(true));
     listen(openButton, 'click', () => void activate()); listen(reveal, 'click', () => void activate('reveal')); listen(send, 'click', () => void activate('send'));

@@ -7,6 +7,7 @@ else {
   try {
     if (fs.statSync(file).size > runtime.limits.manifestBytes) throw new Error('Manifest exceeds the import size limit.');
     const manifest = runtime.parseManifest(fs.readFileSync(file, 'utf8'));
-    console.log(manifest.id + ' ' + manifest.version + ': valid v2 manifest, all three presentations checked.');
+    const contract = runtime.getLayoutContract(manifest);
+    console.log(manifest.id + ' ' + manifest.version + ': valid v2 manifest; supported host presentations: ' + Object.keys(contract.layout).join(', ') + '.');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

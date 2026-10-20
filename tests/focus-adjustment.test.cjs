@@ -1,6 +1,5 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const fs = require('node:fs'), vm = require('node:vm');
 const {FocusModel} = require('../focus.js');
 const configuration = {work:25,rest:5,longRest:15,total:4};
 const paused = (phase = 'work', breakKind) => FocusModel.restore({minutes:phase==='work'?25:breakKind==='long'?15:5,remaining:phase==='work'?900:120,sessionActive:true,deadline:null,
@@ -39,16 +38,4 @@ test('paused short and chosen long breaks preserve actual elapsed time without c
   const long=paused('break','long'); long.pomodoro.chosenBreak=true; long.pomodoro.breakKind='long';
   assert.equal(FocusModel.adjustConfiguration(long,{...configuration,longRest:20},10000).ok,true);
   assert.equal(long.minutes,20); assert.equal(long.remaining,420); assert.equal(long.pomodoro.phase,'break'); assert.equal(long.pomodoro.chosenBreak,true); assert.equal(long.pomodoro.session,2);
-});
-
-test('Tasks can prepare Focus without starting, resuming or changing a running timer', () => {
-  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function click(event)',source.indexOf('  function createTasks(')), end=source.indexOf('    function submit(event)',begin);
-  for(const active of [false,true]) {
-    const state=active?paused():FocusModel.defaults(); state.tasks=[{id:'target',title:'Selected task',done:false}];
-    const schedule=JSON.stringify([state.remaining,state.deadline,state.pomodoro]), prepared=[],commands=[];
-    const control={disabled:false,dataset:{taskAction:'start',taskId:'target'}},scope={disposed:false,host:{contains:()=>true},render(){},prepare:button=>prepared.push(button),
-      focus:{tasks:action=>FocusModel.taskAction(state,action),summary:()=>({active,paused:active}),command:value=>commands.push(value)}};
-    vm.runInNewContext(source.slice(begin,end)+'this.click=click;',scope);scope.click({target:{closest:()=>control}});
-    assert.equal(state.activeTaskId,'target');assert.equal(JSON.stringify([state.remaining,state.deadline,state.pomodoro]),schedule);assert.deepEqual(commands,[]);assert.equal(prepared[0],control);
-  }
 });

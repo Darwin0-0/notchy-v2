@@ -508,6 +508,47 @@ async fn dispatch(state: &ServerState, request: Request) -> Result<Response> {
     Ok(reply(status, result))
 }
 
+#[cfg(debug_assertions)]
+fn development_asset(root: &std::path::Path, path: &str) -> Result<Vec<u8>> {
+    use std::{fs, io::Read, path::Component};
+    let missing = || failure(404, "Page introuvable.");
+    // Keep the exact packaged asset allowlist, including in development.
+    if ASSETS.get_file(path).is_none() || path.contains('\\')
+        || std::path::Path::new(path).components().any(|part| !matches!(part, Component::Normal(_))) {
+        return Err(missing());
+    }
+    let plain = |metadata: &fs::Metadata| {
+        if metadata.file_type().is_symlink() { return false; }
+        #[cfg(windows)] {
+            use std::os::windows::fs::MetadataExt;
+            if metadata.file_attributes() & 0x400 != 0 { return false; }
+        }
+        true
+    };
+    let metadata = fs::symlink_metadata(root).map_err(|_| missing())?;
+    if !metadata.is_dir() || !plain(&metadata) { return Err(missing()); }
+    let root = root.canonicalize().map_err(|_| missing())?;
+    let mut filename = root.clone();
+    for part in std::path::Path::new(path).components() {
+        filename.push(part);
+        if !plain(&fs::symlink_metadata(&filename).map_err(|_| missing())?) { return Err(missing()); }
+    }
+    let canonical = filename.canonicalize().map_err(|_| missing())?;
+    if !canonical.starts_with(&root) || canonical != filename { return Err(missing()); }
+    let mut options = fs::OpenOptions::new(); options.read(true);
+    #[cfg(windows)] {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    let file = options.open(&filename).map_err(|_| missing())?;
+    let metadata = file.metadata().map_err(|_| missing())?;
+    const MAX_ASSET: u64 = 32 * 1024 * 1024;
+    if !metadata.is_file() || !plain(&metadata) || metadata.len() > MAX_ASSET { return Err(missing()); }
+    let mut bytes = Vec::new(); file.take(MAX_ASSET + 1).read_to_end(&mut bytes).map_err(|_| missing())?;
+    if bytes.len() as u64 > MAX_ASSET || filename.canonicalize().map_err(|_| missing())? != canonical { return Err(missing()); }
+    Ok(bytes)
+}
+
 fn asset(path: &str, method: &Method) -> Result<Response> {
     if method != Method::GET && method != Method::HEAD {
         return Err(failure(404, "Page introuvable."));
@@ -539,15 +580,21 @@ fn asset(path: &str, method: &Method) -> Result<Response> {
         "png" => "image/png",
         _ => return Err(failure(404, "Page introuvable.")),
     };
+    #[cfg(debug_assertions)]
+    let contents = development_asset(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("dist"), path)?;
+    #[cfg(not(debug_assertions))]
+    let contents = file.contents();
+    #[cfg(debug_assertions)]
+    let _ = file; // The embedded table is the allowlist; bytes come from the live dist directory.
     let bytes = if extension == "html" {
-        String::from_utf8_lossy(file.contents())
+        String::from_utf8_lossy(contents.as_ref())
             .replace(
                 "connect-src 'self'",
                 "connect-src 'self' ipc: http://ipc.localhost; frame-src 'none'",
             )
             .into_bytes()
     } else {
-        file.contents().to_vec()
+        contents.to_vec()
     };
     Response::builder()
         .status(200)
@@ -650,6 +697,52 @@ async fn music_events(state: &ServerState, spectrum: bool) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_assets_reload_only_packaged_files_and_keep_their_bounds() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("dist"); std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("index.html"), b"first UI").unwrap();
+        assert_eq!(development_asset(&root, "index.html").unwrap(), b"first UI");
+        std::fs::write(root.join("index.html"), b"updated UI without recompilation").unwrap();
+        assert_eq!(development_asset(&root, "index.html").unwrap(), b"updated UI without recompilation");
+        std::fs::write(root.join("private.json"), b"not a packaged asset").unwrap();
+        for path in ["private.json", "../index.html", "./index.html", "/index.html", "assets/../../index.html", "assets\\index.html", "index.html%00", "missing.js"] {
+            assert_eq!(development_asset(&root, path).unwrap_err().status, 404, "{path}");
+        }
+        std::fs::remove_file(root.join("index.html")).unwrap();
+        std::fs::create_dir(root.join("index.html")).unwrap();
+        assert_eq!(development_asset(&root, "index.html").unwrap_err().status, 404);
+    }
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_assets_reject_oversized_files_before_reading() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = std::fs::File::create(directory.path().join("index.html")).unwrap();
+        file.set_len(32 * 1024 * 1024 + 1).unwrap();
+        assert_eq!(development_asset(directory.path(), "index.html").unwrap_err().status, 404);
+    }
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_assets_cannot_follow_a_linked_root_or_nested_directory() {
+        fn directory_link(source: &std::path::Path, destination: &std::path::Path) {
+            #[cfg(unix)] std::os::unix::fs::symlink(source, destination).unwrap();
+            #[cfg(windows)] {
+                let result = std::process::Command::new("cmd.exe").args(["/D", "/C", "mklink", "/J"])
+                    .arg(destination).arg(source).output().unwrap();
+                assert!(result.status.success(), "The isolated junction fixture could not be created");
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("outside"); let root = directory.path().join("dist");
+        std::fs::create_dir(&source).unwrap(); std::fs::create_dir(&root).unwrap();
+        std::fs::write(source.join("index.html"), b"outside root").unwrap();
+        std::fs::write(source.join("duration-dm-sans.woff2"), b"outside root").unwrap();
+        let linked_root = directory.path().join("linked-dist"); directory_link(&source, &linked_root);
+        assert_eq!(development_asset(&linked_root, "index.html").unwrap_err().status, 404);
+        directory_link(&source, &root.join("assets"));
+        assert_eq!(development_asset(&root, "assets/duration-dm-sans.woff2").unwrap_err().status, 404);
+    }
     async fn fixture() -> (tempfile::TempDir, Arc<Services>, Server, reqwest::Client) {
         let directory = tempfile::tempdir().unwrap();
         let services = Arc::new(
@@ -707,10 +800,22 @@ mod tests {
             .await
             .unwrap()
             .contains("ipc: http://ipc.localhost"));
+        for path in ["/app.bundle.js", "/module-layout.css"] {
+            let response = client.get(format!("{base}{path}")).send().await.unwrap();
+            assert_eq!(response.status(), 200);
+            assert!(response.headers()[header::CONTENT_TYPE].to_str().unwrap().contains(
+                if path.ends_with(".js") { "text/javascript" } else { "text/css" }
+            ));
+            assert!(!response.bytes().await.unwrap().is_empty());
+        }
         for path in [
             "/.shelf/manifest.json",
             "/src-tauri/Cargo.toml",
             "/package.json",
+            "/app.js",
+            "/notch.js",
+            "/module-contracts.js",
+            "/scripts/frontend-manifest.json",
             "/work/private.json",
         ] {
             assert_eq!(

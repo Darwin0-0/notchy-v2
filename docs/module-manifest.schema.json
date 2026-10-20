@@ -20,6 +20,11 @@
       "type": "object", "additionalProperties": false, "required": ["full", "scene", "rail"],
       "properties": {"full": {"$ref": "#/$defs/presentation"}, "scene": {"$ref": "#/$defs/presentation"}, "rail": {"$ref": "#/$defs/presentation"}}
     },
+    "layout": {
+      "type": "object", "additionalProperties": false, "minProperties": 1,
+      "description": "Optional host layout contract. Omitted presentations are unsupported. Legacy manifests without layout keep the host defaults.",
+      "properties": {"full": {"$ref": "#/$defs/slot"}, "main": {"$ref": "#/$defs/slot"}, "side": {"$ref": "#/$defs/slot"}, "tall": {"$ref": "#/$defs/slot"}, "wide": {"$ref": "#/$defs/slot"}, "small": {"$ref": "#/$defs/slot"}}
+    },
     "progress": {
       "type": "object", "additionalProperties": false, "required": ["valueField", "targetField", "label"],
       "properties": {"valueField": {"$ref": "#/$defs/identifier"}, "targetField": {"$ref": "#/$defs/identifier"}, "label": {"$ref": "#/$defs/label"}}
@@ -30,6 +35,14 @@
     }
   },
   "$defs": {
+    "slot": {
+      "type": "object", "additionalProperties": false, "required": ["min", "ideal"],
+      "properties": {"min": {"$ref": "#/$defs/dimensions"}, "ideal": {"$ref": "#/$defs/dimensions"}}
+    },
+    "dimensions": {
+      "type": "object", "additionalProperties": false, "required": ["width", "height"],
+      "properties": {"width": {"type": "integer", "minimum": 1, "maximum": 4096}, "height": {"type": "integer", "minimum": 1, "maximum": 4096}}
+    },
     "identifier": {"type": "string", "maxLength": 48, "pattern": "^(?!(?:constructor|prototype)$)[a-z][a-z0-9-]{0,47}$"},
     "label": {
       "type": "object", "additionalProperties": false, "required": ["en", "fr"],

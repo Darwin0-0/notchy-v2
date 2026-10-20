@@ -80,7 +80,7 @@ test('Nook uses configured placements while Tasks opens its full card and Essent
   const begin=source.indexOf('  function getHomeSlots() {'), end=source.indexOf('  function getModuleOrder()',begin);
   assert(begin>0 && end>begin);
   const moduleSettings={enabled:[...installed],slots:['music','focus','weather',null]};
-  const scope={nookGridPlan,scenarioModulePlan,modulePlacementPlan,moduleSettings,view:'nook',islandPage:'music',getModuleEditorActive:()=>false,
+  const scope={moduleLab:null,nookGridPlan,scenarioModulePlan,modulePlacementPlan,moduleSettings,view:'nook',islandPage:'music',getModuleEditorActive:()=>false,
     isModuleEnabled:id=>moduleSettings.enabled.includes(id),moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),scenarioController:null};
   require('node:vm').runInNewContext(`${source.slice(begin,end)}this.read=getHomeSlots;`,scope);
   const read=()=>{const before=JSON.stringify(moduleSettings),result=Array.from(scope.read());assert.equal(JSON.stringify(moduleSettings),before,'navigation preserves installed modules and saved placements');return result;};
@@ -177,7 +177,7 @@ test('restored scenarios use current activity slots on the first render without 
   ]) {
     const renders=[],saves=[],timers=new Map();let serial=0;
     const moduleSettings={enabled:[...installed],slots:['music','focus','weather',null]},before=JSON.stringify(moduleSettings);
-    const scope={createScenarioController,scenarioPreferences:{mode,selected},scenarioController:null,islandPage:'music',state:'rest',view:'nook',
+    const scope={moduleLab:null,createScenarioController,scenarioPreferences:{mode,selected},scenarioController:null,islandPage:'music',state:'rest',view:'nook',
       moduleSettings,modulePlacementPlan,nookGridPlan,scenarioModulePlan,moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),getModuleEditorActive:()=>false,
       scenarioStorageKey:'test-scenario-preferences',scenarioActivity:()=>({}),configuredModuleOrder:()=>[...installed],scenarioInteracting:()=>false,
       isModuleEnabled:id=>installed.includes(id),scenarioChanged(){assert.fail('restoration does not apply a new scenario');},
@@ -207,7 +207,7 @@ test('the LocalSend tile opens pending consent or the real file picker route ins
 
 function headerNavigationFixture({view='nook',page='tasks'}={}) {
   const moduleSettings={enabled:[...installed,'tasks'],slots:['music','focus','weather',null]},renders=[],left=[],marketToolbar={hidden:true};
-  const button={dataset:{view:'nook'}},scope={calendar:null,moduleLibrary:null,notch:{dataset:{}},view,state:'open',islandPage:page,disposed:false,moduleSettings,
+  const button={dataset:{view:'nook'}},scope={calendar:null,moduleLab:null,moduleLibrary:null,notch:{dataset:{}},view,state:'open',islandPage:page,disposed:false,moduleSettings,
     shelfLoaded:true,shelfBusy:false,fileDragging:false,moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),
     welcome:null,t:value=>value,toggle:{},menu:{hidden:false,contains:element=>element===button},panel:{setAttribute(){}},byId:id=>id==='market-toolbar'?marketToolbar:{},
     focusConfigurationReturn:null,focusComponent:{leaveRoute(){left.push('focus');}},tasksComponent:{leaveRoute(){left.push('tasks');}},
@@ -261,7 +261,7 @@ test('the Tasks navigation destination and internal Nook returns retain their ex
 });
 
 test('returning to a visible Shelf summary reloads an invalidated file cache once instead of showing stale files', () => {
-  const loads=[],marketToolbar={hidden:true},scope={calendar:null,moduleLibrary:null,notch:{dataset:{}},view:'files',state:'open',islandPage:'essential',disposed:false,shelfLoaded:false,shelfBusy:false,fileDragging:false,
+  const loads=[],marketToolbar={hidden:true},scope={calendar:null,moduleLab:null,moduleLibrary:null,notch:{dataset:{}},view:'files',state:'open',islandPage:'essential',disposed:false,shelfLoaded:false,shelfBusy:false,fileDragging:false,
     moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(item=>[item.id,item])),welcome:null,t:value=>value,
     toggle:{},menu:{},panel:{setAttribute(){}},byId:id=>id==='market-toolbar'?marketToolbar:{},getModuleEditorActive:()=>false,builtinVisible:()=>false,
     getHomeSlots:()=>['weather','shelf',null,null],scenarioController:null,

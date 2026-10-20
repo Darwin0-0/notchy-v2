@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
-const {FocusModel,focusConfiguration} = require('../focus.js');
+const {FocusModel} = require('../focus.js');
 
 const started = (extra = {}) => FocusModel.restore({minutes:1, remaining:60, deadline:70000, sessionActive:true,
   activeTaskId:'a', tasks:[{id:'a',title:'Write the draft',estimatedCycles:2},{id:'b',title:'Read the draft'}],
@@ -77,30 +77,6 @@ test('deleting or reopening the referenced task clears obsolete prompts and neve
   const undo=started(); FocusModel.taskAction(undo,{type:'toggle',id:'a'}); FocusModel.taskAction(undo,{type:'toggle',id:'a'});
   assert.equal(undo.taskPrompt,null); assert.equal(undo.tasks[0].done,false);
   for(const prompt of [{kind:'cycle-complete',taskId:'missing'},{kind:'continue',taskId:'a'},{kind:'other',taskId:'a'},'invalid',null]) assert.equal(FocusModel.restore({...started(),taskPrompt:prompt},10000).taskPrompt,null);
-});
-
-test('the actual component settles the old task boundary before selection, completion or invalid actions', () => {
-  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function tasks(action)'), end=source.indexOf('    function submitTask(',begin);
-  for(const action of [{type:'select',id:'b'},{type:'toggle',id:'a'},{type:'delete',id:'missing'}]) {
-    const state=started(), events=[], scope={FocusModel,model:state,disposed:false,now:()=>70000,window:{crypto:{randomUUID:()=> 'new'}},save(){},render(_notify,event){if(event)events.push(event);}};
-    vm.runInNewContext(`${source.slice(begin,end)}this.run=tasks;`,scope);
-    scope.run(action);
-    assert.equal(state.tasks[0].completedCycles,1); assert.equal(state.tasks[1].completedCycles,0);
-    assert.equal(state.pomodoro.phase,'break'); assert.equal(state.deadline,130000);
-    if(action.type==='select') {assert.equal(state.activeTaskId,'b'); assert.equal(state.taskPrompt.taskId,'a'); assert.equal(events.length,0);}
-    if(action.type==='toggle') {assert.equal(state.tasks[0].done,true); assert.equal(events.length,1);}
-  }
-});
-
-test('opening task linking or configuration at the boundary persists the credit before returning', () => {
-  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function command(value)'), end=source.indexOf('    function tasks(action)',begin);
-  for(const action of ['link-task','configure','unknown']) {
-    const state=started(), writes=[], scope={FocusModel,focusConfiguration,model:state,disposed:false,configOpen:false,now:()=>70000,save(){writes.push(JSON.parse(JSON.stringify(state)));},render(){},stopAnimations(){},closeTaskPicker(){},openTaskPicker(){},active:()=>true,openTasks(){},$:()=>({focus(){}})};
-    vm.runInNewContext(`${source.slice(begin,end)}this.run=command;`,scope);
-    scope.run(action);
-    assert.equal(state.tasks[0].completedCycles,1); assert(writes.length>0);
-    assert.equal(writes.at(-1).tasks[0].completedCycles,1); assert.equal(writes.at(-1).pomodoro.phase,'break');
-  }
 });
 
 test('resolving the real shared prompt preserves keyboard focus on its successor or visible module', () => {

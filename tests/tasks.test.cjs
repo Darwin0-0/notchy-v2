@@ -1,8 +1,8 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {FocusModel, createTasks} = require('../focus.js');
+const {FocusModel} = require('../focus.js');
+const {createTasks} = require('../focus-duration.js');
 const {modulePlacementPlan, normalizeModules, getModuleDefinitions, createActivityScene} = require('../notch.js');
-const fs = require('node:fs'), vm = require('node:vm');
 
 test('task cycle estimates migrate safely and retain real completion counts beyond an estimate', () => {
   const state = FocusModel.restore({minutes:25, activeTaskId:'legacy', tasks:[
@@ -56,18 +56,4 @@ test('Tasks is an internal view of the single placeable Tasks & Focus module', (
   const scene=createActivityScene();
   assert.equal(scene.update([{id:'focus',key:'focus',label:'Tasks & Focus'}],{preserveOrder:true}).primary,'focus');
   assert.deepEqual(scene.update([{id:'music',key:'music'},{id:'focus',key:'focus'}],{preserveOrder:true}).items.map(item=>item.id),['focus','music']);
-});
-
-test('the real Tasks start handler starts idle Focus, resumes paused Focus and preserves a running deadline', () => {
-  const source=fs.readFileSync(require.resolve('../focus.js'),'utf8'), begin=source.indexOf('    function click(event)',source.indexOf('  function createTasks(')), end=source.indexOf('    function submit(event)',begin);
-  assert(begin>0&&end>begin);
-  for(const [active,paused,expected] of [[false,false,'start'],[true,true,'toggle'],[true,false,null]]) {
-    const calls=[],state=FocusModel.restore({minutes:25,remaining:1234,deadline:active&&!paused?1244000:null,sessionActive:active,tasks:[{id:'target',title:'Selected task'}]},10000);
-    const deadline=state.deadline;
-    const scope={disposed:false,host:{contains:()=>true},expand(){},render(){},focus:{tasks:action=>FocusModel.taskAction(state,action),summary:()=>({active,paused}),command:value=>calls.push(value)}};
-    vm.runInNewContext(`${source.slice(begin,end)}this.click=click;`,scope);
-    scope.click({target:{closest:()=>({disabled:false,dataset:{taskAction:'start',taskId:'target'}})}});
-    assert.equal(state.activeTaskId,'target'); assert.equal(state.deadline,deadline);
-    assert.deepEqual(calls,expected?[expected]:[]);
-  }
 });

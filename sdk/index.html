@@ -4,7 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Notchy Module Lab</title>
+  <link rel="stylesheet" href="../tokens.css">
+  <link rel="stylesheet" href="../module-library.css">
+  <link rel="stylesheet" href="../module-layout.css">
   <link rel="stylesheet" href="styles.css">
+  <script src="../tokens.js" defer></script>
+  <script src="../module-contracts.js" defer></script>
   <script src="../module-runtime.js" defer></script>
   <script src="host.js" defer></script>
 </head>
@@ -13,7 +18,7 @@
     <aside class="tools" aria-label="Module development tools">
       <p class="eyebrow">NOTCHY MODULE LAB</p>
       <h1>A little space.<br>Make it yours.</h1>
-      <p class="intro">Build one useful module in a blank island. Try every size with the same renderer used by Notchy.</p>
+      <p class="intro">Build one useful module in a blank island. The same host contract, renderer and module styles are used by Notchy.</p>
       <fieldset>
         <legend>Start with a module</legend>
         <div class="tool-row"><button type="button" id="reading">Reading</button><button type="button" id="water">Water break</button></div>
@@ -24,14 +29,29 @@
         <legend>Presentation</legend>
         <div class="tool-row" id="presentations" role="group" aria-label="Presentation size">
           <button type="button" data-presentation="full" aria-pressed="true">Full</button>
-          <button type="button" data-presentation="scene" aria-pressed="false">Scene</button>
-          <button type="button" data-presentation="rail" aria-pressed="false">Rail</button>
+          <button type="button" data-presentation="main" aria-pressed="false">Main</button>
+          <button type="button" data-presentation="side" aria-pressed="false">Side</button>
+          <button type="button" data-presentation="tall" aria-pressed="false">Tall</button>
+          <button type="button" data-presentation="wide" aria-pressed="false">Wide</button>
+          <button type="button" data-presentation="small" aria-pressed="false">Small</button>
         </div>
+        <p id="constraints" class="hint">Choose a module to inspect its supported presentations.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Contract boundary</legend>
+        <div class="tool-row" id="dimensions" role="group" aria-label="Slot dimensions"><button type="button" data-dimensions="ideal" aria-pressed="true">Ideal</button><button type="button" data-dimensions="min" aria-pressed="false">Minimum</button></div>
+        <p id="geometry" class="hint"></p>
+      </fieldset>
+      <fieldset>
+        <legend>State and failure checks</legend>
+        <div class="tool-row"><button type="button" id="defaults" disabled>Defaults</button><button type="button" id="long-text" disabled>Long text</button></div>
+        <label class="failure"><input id="save-error" type="checkbox"> Fail the next local save</label>
+        <p class="hint">Test an action while saving is unavailable. The last committed values must remain usable.</p>
       </fieldset>
       <label class="language">Module language<select id="language"><option value="en">English</option><option value="fr">Français</option></select></label>
       <div class="tool-row"><button type="button" id="export" disabled>Export manifest</button><button type="button" id="clear" disabled>Clear island</button></div>
       <p id="status" class="status" role="status" aria-live="polite">Choose an example or import your JSON. No module is installed yet.</p>
-      <a href="../docs/MODULES.md">Read the manifest contract ↗</a>
+      <a href="../docs/MODULE_LAYOUT.md">Read the layout rules ↗</a>
       <p class="privacy">Local development only. No app account, native access or remote store. Saved test state is separate from your Notchy profile.</p>
     </aside>
     <main class="canvas" aria-label="Blank island preview">
@@ -40,10 +60,9 @@
         <div class="island-content" id="layout" data-presentation="full">
           <div id="module" class="module-host"></div>
           <div id="empty" class="empty"><span aria-hidden="true">+</span><h2>Your module belongs here.</h2><p>Start small. Give it something useful to do.</p></div>
-          <div class="unused" aria-hidden="true"></div>
         </div>
       </section>
-      <p class="canvas-caption">A real module, real local state, three presentations.</p>
+      <p class="canvas-caption">Four host presentations. One shared state. Scroll the preview canvas if the declared slot is wider than your screen.</p>
     </main>
   </div>
 </body>

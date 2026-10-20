@@ -18,16 +18,22 @@ test('the browser and Node receive the same immutable motion and activity contra
   for(const value of [tokens,tokens.activity,tokens.status,tokens.dur,tokens.ease,tokens.stagger,tokens.island,tokens.island.spring]) assert(Object.isFrozen(value));
 });
 
-test('an activity is never confused with a result and each CSS identity matches JavaScript', () => {
-  for(const [name,color] of Object.entries(tokens.activity)) {
-    if(name==='music') {assert(css.includes('--activity-music: var(--spectrum-color,'));continue;}
-    assert.match(css,new RegExp(`--activity-${name}:\\s*${color};`,'i'));
-    assert(!Object.values(tokens.status).includes(color),name+' must not reuse a status identity');
+test('activity and status aliases resolve to the same supplied design-system palette in CSS and JavaScript', () => {
+  const values=new Map([...css.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+);/g)].map(match=>[match[1],match[2].trim()]));
+  function resolve(input,seen=new Set()){
+    if(input.startsWith('--')){assert(!seen.has(input),'tokens cannot contain a reference cycle');const next=new Set(seen);next.add(input);return values.has(input)?resolve(values.get(input),next):null;}
+    const variable=/^var\((--[\w-]+)(?:,\s*(.*))?\)$/.exec(input);
+    return variable?resolve(variable[1],seen)||(variable[2]?resolve(variable[2],seen):null):input.toLowerCase();
   }
-  for(const [name,color] of Object.entries(tokens.status)) assert.match(css,new RegExp(`--status-${name}:\\s*${color};`,'i'));
-  assert.notEqual(tokens.activity.focus,tokens.activity.break);
-  assert.notEqual(tokens.activity.focus,tokens.activity.transfer);
-  assert.notEqual(tokens.activity.break,tokens.activity.transfer);
+  for(const [name,color]of Object.entries(tokens.activity))assert.equal(resolve('--activity-'+name),color.toLowerCase(),name+' uses its semantic CSS role');
+  for(const [name,color]of Object.entries(tokens.status))assert.equal(resolve('--status-'+name),color.toLowerCase(),name+' uses its semantic CSS role');
+  assert.equal(tokens.activity.focus,'#ff7a45');assert.equal(tokens.activity.tasks,tokens.activity.focus);
+  assert.equal(tokens.activity.break,'#86b7ff');assert.equal(tokens.activity.long,tokens.activity.break);assert.equal(tokens.activity.transfer,tokens.activity.break);
+  assert.equal(tokens.activity.weather,'#9db8d9');assert.equal(tokens.activity.shelf,'#ff9f1c');
+  assert.equal(tokens.status.success,'#6ee7b7');assert.equal(tokens.status.error,'#f87171');
+  assert.notEqual(tokens.activity.focus,tokens.status.success,'completion remains a distinct semantic outcome');
+  for(const [name,value]of Object.entries(tokens.dur))if(values.has('--dur-'+name))assert.equal(resolve('--dur-'+name),value+'ms',name+' duration agrees across CSS and JavaScript');
+  assert.equal(tokens.dur.check,350);assert.equal(tokens.stagger.step,80);
 });
 
 test('the island consumes the shared physical spring and progress duration directly', () => {
@@ -36,7 +42,7 @@ test('the island consumes the shared physical spring and progress duration direc
   assert.deepEqual([ISLAND_CONFIG.spring.stiffness,ISLAND_CONFIG.spring.damping,ISLAND_CONFIG.spring.mass],[400,30,1]);
   assert.equal(ISLAND_CONFIG.durations.progress,tokens.dur.progress);
   assert.equal(tokens.dur.progress,250);
-  assert.deepEqual(ISLAND_CONFIG.states.expanded,{width:594,height:324,radius:14});
+  assert.deepEqual(ISLAND_CONFIG.states.expanded,{width:844,height:464,radius:40});
   assert.equal(tokens.css('--activity-focus'),'','Node does not invent a browser computed style');
 });
 

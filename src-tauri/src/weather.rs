@@ -28,7 +28,7 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 fn empty() -> Value {
-    json!({"status":"empty","mode":"local","selectedCity":null,"city":"","displayName":"","temperature":null,"feelsLike":null,"humidity":null,"windSpeed":null,"uvIndex":null,"sunrise":null,"condition":"","icon":"unknown","code":null,"isDay":null,"min":null,"max":null,"hours":[],"days":[],"nextRain":null,"rainRisk":null,"error":null,"stale":false,"fetchedAt":null,"locationStatus":null})
+    json!({"status":"empty","mode":"local","selectedCity":null,"city":"","displayName":"","temperature":null,"feelsLike":null,"humidity":null,"windSpeed":null,"uvIndex":null,"sunrise":null,"sunset":null,"condition":"","icon":"unknown","code":null,"isDay":null,"min":null,"max":null,"hours":[],"days":[],"nextRain":null,"rainRisk":null,"error":null,"stale":false,"fetchedAt":null,"locationStatus":null})
 }
 fn finite(value: &Value) -> Option<f64> {
     value.as_f64().filter(|n| n.is_finite())
@@ -129,6 +129,10 @@ fn sample_time(value: &Value) -> Option<NaiveDateTime> {
         } else if !b.is_ascii_digit() {
             return None;
         }
+    }
+    // Chrono accepts leap seconds, but forecast and frontend clock fields use 00..59.
+    if s.len() == 19 && s[17..].parse::<u32>().ok()? > 59 {
+        return None;
     }
     NaiveDateTime::parse_from_str(
         s,
@@ -302,13 +306,15 @@ pub fn project(data: &Value, city: &Value, mode: &Value) -> Value {
     result["uvIndex"] = json!(daily_index.and_then(|index| {
         finite(&data["daily"]["uv_index_max"][index]).filter(|n| (0.0..=30.0).contains(n))
     }));
-    result["sunrise"] = daily_index
-        .and_then(|index| {
-            sample_time(&data["daily"]["sunrise"][index])
-                .filter(|at| Some(at.date()) == today)
-                .map(|_| data["daily"]["sunrise"][index].clone())
-        })
-        .unwrap_or(Value::Null);
+    for field in ["sunrise", "sunset"] {
+        result[field] = daily_index
+            .and_then(|index| {
+                sample_time(&data["daily"][field][index])
+                    .filter(|at| Some(at.date()) == today)
+                    .map(|_| data["daily"][field][index].clone())
+            })
+            .unwrap_or(Value::Null);
+    }
     result["condition"] = description.into();
     result["icon"] = icon.into();
     result["code"] = json!(code);
@@ -739,7 +745,7 @@ impl Weather {
             ),
             (
                 "daily",
-                "temperature_2m_max,temperature_2m_min,uv_index_max,sunrise".into(),
+                "temperature_2m_max,temperature_2m_min,uv_index_max,sunrise,sunset".into(),
             ),
             ("minutely_15", "rain,precipitation".into()),
             ("precipitation_unit", "mm".into()),
@@ -1046,7 +1052,7 @@ mod tests {
         json!({"id":123,"name":"Ville de test","country":"France","region":"Région de test","latitude":48.8534,"longitude":2.3488,"timezone":"Europe/Paris"})
     }
     fn data() -> Value {
-        json!({"current":{"temperature_2m":24,"apparent_temperature":18,"relative_humidity_2m":72,"wind_speed_10m":18.5,"weather_code":61,"is_day":1,"time":"2026-10-14T10:00"},"daily":{"time":["2026-10-14","2026-10-15","2026-10-16"],"temperature_2m_max":[26,27,25],"temperature_2m_min":[16,18,17],"uv_index_max":[3.5,4,2],"sunrise":["2026-10-14T05:34","2026-10-15T05:35","2026-10-16T05:36"]},"hourly":{"time":["2026-10-14T09:00","2026-10-14T10:00","2026-10-14T11:00","2026-10-14T12:00"],"temperature_2m":[12,24,25,24],"weather_code":[0,61,63,3],"precipitation_probability":[0,70,80,20]},"minutely_15":{"time":["2026-10-14T10:15","2026-10-14T10:30","2026-10-14T10:45","2026-10-14T11:00","2026-10-14T11:15","2026-10-14T11:30","2026-10-14T11:45","2026-10-14T12:00"],"rain":[0.1,0.2,0.1,0,0,0,0,0],"precipitation":[0.1,0.2,0.1,0,0,0,0,0]}})
+        json!({"current":{"temperature_2m":24,"apparent_temperature":18,"relative_humidity_2m":72,"wind_speed_10m":18.5,"weather_code":61,"is_day":1,"time":"2026-10-14T10:00"},"daily":{"time":["2026-10-14","2026-10-15","2026-10-16"],"temperature_2m_max":[26,27,25],"temperature_2m_min":[16,18,17],"uv_index_max":[3.5,4,2],"sunrise":["2026-10-14T05:34","2026-10-15T05:35","2026-10-16T05:36"],"sunset":["2026-10-14T18:02","2026-10-15T18:01","2026-10-16T18:00"]},"hourly":{"time":["2026-10-14T09:00","2026-10-14T10:00","2026-10-14T11:00","2026-10-14T12:00"],"temperature_2m":[12,24,25,24],"weather_code":[0,61,63,3],"precipitation_probability":[0,70,80,20]},"minutely_15":{"time":["2026-10-14T10:15","2026-10-14T10:30","2026-10-14T10:45","2026-10-14T11:00","2026-10-14T11:15","2026-10-14T11:30","2026-10-14T11:45","2026-10-14T12:00"],"rain":[0.1,0.2,0.1,0,0,0,0,0],"precipitation":[0.1,0.2,0.1,0,0,0,0,0]}})
     }
     #[test]
     fn location_rejects_untrusted_fields() {
@@ -1071,6 +1077,7 @@ mod tests {
         assert_eq!(p["windSpeed"], 18.5);
         assert_eq!(p["uvIndex"], 3.5);
         assert_eq!(p["sunrise"], "2026-10-14T05:34");
+        assert_eq!(p["sunset"], "2026-10-14T18:02");
         assert_eq!(p["hours"].as_array().unwrap().len(), 3);
         assert_eq!(p["hours"][0]["temperature"], 24.0);
         assert_eq!(p["hours"][0]["condition"], "Pluie");
@@ -1139,35 +1146,50 @@ mod tests {
         let mut fractional = data();
         fractional["current"]["relative_humidity_2m"] = json!(72.5);
         assert!(project(&fractional, &city(), &json!("city"))["humidity"].is_null());
-        for field in ["humidity", "windSpeed", "uvIndex", "sunrise"] {
+        for field in ["humidity", "windSpeed", "uvIndex", "sunrise", "sunset"] {
             assert!(empty()[field].is_null());
         }
     }
     #[test]
-    fn daily_detail_values_match_the_current_date_and_validate_sunrise() {
+    fn daily_detail_values_match_the_current_date_and_validate_sun_times() {
         let mut next_day = data();
         next_day["current"]["time"] = json!("2026-10-15T10:00");
         let projected = project(&next_day, &city(), &json!("city"));
         assert_eq!(projected["uvIndex"], 4.0);
         assert_eq!(projected["sunrise"], "2026-10-15T05:35");
-        for invalid in [
-            Value::Null,
-            json!("2026-10-13T05:34"),
-            json!("2026-02-30T05:34"),
-            json!("2026-10-14T25:34"),
-            json!("<svg onload=alert(1)>"),
-            json!("2026-10-14 05:34"),
-        ] {
-            let mut value = data();
-            value["daily"]["sunrise"][0] = invalid;
-            assert!(project(&value, &city(), &json!("city"))["sunrise"].is_null());
+        assert_eq!(projected["sunset"], "2026-10-15T18:01");
+        for field in ["sunrise", "sunset"] {
+            for invalid in [
+                Value::Null,
+                json!(42),
+                json!("2026-10-13T05:34"),
+                json!("2026-02-30T05:34"),
+                json!("2026-10-14T25:34"),
+                json!("2026-10-14T05:60"),
+                json!("2026-10-14T05:34:60"),
+                json!("2026-10-14T05:34Z"),
+                json!("<svg onload=alert(1)>"),
+                json!("2026-10-14 05:34"),
+            ] {
+                let mut value = data();
+                value["daily"][field][0] = invalid;
+                let projected = project(&value, &city(), &json!("city"));
+                assert_eq!(projected["status"], "ready");
+                assert!(
+                    projected[field].is_null(),
+                    "invalid {field} must remain unavailable"
+                );
+            }
+            let mut missing = data();
+            missing["daily"].as_object_mut().unwrap().remove(field);
+            assert!(project(&missing, &city(), &json!("city"))[field].is_null());
+            let mut seconds = data();
+            seconds["daily"][field][0] = json!("2026-10-14T05:34:22");
+            assert_eq!(
+                project(&seconds, &city(), &json!("city"))[field],
+                "2026-10-14T05:34:22"
+            );
         }
-        let mut seconds = data();
-        seconds["daily"]["sunrise"][0] = json!("2026-10-14T05:34:22");
-        assert_eq!(
-            project(&seconds, &city(), &json!("city"))["sunrise"],
-            "2026-10-14T05:34:22"
-        );
         for invalid in [
             Value::Null,
             json!("2026-02-30T10:00"),
@@ -1178,6 +1200,7 @@ mod tests {
             let projected = project(&value, &city(), &json!("city"));
             assert!(projected["uvIndex"].is_null());
             assert!(projected["sunrise"].is_null());
+            assert!(projected["sunset"].is_null());
         }
     }
     #[test]
@@ -1335,10 +1358,12 @@ mod tests {
             .split(',')
             .any(|field| field == "uv_index_max"));
         assert!(params["daily"].split(',').any(|field| field == "sunrise"));
+        assert!(params["daily"].split(',').any(|field| field == "sunset"));
         assert_eq!(selected["humidity"], 72);
         assert_eq!(selected["windSpeed"], 18.5);
         assert_eq!(selected["uvIndex"], 3.5);
         assert_eq!(selected["sunrise"], "2026-10-14T05:34");
+        assert_eq!(selected["sunset"], "2026-10-14T18:02");
         assert_eq!(params["forecast_days"], "3");
         assert_eq!(selected["days"].as_array().unwrap().len(), 3);
         drop(calls);

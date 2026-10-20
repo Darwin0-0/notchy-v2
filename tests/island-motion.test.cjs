@@ -8,10 +8,21 @@ const frame = key => {
   return {width: state.width, height: state.height, band: state.height, radius: state.radius, progress: key === 'expanded' ? 1 : 0, shoulder:0};
 };
 
+test('real Focus boundaries keep the supplied discreet geometry without enlarging other notifications or the resting notch', () => {
+  for (const kind of ['focus','break','task','cycle']) {
+    const size=closedBandSize('compact',{feedback:{id:'focus',kind:'phase',boundary:{kind}}});
+    assert.deepEqual(size,{width:360,band:58,radius:18,shoulder:0,progress:0});
+    assert.equal(shape({...size,height:size.band},960).totalWidth,360);
+  }
+  assert.equal(closedBandSize('compact',{feedback:{id:'shelf',kind:'complete'}}).band,72);
+  assert.equal(closedBandSize('rest',{feedback:{boundary:{kind:'cycle'}}}).band,10);
+  assert(Object.isFrozen(ISLAND_CONFIG.focusPeek));
+});
+
 test('island constants preserve all three specified states and immutable motion values', () => {
-  assert.deepEqual(ISLAND_CONFIG.states, {rest: {width: 128, height: 10, radius: 6}, compact: {width: 240, height: 40, radius: 10}, expanded: {width: 594, height: 324, radius: 14}});
-  assert.deepEqual(ISLAND_CONFIG.layout, {header: 48, side: 16, bottom: 16, footer: 32, gap: 8, columns: 4, rows: 4});
-  assert.deepEqual(ISLAND_CONFIG.activities,{widths:[240,300,360],height:42,radius:6,shoulder:8,peekScale:1,sceneHeight:324,expandedHeight:324,headerTop:8,headerHeight:32,sceneTop:48,side:16,bottom:16,gap:8});
+  assert.deepEqual(ISLAND_CONFIG.states, {rest: {width: 128, height: 10, radius: 6}, compact: {width: 240, height: 40, radius: 10}, expanded: {width: 844, height: 464, radius: 40}});
+  assert.deepEqual(ISLAND_CONFIG.layout, {header: 80, side: 16, bottom: 16, footer: 32, gap: 16, columns: 3, rows: 3});
+  assert.deepEqual(ISLAND_CONFIG.activities,{widths:[240,300,360],height:42,radius:6,shoulder:8,peekScale:1,sceneHeight:464,fullHeight:464,durationDetailHeight:496,expandedHeight:464,headerTop:16,headerHeight:48,sceneTop:80,side:16,bottom:16,gap:16});
   assert(Object.isFrozen(ISLAND_CONFIG.layout));
   assert.equal(ISLAND_CONFIG.spring.stiffness, 400);
   assert.equal(ISLAND_CONFIG.spring.damping, 30);

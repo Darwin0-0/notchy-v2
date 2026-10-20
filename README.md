@@ -34,7 +34,7 @@ The project is actively evolving. Choose Français or English on the welcome scr
 
 - **Music within reach.** Notchy automatically follows compatible Windows media players, with artwork, playback controls, track progress and a softly animated spectrum. Everyday playback needs no personal API key. Add **Up next** with the optional Spotify connection.
 - **One place for tasks and Pomodoro.** Give a task a total time budget, including breaks, and preview its focus and rest intervals before adding it. The timer and task list share the same progress.
-- **A panel for each moment.** Choose Focus, Ambience, Day, Complete or Minimal from Scenarios in Settings. Optional rules follow your work and breaks; manual choices and ongoing interactions stay protected.
+- **A panel that fits your setup.** Arrange your modules on a shared grid. Each module adapts to its assigned space, while your music, tasks and files keep their state.
 - **Your day at a glance.** Read the weather, open detailed forecasts from the city, and keep appointments in a local calendar. Its icon changes color when you have something planned today.
 - **Files ready to use.** Drop files into the Shelf, preview them, and open file actions such as OCR or conversion.
 - **Ready to receive.** LocalSend starts with Notchy. Accept incoming files, send to nearby devices, and follow the transfer without leaving the notch.
@@ -73,9 +73,9 @@ Have an idea for a module? Start on the [blank island in the module SDK](sdk/REA
 
 ## Architecture
 
-Use **Nook** for your activities, **Tray** for files and nearby sharing, and **Market** to manage modules. **Settings** groups General, Appearance, Notch, Modules, Scenarios, Health and About in one sidebar. Buttons and clickable titles open detailed controls; the card background does not navigate. Return to Nook without losing the current song, task or timer.
+Use **Nook** for your activities, **Tray** for files and nearby sharing, and **Market** to manage modules. **Settings** groups General, Appearance, Notch, Modules, Health and About in one sidebar. Buttons and clickable titles open detailed controls; the card background does not navigate. Return to Nook without losing the current song, task or timer.
 
-Focus has four automatic presentations, from a compact timer to a timer beside the task list. The available width and height choose the format; there are no size arrows to cycle through, and opening a detail does not change your saved module placement.
+The shared layout assigns a declared presentation to every module. Music, Tasks & Focus and Weather support Small, Wide, Tall, Side, Main and Full; Shelf supports Small, Side, Main and Full. Open **Module Lab** from Settings → Modules to inspect the real module in each supported format. Opening a detail keeps your saved placement. The [layout contract](docs/MODULE_LAYOUT.md) defines dimensions, spacing and the rules for future modules.
 
 The Rust core owns native settings, network diagnostics, device discovery and file operations. The interface reuses those results and keeps its presentation separate from them. Shared [design tokens](docs/tokens.md) keep activity colors, status colors, type and motion consistent. LocalSend works on the same local network without internet; when automatic discovery is unavailable, add a private IP or use the explicit local-network search in Health.
 

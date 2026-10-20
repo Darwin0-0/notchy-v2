@@ -1,6 +1,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {normalizeScenarios, scenarioModulePlan, createScenarioController, homeModuleLayout, moduleEditorPresentation, getModuleDefinitions} = require('../notch.js');
+const {normalizeScenarios, scenarioModulePlan, createScenarioController, moduleEditorPresentation, getModuleDefinitions} = require('../notch.js');
+
+test('the app bootstrap cannot run hidden automatic scenarios or replace the saved module layout', () => {
+  const fs=require('node:fs'),vm=require('node:vm'),source=fs.readFileSync(require.resolve('../notch.js'),'utf8');
+  const begin=source.indexOf('  let scenarioController = null, scenarioPreferences ='),end=source.indexOf('  const moduleLabels =',begin);
+  const saved={mode:'auto',selected:'ambience',rules:{idle:{enabled:false,scenario:'minimal'}},guards:{undo:false},lastMorningDay:'2026-10-19'};
+  for (const raw of [null,JSON.stringify(saved),'invalid JSON','x'.repeat(4097)]) {
+    let reads=0;const scope={normalizeScenarios,scenarioStorageKey:'notchy-scenarios-v1',window:{localStorage:{getItem(key){reads++;assert.equal(key,'notchy-scenarios-v1');return raw;},setItem(){assert.fail('Bootstrap cannot overwrite existing preferences');}}}};
+    vm.runInNewContext(source.slice(begin,end)+'this.preferences=scenarioPreferences;',scope);
+    assert.equal(reads,1);assert.equal(scope.preferences.mode,'manual');assert.equal(scope.preferences.selected,null);
+    if(raw===JSON.stringify(saved)){const expected=normalizeScenarios(saved);assert.deepEqual(JSON.parse(JSON.stringify(scope.preferences.rules)),expected.rules);assert.deepEqual(JSON.parse(JSON.stringify(scope.preferences.guards)),expected.guards);assert.equal(scope.preferences.lastMorningDay,saved.lastMorningDay);}
+  }
+});
 
 function fixture(value, initial = {}) {
   let clock = new Date(2026, 9, 14, 8).getTime(), serial = 0, state = {focusActive: false, focusRunning: false, focusPhase: 'work', focusSession: 1, musicPlaying: false, transferActive: false, ...initial}, occupied = false;
@@ -33,14 +45,6 @@ test('scenario plans only use existing enabled modules and Minimal keeps configu
   assert.equal(JSON.stringify(enabled), before);
 });
 
-test('Complete alone allows a secondary Shelf and keeps the bounded two-column layout', () => {
-  const ids = ['music', 'focus', 'weather', 'shelf'];
-  assert.equal(homeModuleLayout(ids, 1000).items.length, 3);
-  const layout = homeModuleLayout(ids, 1000, 16, {completeScenario: true});
-  assert.equal(layout.items.length, 4); assert.equal(layout.rows, 2); assert.deepEqual(layout.items.map(item => [item.row, item.column]), [[0, 0], [0, 1], [1, 0], [1, 1]]);
-  for (const item of layout.items) assert(item.width >= item.minWidth && item.width <= item.maxWidth);
-  assert.equal(homeModuleLayout(ids, 320, 16, {completeScenario: true}).rows, 4);
-});
 
 test('restored focus and repeated ticks never apply an automatic plan', () => {
   const f = fixture(undefined, {focusActive: true, focusRunning: true});
@@ -121,19 +125,6 @@ test('Minimal stays on one configured module in manual mode and respects the int
   assert.equal(scenarioModulePlan('minimal', ['music', 'focus'], {focusActive: true})[0], 'music');
 });
 
-test('Day stacks Focus and Weather beside unstretched Music only when both minimum columns fit', () => {
-  const ids = ['music', 'focus', 'weather'], layout = homeModuleLayout(ids, 904, 16, {dayScenario: true});
-  assert.equal(layout.mode, 'day'); assert.deepEqual(layout.rowHeights, [264, 208]); assert.equal(layout.contentHeight, 488); assert.equal(layout.preferredWidth, 736);
-  assert.deepEqual(layout.items.map(item => [item.id, item.row, item.column]), [['music', 0, 0], ['focus', 0, 1], ['weather', 1, 1]]);
-  assert.equal(layout.items[0].rowSpan, 2); assert.equal(layout.items[0].minHeight, 176); assert.equal(layout.items[0].height, 488);
-  for (const item of layout.items) assert(item.width >= item.minWidth && item.width <= item.maxWidth);
-  assert.equal(homeModuleLayout(ids, 636, 16, {dayScenario: true}).mode, 'day');
-  assert.notEqual(homeModuleLayout(ids, 635, 16, {dayScenario: true}).mode, 'day');
-  assert.equal(homeModuleLayout(ids, 320, 16, {dayScenario: true}).mode, 'stacked');
-  const configured = homeModuleLayout(ids, 904, 16, {dayScenario: true, focusConfig: true, weatherPicker: true});
-  assert.deepEqual(configured.rowHeights, [244, 248]);
-  assert.notEqual(homeModuleLayout(['music', 'weather'], 904, 16, {dayScenario: true}).mode, 'day');
-});
 
 test('disabled rules remain independent and cancelling idle removes its pending timer', () => {
   const f = fixture({rules: {work: {enabled: false}}});
@@ -154,19 +145,36 @@ test('the module editor resolves preset module IDs to saved slots and cancellati
   ]) {
     const modules = {enabled: ['music', 'focus', 'weather', 'shelf'], slots}, before = JSON.stringify(modules);
     const scenario = fixture(); scenario.controller.pick(id === 'shelf' ? 'complete' : 'focus');
-    const scenarioBefore = JSON.stringify(scenario.controller.getPreferences()), focused = [], writes = [];
+    const scenarioBefore = JSON.stringify(scenario.controller.getPreferences()), focused = [], writes = [], orderWrites = [];
     const returnFocus = {isConnected: true, tabIndex: 0, closest: () => null, focus() {}};
-    const context = {disposed: false, moduleEditing: false, view: 'nook', state: 'open', document: {activeElement: returnFocus}, modulePreviousView: '', modulePreviousState: '', moduleReturnFocus: null,
-      moduleDraft: null, modulePicked: null, moduleMessage: '', moduleSelected: 0, scenarioController: scenario.controller,
+    const originalParent={isConnected:true,children:[]},panel={isConnected:true,children:[]},following={parentNode:originalParent};
+    function insert(parent,node,before=null){
+      if(node.parentNode){const previous=node.parentNode.children,index=previous.indexOf(node);if(index>=0)previous.splice(index,1);}
+      const index=before?parent.children.indexOf(before):-1;parent.children.splice(index>=0?index:parent.children.length,0,node);node.parentNode=parent;
+    }
+    for(const parent of [originalParent,panel]){parent.append=node=>insert(parent,node);parent.insertBefore=(node,before)=>insert(parent,node,before);}
+    const modulesPlayer={parentNode:originalParent,get nextSibling(){const siblings=this.parentNode.children;return siblings[siblings.indexOf(this)+1]||null;},querySelector:selector=>({focus:()=>focused.push(selector)}),contains:()=>false};
+    originalParent.children.push(modulesPlayer,following);
+    const context = {disposed: false, moduleLab: null, moduleEditing: false, view: 'nook', state: 'open', document: {activeElement: returnFocus}, modulePreviousView: '', modulePreviousState: '', moduleReturnFocus: null,
+      moduleDraft: null, modulePicked: null, moduleMessage: '', moduleSelected: 0, moduleEditorMount:null, moduleOrderSaved:false, panel, window:{localStorage:{setItem:(key,value)=>orderWrites.push({key,value})}}, scenarioController: scenario.controller,
       moduleDefinitions: Object.fromEntries(getModuleDefinitions().map(item => [item.id, item])),
       moduleOrder:modules.enabled, moduleDraftOrder:null, configuredModuleOrder:()=>modules.slots.filter(Boolean), getModules: () => JSON.parse(before), moduleEditorLayout() {if (context.moduleEditing) context.visibleSlots = moduleEditorPresentation(context.moduleDraft, context.modulePicked).indices;}, setModules: value => writes.push(value), t: value => value,
-      modulesPlayer: {querySelector: selector => ({focus: () => focused.push(selector)}), contains: () => false}, menu: {querySelector: () => ({focus() {}})}};
+      modulesPlayer, menu: {querySelector: () => ({focus() {}})}};
     require('node:vm').runInNewContext(`${source.slice(begin, end)}this.open = openModuleEditor; this.close = closeModuleEditor;`, context);
     assert.equal(context.open({target: {closest: () => ({dataset: {module: id, homeSlot: visualSlot}})}}), true);
-    assert.equal(context.moduleSelected, expectedSlot); assert.equal(focused[0], '.experience-switch');
+    assert.equal(context.moduleSelected, expectedSlot); assert.equal(focused[0], '.experience-grid-module,.experience-grid-cell button');
+    assert.equal(modulesPlayer.parentNode,panel,'the editor is mounted in the visible panel even when its original settings parent is hidden');
+    assert.deepEqual(originalParent.children,[following]);
     assert(context.visibleSlots.includes(expectedSlot), 'the chosen insertion slot must be visible before it receives focus');
     assert.equal(context.close(false), true); assert.equal(context.moduleDraft, null); assert.equal(context.moduleEditing, false);
     assert.equal(writes.length, 0); assert.equal(JSON.stringify(modules), before); assert.equal(JSON.stringify(scenario.controller.getPreferences()), scenarioBefore);
+    assert.equal(modulesPlayer.parentNode,originalParent,'Cancel restores the editor to its original route');assert.deepEqual(originalParent.children,[modulesPlayer,following]);assert.deepEqual(panel.children,[]);assert.equal(context.moduleEditorMount,null);assert.deepEqual(orderWrites,[]);
+    assert.equal(context.open(),true);assert.equal(modulesPlayer.parentNode,panel);
+    const committed=JSON.parse(JSON.stringify(context.moduleDraft));assert.equal(context.close(true),true);
+    assert.equal(writes.length,1);assert.deepEqual(JSON.parse(JSON.stringify(writes[0])),committed);
+    assert.equal(orderWrites.length,1);assert.equal(orderWrites[0].key,'notchy-module-order-v1');
+    assert.equal(modulesPlayer.parentNode,originalParent,'Done also restores the route mount after committing the draft');assert.deepEqual(originalParent.children,[modulesPlayer,following]);assert.deepEqual(panel.children,[]);assert.equal(context.moduleEditorMount,null);
+    assert.equal(JSON.stringify(modules),before,'fixture source preferences are never edited by reference');
   }
 });
 

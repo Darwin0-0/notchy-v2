@@ -237,6 +237,43 @@ test('text edits go only through host actions and rerender preserves focus witho
   const event = input.parentNode.parentNode.emit('submit'); assert(event.prevented); assert.equal(store.get('community.reading').state.title, 'A book');
 });
 
+test('uncommitted text and its caret survive canonical hidden views, locale and unrelated acknowledged state changes',()=>{
+  const f=fixture(),store=modules.createStore();store.install(reading());
+  const draw=(presentation='full',language='en')=>modules.render(f.host,store.get('community.reading').manifest,store.get('community.reading').state,{presentation,language,onAction:(action,value)=>store.performAction('community.reading',action,value)});
+  draw();let input=f.find(node=>node.dataset.moduleField==='title');input.value='An unfinished book title';input.setSelectionRange(3,12);input.focus();input.emit('input');
+  draw('small');assert.equal(f.find(node=>node.dataset.moduleField==='title'),undefined);assert.equal(store.get('community.reading').state.title,'');
+  store.performAction('community.reading','advance');draw('main','fr');input=f.find(node=>node.dataset.moduleField==='title');
+  assert.equal(input.value,'An unfinished book title');assert.equal(input.selectionStart,3);assert.equal(input.selectionEnd,12);assert.equal(input.attributes['aria-label'],'Livre');
+  draw('side');draw('full');assert.equal(f.find(node=>node.dataset.moduleField==='title').value,'An unfinished book title');assert.equal(store.get('community.reading').state.completed,1);assert.equal(store.get('community.reading').state.title,'');
+});
+
+test('a rejected text save retains its draft until acknowledged persistence changes the committed field',async()=>{
+  let rejected=false,saving;const f=fixture(),store=modules.createStore({persist:async()=>{if(rejected)throw Error('Disk unavailable');}});await store.install(reading());
+  const draw=(presentation='full')=>modules.render(f.host,store.get('community.reading').manifest,store.get('community.reading').state,{presentation,onAction:(action,value)=>{saving=store.performAction('community.reading',action,value);}});
+  draw();let input=f.find(node=>node.dataset.moduleField==='title');input.value='Retry this exact draft';input.emit('input');rejected=true;input.parentNode.parentNode.emit('submit');await assert.rejects(saving,/Disk unavailable/);
+  draw('small');draw();input=f.find(node=>node.dataset.moduleField==='title');assert.equal(input.value,'Retry this exact draft');assert.equal(store.get('community.reading').state.title,'');
+  rejected=false;input.parentNode.parentNode.emit('submit');await saving;draw();assert.equal(f.find(node=>node.dataset.moduleField==='title').value,'Retry this exact draft');
+  await store.updateState('community.reading',{title:'A later acknowledged title'});draw();assert.equal(f.find(node=>node.dataset.moduleField==='title').value,'A later acknowledged title');
+});
+
+test('an earlier acknowledged Save cannot erase text entered while its persistence was still pending',async()=>{
+  let hold=false,release,saving;const f=fixture(),store=modules.createStore({persist:()=>hold?new Promise(resolve=>{release=resolve;}):Promise.resolve()});await store.install(reading());
+  const draw=()=>modules.render(f.host,store.get('community.reading').manifest,store.get('community.reading').state,{onAction:(action,value)=>{saving=store.performAction('community.reading',action,value);}});
+  draw();let input=f.find(node=>node.dataset.moduleField==='title');input.value='First save';input.emit('input');hold=true;input.parentNode.parentNode.emit('submit');await new Promise(setImmediate);
+  input.value='Still typing after Save';input.emit('input');release();await saving;assert.equal(store.get('community.reading').state.title,'First save');
+  const dispose=draw();assert.equal(f.find(node=>node.dataset.moduleField==='title').value,'Still typing after Save');dispose();draw();assert.equal(f.find(node=>node.dataset.moduleField==='title').value,'Still typing after Save','temporary detach/Back does not commit or discard a draft');
+  hold=false;input=f.find(node=>node.dataset.moduleField==='title');input.parentNode.parentNode.emit('submit');await saving;draw();assert.equal(store.get('community.reading').state.title,'Still typing after Save');
+});
+
+test('drafts are isolated by host and module identity, and an acknowledged explicit reset clears them',()=>{
+  const f=fixture(),other=fixture(),manifest=reading(),state=modules.normalizeState(manifest,{}),options={onAction(){}};
+  modules.render(f.host,manifest,state,options);const oldInput=f.find(node=>node.dataset.moduleField==='title');oldInput.value='Only this host';oldInput.emit('input');
+  modules.render(other.host,manifest,state,options);assert.equal(other.find(node=>node.dataset.moduleField==='title').value,'');
+  modules.render(f.host,manifest,state,{...options,resetDrafts:true});assert.equal(f.find(node=>node.dataset.moduleField==='title').value,'');
+  oldInput.value='A disposed handler';oldInput.emit('input');modules.render(f.host,manifest,state,options);assert.equal(f.find(node=>node.dataset.moduleField==='title').value,'');
+  let input=f.find(node=>node.dataset.moduleField==='title');input.value='Old module identity';input.emit('input');modules.render(f.host,modules.catalog[1],{},options);modules.render(f.host,manifest,state,options);assert.equal(f.find(node=>node.dataset.moduleField==='title').value,'');
+});
+
 test('a preview without a host dispatcher is disabled and clamped progress never invents progress', () => {
   const f = fixture(); modules.render(f.host, reading(), { completed: 5000, target: 12 });
   assert(f.all().filter(element => element.tagName === 'button').every(element => element.disabled));
@@ -249,6 +286,76 @@ test('documented installable examples stay identical to the validated bundled ca
   }
 });
 
+test('optional canonical layout metadata keeps legacy v2 manifests and stored state compatible', () => {
+  const old = reading(), encoded = JSON.stringify(old), validated = modules.validateManifest(old);
+  assert.equal(JSON.stringify(validated), encoded);
+  assert(!Object.hasOwn(validated, 'layout'));
+  const contract = modules.getLayoutContract(validated);
+  assert.deepEqual(Object.keys(contract.layout), ['full', 'main', 'side', 'tall', 'wide', 'small']);
+  const manifest = reading(); manifest.layout = { main: { min: { width: 240, height: 180 }, ideal: { width: 356, height: 260 } } };
+  const initial = JSON.stringify(manifest), parsed = modules.parseManifest(initial);
+  assert.deepEqual(parsed.layout, manifest.layout); assert.equal(JSON.stringify(manifest), initial);
+  assert(Object.isFrozen(parsed.layout.main.min));
+  const storage = memory(), store = modules.createStore({ storage }); store.install(manifest); store.performAction(manifest.id, 'advance');
+  const restored = modules.createStore({ storage });
+  assert.equal(restored.get(manifest.id).state.completed, 1);
+  assert.deepEqual(Object.keys(modules.getLayoutContract(restored.get(manifest.id).manifest).layout), ['main']);
+});
+
+test('layout metadata rejects malformed constraints rather than expanding import permissions', () => {
+  for (const layout of [
+    {}, { overlay: { min: { width: 1, height: 1 }, ideal: { width: 1, height: 1 } } },
+    { main: { min: { width: 240, height: 180 }, ideal: { width: 239, height: 260 } } },
+    { main: { min: { width: 240.5, height: 180 }, ideal: { width: 356, height: 260 } } },
+    { main: { min: { width: 0, height: 180 }, ideal: { width: 356, height: 260 } } },
+    { main: { min: { width: 240, height: 180 }, ideal: { width: 4097, height: 260 } } },
+    { main: { min: { width: 240, height: 180, css: 'resize' }, ideal: { width: 356, height: 260 } } },
+    { main: { min: { width: 240, height: 180 }, ideal: { width: 356, height: 260 }, script: 'resize.js' } },
+  ]) {
+    const manifest = reading(); manifest.layout = layout;
+    assert.throws(() => modules.validateManifest(manifest), /layout|module/i);
+  }
+});
+
+test('layout validation never executes accessors or accepts prototype-backed dimension objects', () => {
+  let accessed = false;
+  for (const build of [
+    () => Object.defineProperty({}, 'main', { enumerable: true, get() { accessed = true; throw Error('must not run'); } }),
+    () => ({ main: Object.defineProperty({ ideal: { width: 356, height: 260 } }, 'min', { enumerable: true, get() { accessed = true; throw Error('must not run'); } }) }),
+    () => ({ main: { min: Object.defineProperty({ height: 180 }, 'width', { enumerable: true, get() { accessed = true; throw Error('must not run'); } }), ideal: { width: 356, height: 260 } } }),
+    () => Object.assign(Object.create({ inherited: true }), { main: { min: { width: 240, height: 180 }, ideal: { width: 356, height: 260 } } }),
+  ]) {
+    const manifest = reading(); manifest.layout = build(); assert.throws(() => modules.validateManifest(manifest), /Module: layout:/); assert.equal(accessed, false);
+  }
+});
+
+test('canonical render presentations share actual data and use host translation without cloning stores', () => {
+  const f = fixture(), store = modules.createStore(); store.install(reading());
+  const draw = presentation => modules.render(f.host, store.get('community.reading').manifest, store.get('community.reading').state, { presentation, language: 'fr', onAction: action => store.performAction('community.reading', action) });
+  let completed = 0;
+  for (const [canonical, legacy] of [['full', 'full'], ['main', 'scene'], ['side', 'scene'], ['tall', 'scene'], ['wide', 'rail'], ['small', 'rail']]) {
+    draw(canonical);
+    assert.equal(f.host.children[0].dataset.modulePresentation, canonical);
+    assert.equal(f.host.children[0].className, 'module-runtime module-runtime--' + legacy);
+    assert(f.host.textContent.includes(completed + ' / 12'));
+    f.find(node => node.dataset.moduleAction === 'advance').emit('click');
+    assert.equal(store.get('community.reading').state.completed, ++completed);
+  }
+  draw('full'); assert(f.host.textContent.includes('6 / 12'));
+});
+
+test('unsupported canonical render leaves the previous live module and its controls intact', () => {
+  const f = fixture(), manifest = reading(); manifest.layout = { main: { min: { width: 240, height: 180 }, ideal: { width: 356, height: 260 } } };
+  const calls = [];
+  modules.render(f.host, manifest, {}, { presentation: 'main', onAction: action => calls.push(action) });
+  const card = f.host.children[0], action = f.find(node => node.dataset.moduleAction === 'advance'); action.focus();
+  assert.throws(() => modules.render(f.host, manifest, {}, { presentation: 'small' }), /unsupported presentation/);
+  assert.equal(f.host.children[0], card); assert.equal(f.document.activeElement, action);
+  action.emit('click'); assert.deepEqual(calls, ['advance']);
+  modules.render(f.host, manifest, {}, { presentation: 'scene' });
+  assert.equal(f.host.children[0].className, 'module-runtime module-runtime--scene', 'legacy callers retain their render-list compatibility');
+});
+
 test('development server exposes only the fixed host allowlist with no-store and a restrictive CSP', async () => {
   const handleRequest = require('../sdk/serve.cjs').handleRequest;
   const get = (resource, method = 'GET') => new Promise(resolve => {
@@ -259,6 +366,25 @@ test('development server exposes only the fixed host allowlist with no-store and
     const host = await get('/sdk/'); assert.equal(host.status, 200); assert.match(host.body, /Your module belongs here/);
     assert.equal(host.headers['cache-control'], 'no-store'); assert.match(host.headers['content-security-policy'], /default-src 'none'/);
     assert.equal((await get('/module-runtime.js')).status, 200); assert.equal((await get('/sdk/starter.manifest.json')).status, 200);
+    for (const resource of ['/module-contracts.js', '/module-layout.css', '/tokens.js', '/tokens.css', '/module-library.css', '/assets/manrope-latin.woff2', '/assets/duration-dm-sans.woff2', '/assets/manrope-OFL.txt', '/docs/MODULE_LAYOUT.md']) assert.equal((await get(resource)).status, 200, resource);
+    assert.match(host.body, /data-presentation="main"/); assert.match(host.body, /data-presentation="side"/); assert.match(host.body, /data-presentation="small"/);
+    assert.match(host.body, /data-dimensions="min"/); assert.match(host.body, /id="save-error"/);
+    assert.match(host.headers['content-security-policy'], /font-src 'self'/);
     for (const resource of ['/.git/config', '/src-tauri/tauri.conf.json', '/sdk/serve.cjs', '/sdk/host.js/anything', '/%2e%2e/private.txt']) assert.equal((await get(resource)).status, 404);
     assert.equal((await get('/sdk/', 'POST')).status, 405); assert.equal((await get('/sdk/', 'HEAD')).body, '');
+});
+
+test('the native package includes every linked UI asset and loads the layout policy before its adapters', () => {
+  const root = path.join(__dirname, '..'), html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const build = fs.readFileSync(path.join(root, 'src-tauri/build.rs'), 'utf8');
+  const manifest = require('../scripts/frontend-manifest.json');
+  const packaged = new Set([manifest.bundle, ...manifest.assets, ...manifest.copies.map(copy => copy.destination)]);
+  assert.match(build, /scripts\/build-frontend\.cjs/);
+  assert.match(build, /scripts\/frontend-manifest\.json/);
+  for (const [, asset] of html.matchAll(/(?:src|href)="([^"#]+\.(?:js|css))"/g)) assert(packaged.has(asset), 'Unpackaged UI asset: ' + asset);
+  for (const file of ['module-contracts.js', 'module-layout.css']) assert(fs.statSync(path.join(root, file)).isFile());
+  assert.deepEqual([...html.matchAll(/<script src="([^"]+)" defer>/g)].map(match => match[1]), [manifest.bundle]);
+  const scripts = manifest.scripts;
+  assert(scripts.indexOf('tokens.js') < scripts.indexOf('module-contracts.js'));
+  for (const adapter of ['focus-duration.js', 'module-runtime.js', 'notch.js']) assert(scripts.indexOf('module-contracts.js') < scripts.indexOf(adapter));
 });

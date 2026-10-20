@@ -4,7 +4,7 @@ Nook is the saved home arrangement. A detailed activity is a temporary view: ope
 
 ## Settings
 
-Settings uses a fixed sidebar and an independently scrolling content area. General, Appearance, Notch, Modules, Scenarios, Health and About open on click; Up/Down, Home and End navigate the sidebar with the keyboard. The close button restores the originating route. Appearance and About are sections of Settings, so navigating them never changes the saved Nook arrangement. Leaving the module editor cancels its unconfirmed placement draft.
+Settings uses a fixed sidebar and an independently scrolling content area. General, Appearance, Notch, Modules, Health and About open on click; Up/Down, Home and End navigate the sidebar with the keyboard. The close button restores the originating route. Appearance and About are sections of Settings, so navigating them never changes the saved Nook arrangement. Leaving the module editor cancels its unconfirmed placement draft.
 
 Controls retain their existing persistence and native confirmation: Windows startup reflects the real registration, language applies immediately, and appearance changes reuse the validated format, radius and motion preferences. Reset Appearance changes only those visual preferences; it does not remove tasks, appointments or files. Unsupported desktop controls are explained in the web preview rather than simulated. The About page keeps Notchy’s own robot and version.
 
@@ -71,7 +71,7 @@ Selecting files exposes their actions. Saving a copy to Downloads keeps the Shel
 
 ## Navigation and verification
 
-Nook, Tray and Market share the main navigation, with Settings available beside them. Detailed views return to their origin, page and keyboard control when it still exists. Automatic scenarios remain optional. Explicit interaction with Tasks, Focus or an activity detail defers automatic scenario changes while that view is open; manual placement is not rewritten by starting, pausing, linking a task or opening a detail.
+Nook, Tray and Market share the main navigation, with Settings available beside them. Detailed views return to their origin, page and keyboard control when it still exists. The current panel follows the saved module arrangement. Starting, pausing, linking a task or opening a detail never rewrites that placement. Legacy scenario preferences remain readable for compatibility but do not automatically rearrange the current panel.
 
 Back restores the previous open view; Close explicitly collapses the island. Escape dismisses the innermost menu, form, picker or drawer before leaving its detail route. Settings subsections return to General, then to the initiating view. Closing Settings restores its initiating view underneath the collapsed island. LocalSend's Done returns to the originating panel; its Close button collapses the island, and returning from an ongoing transfer does not cancel it.
 

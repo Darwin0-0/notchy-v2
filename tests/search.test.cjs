@@ -27,7 +27,7 @@ function fixture(invoke, language = 'fr', options = {}) {
     addEventListener(name, fn) {this.listeners.set(name, [...(this.listeners.get(name) || []), fn]);}
     removeEventListener(name, fn) {this.listeners.set(name, (this.listeners.get(name) || []).filter(item => item !== fn));}
     emit(name, detail = {}) {const event = {target: this, preventDefault() {this.prevented = true;}, stopImmediatePropagation() {this.stopped = true;}, ...detail}; for (const fn of this.listeners.get(name) || []) fn(event); return event;}
-    focus() {document.activeElement = this;}
+    focus() {for(let node=this;node;node=node.parentNode)if(node.hidden||node.inert)return;if (!this.focusBlocked) document.activeElement = this;}
     scrollIntoView() {this.scrolled = true;}
     getBoundingClientRect() {return this.className.includes('search-context-menu') ? {left:0,top:0,width:224,height:116,bottom:116} : {left:16,top:16,width:562,height:224,bottom:240};}
     contains(node) {return this === node || this.childNodes.some(child => child.contains(node));}
@@ -35,13 +35,16 @@ function fixture(invoke, language = 'fr', options = {}) {
   }
   document.createElement = name => new Element(name); document.createElementNS = (_, name) => new Element(name);
   const documentEvents = new Element('document'); document.addEventListener = documentEvents.addEventListener.bind(documentEvents); document.removeEventListener = documentEvents.removeEventListener.bind(documentEvents); document.emit = documentEvents.emit.bind(documentEvents);
+  const frames = new Map(); let frameId = 0;
+  if (options.animationFrames) {document.defaultView = new Element('window'); document.defaultView.requestAnimationFrame = callback => {frames.set(++frameId, callback); return frameId;}; document.defaultView.cancelAnimationFrame = id => frames.delete(id);}
   const host = document.createElement('section'), original = document.createElement('strong'), opener = document.createElement('button');
   host.className = 'approved-search-host'; host.setAttribute('aria-label', 'Original'); host.append(original); opener.focus();
   const calls = [];
   const controller = search.create({host, invoke: async (name, args) => {calls.push({name, args}); return name === 'search_status' ? options.status?.() || {files: 42, indexing: false} : invoke?.(name, args);}, ...options});
   const type = async value => {controller.elements.input.value = value; controller.elements.input.emit('input'); await delay(search.CONFIG.debounce + 15);};
   const key = (name, options = {}) => host.emit('keydown', {target: controller.elements.input, key: name, ...options});
-  return {document, host, controller, calls, type, key, opener, original};
+  const paint = () => {const pending = [...frames.values()]; frames.clear(); for (const callback of pending) callback(0);};
+  return {document, host, controller, calls, type, key, opener, original, frames, paint};
 }
 
 test('browser/CommonJS share a dependency-free component and named controls', () => {
@@ -60,6 +63,75 @@ test('substring highlighting is case-insensitive and preserves markup as literal
   assert.deepEqual(search.highlightParts('Rapport PORT.pdf', 'port'), [{text: 'Rap', matched: false}, {text: 'port', matched: true}, {text: ' ', matched: false}, {text: 'PORT', matched: true}, {text: '.pdf', matched: false}]);
   const text = '<img src=x onerror=alert(1)>'; assert.equal(search.highlightParts(text, '<img').map(part => part.text).join(''), text);
   assert.deepEqual(search.highlightParts('İrapport[1].pdf', 'port[1]'), [{text: 'İrap', matched: false}, {text: 'port[1]', matched: true}, {text: '.pdf', matched: false}]);
+});
+
+test('every query word and repeated occurrence is highlighted independently without changing source text', () => {
+  assert.deepEqual(search.highlightParts('Projet final — FINAL projet.pdf', 'final PROJET final'), [
+    {text:'Projet',matched:true},{text:' ',matched:false},{text:'final',matched:true},{text:' — ',matched:false},
+    {text:'FINAL',matched:true},{text:' ',matched:false},{text:'projet',matched:true},{text:'.pdf',matched:false},
+  ]);
+  assert.deepEqual(search.highlightParts('banana.pdf', 'ana nana'), [{text:'b',matched:false},{text:'anana',matched:true},{text:'.pdf',matched:false}]);
+  assert.deepEqual(search.highlightParts('rapport[1].pdf', '[1] .pdf'), [{text:'rapport',matched:false},{text:'[1].pdf',matched:true}]);
+});
+
+test('accent folding preserves composed and decomposed accents plus the original emoji offsets', () => {
+  const source = '📁 Résumé re\u0301sume\u0301 ÉTÉ.pdf';
+  const parts = search.highlightParts(source, 'resume été');
+  assert.deepEqual(parts,[{text:'📁 ',matched:false},{text:'Résumé',matched:true},{text:' ',matched:false},{text:'re\u0301sume\u0301',matched:true},{text:' ',matched:false},{text:'ÉTÉ',matched:true},{text:'.pdf',matched:false}]);
+  assert.equal(parts.map(part=>part.text).join(''),source);
+  assert.deepEqual(search.highlightParts('Été à Québec', '  '), [{text:'Été à Québec',matched:false}]);
+  assert.deepEqual(search.highlightParts('unchanged', '\u0301'), [{text:'unchanged',matched:false}]);
+});
+
+test('keyboard opening retries input focus after the shell becomes focusable without any pointer event', () => {
+  const f = fixture(undefined,'fr',{animationFrames:true});
+  try {
+    f.controller.elements.input.focusBlocked = true; f.controller.open(); assert.equal(f.document.activeElement,f.opener);
+    f.controller.elements.input.focusBlocked = false; f.paint(); assert.equal(f.document.activeElement,f.controller.elements.input); assert.equal(f.frames.size,0);
+    f.opener.focus(); f.document.defaultView.emit('focus'); assert.equal(f.document.activeElement,f.controller.elements.input);
+    f.controller.close(); f.paint(); assert.equal(f.document.activeElement,f.opener); assert.equal(f.frames.size,0);
+  } finally {f.controller.dispose();}
+});
+
+test('the real native search opening route reveals the host before input focus without awaiting index status', () => {
+  const source=fs.readFileSync(require.resolve('../notch.js'),'utf8'),start=source.indexOf('  function searchOpening() {'),end=source.indexOf('\n  function searchClosed()',start);
+  assert(start>=0&&end>start,'The test exercises the actual route-opening function');
+  const pending=deferred(),steps=[];let context;
+  const f=fixture(undefined,'fr',{animationFrames:true,status:()=>pending.promise,onOpen:()=>context.searchOpening()});
+  context=vm.createContext({view:'nook',state:'rest',searchReturnView:null,searchReturnState:null,
+    clearModuleFeedback(){},
+    selectViewButton(button){context.view=button.dataset.view;steps.push('select:'+context.state);context.renderSearchRoute();},
+    openFromOutside(){context.state='open';steps.push('open:'+context.state);return true;},
+    renderSearchRoute(){steps.push('render:'+context.state);f.host.hidden=context.view!=='search'||context.state!=='open';},
+  });
+  vm.runInContext(source.slice(start,end),context);
+  try {
+    f.controller.open();
+    assert.equal(f.host.hidden,false);assert.equal(f.document.activeElement,f.controller.elements.input,'Focus succeeds before any status reply or paint');
+    assert.deepEqual(steps,['select:rest','render:rest','open:open','render:open']);
+    assert.equal(context.searchReturnView,'nook');assert.equal(context.searchReturnState,'rest');assert.equal(f.calls[0].name,'search_status');
+  } finally {f.controller.dispose();pending.resolve({files:42,indexing:false});}
+});
+
+test('delayed opening focus does not steal a deliberately focused search action or survive disposal', () => {
+  const f = fixture(undefined,'fr',{animationFrames:true});
+  f.controller.open(); f.controller.elements.reindex.focus(); f.paint(); assert.equal(f.document.activeElement,f.controller.elements.reindex);
+  f.controller.open(); assert.equal(f.frames.size,1); f.document.emit('pointerdown',{target:f.controller.elements.reindex}); assert.equal(f.frames.size,0);
+  f.controller.open(); f.controller.dispose(); assert.equal(f.frames.size,0); f.opener.focus(); f.paint(); assert.equal(f.document.activeElement,f.opener);
+});
+
+test('result names and visible paths both mark all words using text nodes and the shared orange token', async () => {
+  const payload = '<img src=x>.txt', path = 'C:\\Résumé\\final\\resume\\FINAL\\' + payload;
+  const f = fixture(name=>name==='search_query'?response([{id:'safe',name:'Résumé FINAL resume.txt',path,kind:'file'}]):{});
+  try {
+    f.controller.open(); await f.type('resume final');
+    const row = f.controller.elements.list.children[0], copy = row.children[1], name = copy.children[0], location = copy.children[1];
+    assert.deepEqual(name.children.filter(node=>node.localName==='mark').map(node=>node.textContent),['Résumé','FINAL','resume']);
+    assert.deepEqual(location.children.filter(node=>node.localName==='mark').map(node=>node.textContent),['Résumé','final','resume','FINAL']);
+    assert.equal(location.textContent,path); assert.equal(location.title,path); assert(!row.children.some(node=>node.localName==='img'));
+    const css = fs.readFileSync(require.resolve('../search.css'),'utf8');
+    assert.match(css,/\.notchy-search \.search-result-copy mark\s*\{[^}]*color:\s*var\(--accent-focus\)[^}]*text-decoration:\s*none/);
+  } finally {f.controller.dispose();}
 });
 
 test('opening focuses the combobox, waits for two characters, and Escape restores the opener', async () => {
@@ -113,6 +185,19 @@ test('keyboard navigation uses active descendant and sends only the selected opa
     f.key('ArrowDown'); const row = f.controller.elements.list.children[1]; assert.equal(row.getAttribute('aria-selected'), 'true'); assert.equal(f.controller.elements.input.getAttribute('aria-activedescendant'), row.id);
     f.key('Enter', {ctrlKey: true}); await delay(0);
     const action = f.calls.find(call => call.name === 'search_reveal'); assert.deepEqual(action.args, {id: 'two'}); assert.equal(f.controller.isOpen(), false);
+  } finally {f.controller.dispose();}
+});
+
+test('keyboard reaches the final result, scrolling closes its context menu, and Enter opens that same item', async () => {
+  const hits=Array.from({length:search.CONFIG.limit},(_,index)=>hit('row-'+index,'résumé-'+index+'.pdf'));
+  const f=fixture(name=>name==='search_query'?response(hits):{},'fr',{animationFrames:true});
+  try {
+    f.controller.open();f.paint();await f.type('resume');
+    for(let index=1;index<hits.length;index++)f.key('ArrowDown');
+    const {input,list,contextMenu}=f.controller.elements,last=list.children.at(-1);
+    assert.equal(last.getAttribute('aria-selected'),'true');assert.equal(last.scrolled,true);assert.equal(f.document.activeElement,input);
+    f.key('ContextMenu');assert.equal(contextMenu.hidden,false);list.emit('scroll');assert.equal(contextMenu.hidden,true);assert.equal(f.document.activeElement,input);
+    f.key('Enter');await delay(0);assert.deepEqual(f.calls.find(call=>call.name==='search_open').args,{id:'row-7'});assert.equal(f.controller.isOpen(),false);assert.equal(f.frames.size,0);
   } finally {f.controller.dispose();}
 });
 
@@ -196,6 +281,21 @@ test('context menus keep folders non-sendable and only share the selected opaque
     contextMenu.children[2].emit('click'); await delay(0); assert.deepEqual(sent, []);
     list.emit('contextmenu', {target:list.children[1], clientX:40, clientY:130}); assert.equal(contextMenu.children[2].hidden, false);
     contextMenu.children[2].emit('click'); await delay(0); assert.deepEqual(sent, ['file']); assert.equal(f.controller.isOpen(), false);
+  } finally {f.controller.dispose();}
+});
+
+test('a scaled search context menu converts viewport coordinates into local coordinates once',async()=>{
+  const f=fixture(name=>name==='search_query'?response([hit('scaled')]):{});
+  try {
+    f.controller.open();await f.type('pdf');
+    f.host.offsetWidth=800;f.host.getBoundingClientRect=()=>({left:100,top:20,width:560,height:280,bottom:300});
+    const {list,contextMenu}=f.controller.elements;
+    contextMenu.getBoundingClientRect=()=>({left:0,top:0,width:156.8,height:81.2,bottom:81.2});
+    list.emit('contextmenu',{target:list.children[0],clientX:240,clientY:90});
+    assert.equal(parseFloat(contextMenu.style.left),200);assert.equal(parseFloat(contextMenu.style.top),100);
+    list.emit('contextmenu',{target:list.children[0],clientX:659,clientY:299});
+    assert(Math.abs(parseFloat(contextMenu.style.left)-(800-224-search.CONFIG.menuInset))<.001);
+    assert(Math.abs(parseFloat(contextMenu.style.top)-(400-116-search.CONFIG.menuInset))<.001);
   } finally {f.controller.dispose();}
 });
 

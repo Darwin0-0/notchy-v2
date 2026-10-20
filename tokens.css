@@ -1,53 +1,141 @@
-/* Notchy foundations. Activities identify work; statuses describe an outcome. */
+/* Notchy design system v2 — the supplied primitives and semantic roles. */
+@font-face { font-family: 'DM Sans'; src: url('assets/duration-dm-sans.woff2') format('woff2'); font-style: normal; font-weight: 100 900; font-display: swap; }
+:root{
+  /* Primitives */
+  --neutral-0: #000000;
+  --neutral-50: #0b0b0d;
+  --neutral-100: #141417;
+  --neutral-150: #17171a;
+  --neutral-200: #1c1c1f;
+  --neutral-250: #202024;
+  --neutral-300: #26262a;
+  --neutral-400: #3a3a3f;
+  --neutral-500: #6b6b73;
+  --neutral-600: #a1a1a6;
+  --neutral-700: #c9c9ce;
+  --neutral-800: #f5f5f7;
+  --neutral-900: #ffffff;
+  --orange-500: #ff7a45;
+  --orange-900: #1a0a02;
+  --blue-400: #86b7ff;
+  --green-400: #6ee7b7;
+  --red-400: #f87171;
+  --sky-300: #9db8d9;
+  --pink-300: #f08a9a;
+  --mint-400: #6ee7c4;
+  --amber-500: #ff9f1c;
+  /* Rôles sémantiques */
+  --surface-base: var(--neutral-0);
+  --surface-card: var(--neutral-150);
+  --surface-raised: var(--neutral-200);
+  --surface-control: var(--neutral-250);
+  --border-subtle: var(--neutral-300);
+  --text-primary: var(--neutral-900);
+  --text-secondary: var(--neutral-700);
+  --text-tertiary: var(--neutral-600);
+  --text-muted: var(--neutral-500);
+  --accent-focus: var(--orange-500);
+  --accent-break: var(--blue-400);
+  --status-positive: var(--green-400);
+  --status-negative: var(--red-400);
+  --media-accent: var(--mint-400);
+  --media-music: var(--pink-300);
+  --weather-sky: var(--sky-300);
+  --on-accent: var(--orange-900);
+  /* Typographie */
+  --font: "DM Sans", system-ui, sans-serif;
+  --numeral-xl-size: 96px; --numeral-xl-lh: 1; --numeral-xl-weight: 300; --numeral-xl-tracking: -.03em;
+  --numeral-size: 34px; --numeral-lh: 1; --numeral-weight: 700; --numeral-tracking: -.01em;
+  --title-l-size: 26px; --title-l-lh: 1.15; --title-l-weight: 700; --title-l-tracking: -.01em;
+  --title-size: 18px; --title-lh: 1.25; --title-weight: 700; --title-tracking: 0;
+  --headline-size: 16px; --headline-lh: 1.3; --headline-weight: 700; --headline-tracking: 0;
+  --body-size: 15px; --body-lh: 1.45; --body-weight: 400; --body-tracking: 0;
+  --callout-size: 13px; --callout-lh: 1.4; --callout-weight: 500; --callout-tracking: 0;
+  --label-size: 11px; --label-lh: 1.2; --label-weight: 700; --label-tracking: .14em;
+  /* Espacement */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  /* Rayons concentriques */
+  --r-panel: 40px;
+  --r-card: 24px;
+  --r-control: 16px;
+  --r-chip: 12px;
+  /* Grille */
+  --cell-w: 260px; --cell-h: 112px; --grid-gap: 16px; --panel-padding: 16px;
+  --panel-w: 844px; --panel-h: 464px;
+  --format-small-w: 260px; --format-small-h: 112px;
+  --format-wide-w: 536px; --format-wide-h: 112px;
+  --format-tall-w: 260px; --format-tall-h: 240px;
+  --format-side-w: 260px; --format-side-h: 368px;
+  --format-main-w: 536px; --format-main-h: 368px;
+  --format-full-w: 812px; --format-full-h: 368px;
+  /* Ressorts (valeurs de départ) */
+  --spring-soft: 0.50 1.0;
+  --spring-snappy: 0.35 0.85;
+  --spring-bouncy: 0.45 0.70;
+  --blur-text: 14px; --blur-digit: 10px; --blur-label: 6px;
+}
+
+
+/* Existing renderers share the exported semantic roles. */
 :root {
-  --activity-focus: #6fe3c4;
-  --activity-break: #5ac8fa;
-  --activity-long: #bf8bff;
-  --activity-transfer: #8ac8ff;
-  --activity-music: var(--spectrum-color, #f28b96);
+  --surface-inset: var(--neutral-100);
+  --surface-track: #18181b;
+  --surface-segment: #2b2b30;
+  --text-disabled: #4a4a50;
+  --activity-focus: var(--accent-focus);
+  --activity-break: var(--accent-break);
+  --activity-long: var(--accent-break);
+  --activity-transfer: var(--blue-400);
+  --activity-music: var(--spectrum-color, var(--media-music));
+  --activity-tasks: var(--accent-focus);
+  --activity-weather: var(--weather-sky);
+  --activity-shelf: var(--amber-500);
+  --status-success: var(--status-positive);
+  --status-warning: var(--amber-500);
+  --status-error: var(--status-negative);
+  --status-idle: var(--text-tertiary);
   --music-art-saturation: 1.12;
   --music-art-contrast: 1.02;
-  --activity-tasks: #a6e3b4;
-  --activity-weather: #7aa7ff;
-  --activity-shelf: #ffd60a;
-  --status-success: #56df86;
-  --status-warning: #f0b45c;
-  --status-error: #ff6b75;
-  --status-idle: #b6b8c4;
-  --font-ui: 'Manrope', 'Segoe UI Variable', 'Segoe UI', sans-serif;
-  --text-xs: 10px;
-  --text-s: 12px;
-  --text-m: 14px;
-  --text-l: 18px;
-  --text-xl: 28px;
-  --tracking-label: .09em;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-7: 28px;
-  --space-8: 32px;
-  --radius-card: 12px;
-  --radius-control: 8px;
-  --radius-art: 6px;
+  --font-ui: var(--font);
+  --text-xs: var(--label-size);
+  --text-s: var(--callout-size);
+  --text-m: var(--body-size);
+  --text-l: var(--title-size);
+  --text-xl: var(--title-l-size);
+  --tracking-label: var(--label-tracking);
+  --space-2: 2px;
+  --space-6: 6px;
+  --space-20: 20px;
+  --space-28: 28px;
+  --space-40: 40px;
+  --space-48: 48px;
+  --radius-card: var(--r-card);
+  --radius-control: var(--r-control);
+  --radius-art: var(--r-chip);
   --radius-pill: 999px;
-  --dur-instant: 120ms;
+  --dur-instant: 150ms;
   --dur-fast: 200ms;
-  --dur-base: 300ms;
+  --dur-base: 350ms;
   --dur-spring: 500ms;
   --dur-exit: 150ms;
   --dur-reduced: 150ms;
   --dur-progress: 250ms;
+  --dur-text: 500ms;
+  --dur-digit: 350ms;
+  --dur-morph: 850ms;
   --ease-progress: linear;
-  --ease-standard: cubic-bezier(.4,0,.2,1);
+  --ease-standard: cubic-bezier(.2,.8,.2,1);
   --ease-out: cubic-bezier(.2,.8,.2,1);
-  --ease-spring: linear(0, .0702, .2262, .4081, .5808, .7266, .8394, .9202, .9736, 1.0056, 1.022, 1.0279, 1.0276, 1.0239, 1.0189, 1.0138, 1.0093, 1.0057, 1.0031, 1.0013, 1.0001, .9995, .9992, .9992, 1);
+  --ease-spring: cubic-bezier(.34,1.4,.5,1);
   --ease-island: var(--ease-spring);
   --stagger-enter: 80ms;
-  --stagger-step: 60ms;
-  --enter-blur: 10px;
+  --stagger-step: 80ms;
+  --enter-blur: var(--blur-text);
   --enter-scale: .95;
 }
 

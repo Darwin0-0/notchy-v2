@@ -12,6 +12,7 @@ work/
 # User data and credentials: never commit
 .desktop-profile/
 .tauri-webview/
+.development/
 .localsend/
 .shelf/
 weather.json

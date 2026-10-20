@@ -18,7 +18,10 @@ Follow the [Windows setup and development-profile instructions](docs/DEVELOPMENT
 
 | Area | Files |
 | --- | --- |
-| Tasks, Pomodoro state and timer UI | [focus.js](focus.js) |
+| Application startup | [app.js](app.js) |
+| Tasks, Pomodoro state and timer UI | [duration-core.js](duration-core.js), [duration-module.js](duration-module.js), [focus-duration.js](focus-duration.js) |
+| Saved Focus compatibility and projections | [focus.js](focus.js) |
+| Generated frontend and packaged asset list | [scripts/](scripts/) |
 | Module layout, notch transitions and interactions | [notch.js](notch.js) |
 | Appearance, spacing and responsive layouts | [notch.css](notch.css), [index.html](index.html) |
 | Mimo's welcome and tutorial | [welcome.js](welcome.js) |

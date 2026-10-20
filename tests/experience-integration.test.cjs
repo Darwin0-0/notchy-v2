@@ -93,7 +93,7 @@ function fixture({files = [file('a'), file('b'), file('c')], peers = [], storage
   let backendFiles = plain(files);
   const translate = (value, values = {}) => String(value ?? '').replace(/\{(\w+)\}/g, (match, key) => Object.hasOwn(values, key) ? values[key] : match);
   const scope = {
-    calendar:null, settingsReturn:null, detailReturn:null, detailView:'', focusToolReturn:null, keyboardNavigation:false,
+    calendar:null, moduleLab:null, settingsReturn:null, detailReturn:null, detailView:'', focusToolReturn:null, keyboardNavigation:false,
     console, document, Set, Map, Number, JSON, Object, Array, Promise,
     disposed: false, shelfItems: plain(files), shelfLoaded: true, shelfBusy: false, shelfError: '', shelfDownloadError: false, shelfEpoch: 0, selectedFiles: new Set(), fileDragging: false,
     nearby: {available: true, status: 'discovering', peers: plain(peers), transfer: null, incoming: null}, nearbyBusy: false, nearbyError: '', nearbyActionError: false, nearbyMutation: 0,

@@ -725,6 +725,48 @@ async fn desktop_command(
     .await;
     result.map_err(|error: ApiError| error.message)
 }
+fn development_profile(root: &std::path::Path) -> PathBuf {
+    // Join components separately: a literal slash survives in Windows PathBuf
+    // strings and fails the native LocalSend canonical storage guard.
+    root.join(".development").join("profile")
+}
+fn search_shortcut_enabled(checking: bool, data_override: Option<&std::path::Path>) -> bool {
+    !checking && data_override.is_none()
+}
+
+#[cfg(test)]
+mod development_profile_tests {
+    use super::{development_profile, search_shortcut_enabled, Services};
+
+    #[test]
+    fn interactive_trial_keeps_spotlight_shortcut_while_isolated_checks_do_not_register_it() {
+        assert!(search_shortcut_enabled(false, None));
+        assert!(!search_shortcut_enabled(true, None));
+        let isolated = std::path::Path::new("isolated-qa");
+        assert!(!search_shortcut_enabled(false, Some(isolated)));
+        assert!(!search_shortcut_enabled(true, Some(isolated)));
+    }
+
+    #[tokio::test]
+    async fn default_trial_profile_initializes_real_native_services_with_a_canonical_windows_path() {
+        let repository = tempfile::tempdir().unwrap();
+        let profile = development_profile(repository.path());
+        assert!(profile.is_absolute());
+        assert!(profile.starts_with(repository.path()));
+        #[cfg(windows)]
+        assert!(!profile.to_string_lossy().contains('/'), "The debug profile must use native Windows separators");
+        let services = Services::new(profile.clone(), repository.path().join("missing-native"))
+            .await.expect("The default trial profile must pass the unchanged native storage guards");
+        let identity = tokio::fs::read(profile.join(".localsend").join("localsend-identity.json"))
+            .await.expect("Real LocalSend initialization creates its isolated TLS identity");
+        let encoded: serde_json::Value = serde_json::from_slice(&identity).unwrap();
+        assert!(encoded["cert"].as_str().is_some_and(|value| value.contains("BEGIN CERTIFICATE")));
+        assert!(encoded["key"].as_str().is_some_and(|value| value.contains("PRIVATE KEY")));
+        assert_eq!(services.nearby.snapshot().await["available"], false, "Construction never starts a LAN listener");
+        services.dispose().await;
+    }
+}
+
 fn arguments() -> (Option<PathBuf>, bool) {
     let mut values = std::env::args().skip(1);
     let mut directory = None;
@@ -742,13 +784,20 @@ fn arguments() -> (Option<PathBuf>, bool) {
 pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let (data_override, checking) = arguments();
+    let mut context = tauri::generate_context!();
+    // Isolate the debug process before the single-instance plugin sees the identifier.
+    // This also makes a plain cargo build safe beside the installed application.
+    if cfg!(debug_assertions) {
+        context.config_mut().identifier = "dev.notchy.v2.trial".into();
+        context.config_mut().product_name = Some("Notchy V2 — Essai".into());
+    }
     let builder=tauri::Builder::default();
     // Window checks use isolated data and must never activate a running user instance.
-    let builder=if checking{builder}else{builder.plugin(tauri_plugin_single_instance::init(|app,arguments,_|{if arguments.iter().any(|argument|argument=="--autostart"){return;}if let (Some(window),Some(state))=(app.get_webview_window("main"),app.try_state::<Arc<DesktopState>>()){show(&window,&state,"open");}}))};
+    let builder=if checking{builder}else{builder.plugin(tauri_plugin_single_instance::init(|app,arguments,_|{if arguments.iter().any(|argument|argument=="--autostart"){return;}if let (Some(window),Some(state))=(app.get_webview_window("main"),app.try_state::<Arc<DesktopState>>()){if cfg!(debug_assertions)&&arguments.iter().any(|argument|argument=="--reload-ui")&&!state.dialog.load(Ordering::Relaxed)&&state.downloads.load(Ordering::Relaxed)==0{let _=window.eval("location.reload()");}show(&window,&state,"open");}}))};
     let application=builder
       .invoke_handler(tauri::generate_handler![desktop_command,health_run,settings_get,settings_set,favorites_list,favorites_add,discovery_validate,discovery_scan,discovery_first_candidates])
       .setup(move|app|{
-        let data=data_override.clone().unwrap_or_else(||if checking{std::env::temp_dir().join(format!("notchy-tauri-check-{}",std::process::id()))}else if cfg!(debug_assertions){PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned()}else{app.path().app_data_dir().unwrap()});
+        let data=data_override.clone().unwrap_or_else(||if checking{std::env::temp_dir().join(format!("notchy-tauri-check-{}",std::process::id()))}else if cfg!(debug_assertions){development_profile(PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap())}else{app.path().app_data_dir().unwrap()});
         std::fs::create_dir_all(data.join(".desktop-profile"))?;
         let packaged=app.path().resource_dir()?.join("native");
         let native=packaged;
@@ -768,16 +817,16 @@ pub fn run() {
             Ok(service) => { service.start_worker(); (Some(service), None) },
             Err(error) => (None, Some(error)),
         };
-        let server=Arc::new(tauri::async_runtime::block_on(Server::start(services.clone(),if checking{0}else{58252}))?);
+        let server=Arc::new(tauri::async_runtime::block_on(Server::start(services.clone(),if checking||cfg!(debug_assertions){0}else{58252}))?);
         let origin=format!("http://127.0.0.1:{}",server.port);
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
-        let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"localSendActive":nearby_active,"startup":startup_status});
+        let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"development":cfg!(debug_assertions),"localSendActive":nearby_active,"startup":startup_status});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
         let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None)});
         app.manage(state.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();
         let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}/?desktop=1").parse()?))
-          .title("Notchy V2").inner_size(960.,312.).decorations(false).transparent(true).shadow(false)
+          .title(if cfg!(debug_assertions){"Notchy V2 — Essai"}else{"Notchy V2"}).inner_size(960.,312.).decorations(false).transparent(true).shadow(false)
           .resizable(false).always_on_top(true).skip_taskbar(true).visible(false).background_color(tauri::window::Color(0,0,0,0))
           .disable_drag_drop_handler()
           .additional_browser_args("--disable-features=CalculateNativeWinOcclusion --disable-renderer-backgrounding --disable-backgrounding-occluded-windows")
@@ -791,7 +840,7 @@ pub fn run() {
           })
           .build()?;
         desktop::layout(&window,initial_geometry())?;
-        if !checking && data_override.is_none() {
+        if search_shortcut_enabled(checking, data_override.as_deref()) {
             let search_window=window.clone(); let search_state=state.clone();
             let shortcut=notchy::search_hotkey::start(app.handle().clone(), move || {
                 if !search_state.dialog.load(Ordering::Relaxed) && search_state.downloads.load(Ordering::Relaxed)==0 {
@@ -847,7 +896,7 @@ pub fn run() {
         });
         if checking {let watchdog=app.handle().clone();let directory=data.clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_secs(25)).await;if !directory.join("tauri-check.json").is_file(){let _=tokio::fs::write(directory.join("tauri-check.json"),b"{\"pass\":false,\"error\":\"Le renderer ne repond pas.\"}").await;watchdog.exit(1);}});}
         Ok(())
-      }).build(tauri::generate_context!());
+      }).build(context);
     match application {
         Ok(app) => app.run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = event {

@@ -2811,7 +2811,7 @@ dependencies = [
 
 [[package]]
 name = "notchy-v2"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "anyhow",
  "axum",

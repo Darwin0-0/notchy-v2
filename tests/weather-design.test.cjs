@@ -61,9 +61,19 @@ test('weather metrics preserve bounded readings and reject missing or invalid va
   assert.equal(value.feelsLike,19); assert.equal(value.humidity,72.5); assert.equal(value.windSpeed,12.5); assert.equal(value.uvIndex,4.2);
 });
 
-test('weather sunrise accepts a real local timestamp and rejects invalid dates or clock fields', () => {
-  for (const sunrise of ['2024-02-29T00:00','2026-10-17T23:59:59']) assert.equal(weatherDesignValues({sunrise}).sunrise,sunrise);
-  for (const sunrise of [undefined,null,42,'','2026-02-29T06:00','2026-02-30T06:00','2026-10-17','2026-10-17T24:00','2026-10-17T06:60','2026-10-17T06:00:60','2026-10-17T06:00Z']) assert.equal(weatherDesignValues({sunrise}).sunrise,null);
+test('weather sunrise and sunset accept real local timestamps and reject invalid dates or clock fields', () => {
+  for (const field of ['sunrise','sunset']) {
+    for (const value of ['2024-02-29T00:00','2026-10-17T23:59:59']) assert.equal(weatherDesignValues({[field]:value})[field],value,field);
+    for (const value of [undefined,null,42,'','2026-02-29T06:00','2026-02-30T06:00','2026-10-17','2026-10-17T24:00','2026-10-17T06:60','2026-10-17T06:00:60','2026-10-17T06:00Z']) assert.equal(weatherDesignValues({[field]:value})[field],null,field);
+  }
+});
+
+test('weather sun times stay independent and unavailable values have no invented fallback', () => {
+  const sunrise = '2026-10-17T05:34', sunset = '2026-10-17T18:02';
+  assert.equal(weatherDesignValues({sunrise,sunset}).sunrise,sunrise);
+  assert.equal(weatherDesignValues({sunrise,sunset}).sunset,sunset);
+  assert.equal(weatherDesignValues({sunrise}).sunset,null);
+  assert.equal(weatherDesignValues({sunset}).sunrise,null);
 });
 
 test('unchanged condition icons retain the supplied detailed mockup artwork', () => {
@@ -80,61 +90,54 @@ test('unchanged condition icons retain the supplied detailed mockup artwork', ()
     rain:'c975660c015fd9ae00aa1a39e54d8e62220d37646ae63119ee745e008bd911a1',
   };
   for (const [kind,digest] of Object.entries(expected)) assert.equal(createHash('sha256').update(weatherGlyphMarkup(kind)).digest('hex'),digest,kind);
-  for (const kind of ['cloud-sun','cloud-moon']) assert.equal(weatherGlyphMarkup(kind),weatherGlyphMarkup('cloud'));
+  assert.equal(weatherGlyphMarkup('cloud-moon'),weatherGlyphMarkup('moon')+weatherGlyphMarkup('cloud'));
 });
 
 test('new narrative and balanced icons preserve the supplied SVG geometry in the shared 100-unit viewBox',()=>{
   // Inner markup independently transcribed from WeatherNarrative.dc.html and Weather.dc.html.
   const reference={
     sunrise:'<path d="M7 22a9 9 0 0 1 18 0z" fill="#ff9f1c"></path><path d="M16 5v5 M5.5 11l3.5 3.5 M26.5 11L23 14.5 M3 22h26 M8 27h16" stroke="#ff9f1c" stroke-width="2.4" stroke-linecap="round" fill="none"></path>',
-    thermometer:'<rect x="12" y="3" width="8" height="19" rx="4" fill="none" stroke="#ff4d3d" stroke-width="2.6"></rect><circle cx="16" cy="24" r="5" fill="#ff4d3d"></circle><rect x="14.6" y="11" width="2.8" height="13" rx="1.4" fill="#ff4d3d"></rect>',
     moon:'<path d="M25 19.5A11 11 0 0 1 12.5 7a11 11 0 1 0 12.5 12.5z" fill="#9db8d9"></path>'
   };
   for(const [kind,markup]of Object.entries(reference))assert.equal(weatherGlyphMarkup(kind),'<g transform="scale(3.125)">'+markup+'</g>',kind);
   assert.equal(weatherGlyphMarkup('moon-small'),'<g transform="scale(4.1666667)"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="#9db8d9"></path></g>');
-  const calendar='<rect x="3" y="3" width="26" height="26" rx="7" fill="#5a5a5e"></rect><g fill="#9a9a9f"><circle cx="10" cy="11" r="1.6"></circle><circle cx="16" cy="11" r="1.6"></circle><circle cx="22" cy="11" r="1.6"></circle><circle cx="10" cy="17" r="1.6"></circle><circle cx="16" cy="17" r="1.6"></circle><circle cx="22" cy="17" r="1.6"></circle><circle cx="10" cy="23" r="1.6"></circle><circle cx="16" cy="23" r="1.6"></circle></g>';
-  const scaled=calendar.replace(/\b(x|y|width|height|rx|cx|cy|r)="([\d.]+)"/g,(_,key,value)=>key+'="'+Number(value)*3.125+'"');
-  assert.equal(weatherGlyphMarkup('calendar'),scaled,'calendar retains direct rect/group children so the real appointment colors still apply');
+  // The v2 icon catalogue replaces the older filled calendar and thermometer.
+  const outlines={calendar:'M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z M4 10h16 M8 4v4 M16 4v4',thermometer:'M10 4a2 2 0 0 1 4 0v9.2a4 4 0 1 1-4 0z',location:'M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z M12 7.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6z'};
+  for(const [kind,geometry]of Object.entries(outlines))assert.equal(weatherGlyphMarkup(kind),'<g transform="scale(4.1666667)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="'+geometry+'"/></g>');
+  // 64-unit illustration from the supplied Météo — main (520 × 364) export.
+  assert.equal(weatherGlyphMarkup('cloud-sun'),'<g transform="scale(1.5625)"><circle cx="42" cy="22" r="10" fill="#ff9f1c"/><path d="M42 5v4M42 35v4M25 22h4M55 22h4M30 10l3 3M54 10l-3 3" fill="none" stroke="#ff9f1c" stroke-width="3" stroke-linecap="round"/><path d="M17 52h27a9 9 0 0 0 1.5-17.9A14 14 0 0 0 19.5 36 8.5 8.5 0 0 0 17 52Z" fill="#9db8d9"/></g>');
 });
 
-for (const presentation of ['full', 'scene', 'rail']) test(`weather ${presentation} renders the latest condition independently of its hidden icon template`, () => {
-  const node = tag => ({tag, children: [], dataset: {}, attributes: {}, classList: {add() {}},
-    append(...items) {this.children.push(...items);}, prepend(...items) {this.children.unshift(...items);},
-    replaceChildren(...items) {this.children = items;}, setAttribute(key, value) {this.attributes[key] = value;},
-    removeAttribute(key) {delete this.attributes[key];}, getClientRects() {return [];},
-    querySelector(selector) {return this.children.find(child => child.tag === selector) || this.children.map(child => child.querySelector(selector)).find(Boolean);},
-    cloneNode() {const copy = node(tag); copy.attributes = {...this.attributes}; copy.children = this.children.map(child => child.cloneNode()); return copy;},
-  });
-  const template = node('svg'), templatePath = node('path'); templatePath.setAttribute('d', weatherConditionPath('sun')); template.append(templatePath);
-  const host = node('div'), scope = {weather: {...snapshot, icon: 'rain', condition: 'Pluie'}, weatherBusy: false, weatherError: '', weatherPickerOpen: false,
-    window: {}, document: {hidden: false, createElement: node}, i18n: {locale: () => 'fr'}, t: value => value,
-    weatherDesignValues, weatherConditionPath, weatherGlyphMarkup, localizedWeatherNarrative: weatherNarrative, weatherFreshness: () => 'Updated',
-    byId(id) {assert.equal(id, 'weather-condition-icon'); return template;},
-  };
-  const source = fs.readFileSync(require.resolve('../notch.js'), 'utf8'), start = source.indexOf('  function renderWeatherDesign('), end = source.indexOf('  function renderWeatherSummary(', start);
-  assert(start > 0 && end > start);
-  vm.runInNewContext(source.slice(start, end) + 'this.render = renderWeatherDesign;', scope);
+for (const presentation of ['full', 'main', 'side', 'tall', 'wide', 'small']) test(`weather ${presentation} uses its canonical composition and current condition without changing its icon template`, () => {
+  const {host,scope,template}=detailFixture('fr'), templatePath=template.children[0]; templatePath.setAttribute('d',weatherConditionPath('sun'));
+  const contract=scope.ModuleLayout.getBuiltinContract('weather');
+  assert(scope.ModuleLayout.supports(contract,presentation));
+  scope.ModuleLayout.applyHost(host,{id:'weather',slot:presentation==='full'?'full':presentation,presentation,...contract.layout[presentation].ideal});
   for (const condition of ['rain', 'moon', 'cloud-sun', 'fog', 'snow', 'thunder', 'unknown', 'sun']) {
     scope.weather.icon = condition; scope.render(host, presentation);
-    const icon = host.children[1].children[4].children[1];
+    const icon = host.querySelector(presentation==='main'?'.weather-slot-illustration':['small','wide'].includes(presentation)?'.weather-slot-small-icon':'.weather-slot-condition-icon');
     assert.equal(icon.innerHTML, weatherGlyphMarkup(condition));
     assert.equal(icon.dataset.weatherGlyph,condition); assert.equal(icon.attributes.viewBox,'0 0 100 100');
     assert.equal(templatePath.attributes.d, weatherConditionPath('sun'), 'rendering must not mutate the shared template');
-    assert.equal(host.dataset.condition, condition);
+    assert.equal(host.dataset.condition, condition); assert.equal(host.dataset.weatherPresentation,presentation);assert.equal(host.dataset.modulePresentation,presentation);
   }
   for (const count of [undefined,null,0,1,4,-1,'3']) {
     scope.weather.calendarTodayCount = count; scope.render(host, presentation);
-    const stack = host.children[1], calendar = stack.children[1], city = stack.children[2], degrees = stack.children[3];
-    assert.equal(host.children[0].className,'weather-design-eyebrow');assert.equal(host.children[0].textContent,'MÉTÉO');
-    assert.equal(stack.children.length, 5); assert.equal(calendar.tag, 'button'); assert.equal(calendar.dataset.weatherCommand, 'calendar');
+    const calendar=host.querySelector('.weather-typography-date'),city=host.querySelector('.weather-design-city');
+    assert.equal(calendar.tag, 'button'); assert.equal(calendar.dataset.weatherCommand, 'calendar');
     assert.equal(calendar.attributes['aria-haspopup'], 'dialog'); assert.equal(calendar.attributes['aria-controls'], 'calendar-player'); assert.equal(calendar.attributes['aria-expanded'], 'false');
-    assert.equal(calendar.children[1].className, 'weather-typography-label'); assert.equal(city.children[0].className, 'weather-typography-label');
     assert.equal(calendar.dataset.hasEvents, String(Number.isSafeInteger(count) && count > 0));
     assert.equal(city.tag, 'button'); assert.equal(city.dataset.weatherCommand, 'details');
-    assert.equal(degrees.children.length,2); assert.equal(degrees.children[0].className,'weather-typography-celsius');
-    assert.equal(degrees.children[0].children[0].textContent, '19°C'); assert.equal(degrees.children[0].children[1].innerHTML,weatherGlyphMarkup('thermometer')); assert.equal(degrees.children[1].textContent, '66°F');
-    assert.equal(calendar.children[0].innerHTML,weatherGlyphMarkup('calendar')); assert.equal(stack.children[0].children[1].innerHTML,weatherGlyphMarkup('sunrise'));
-    scope.render(host, presentation); assert.equal(host.children[1], stack, 'unchanged weather/calendar must preserve the focused control rather than rebuild it');
+    assert.equal(calendar.children[0].innerHTML,weatherGlyphMarkup('calendar'));
+    if(presentation==='full')assert.equal(host.querySelectorAll('.weather-slot-metric').length,6);
+    if(presentation==='main'){assert.equal(host.querySelector('.weather-slot-narrative-stack').children.length,5);assert.equal(host.querySelector('.weather-slot-degrees').textContent,'19°C66°F');}
+    if(['side','tall'].includes(presentation)){assert.equal(host.querySelector('.weather-slot-heading').children.length,2);assert.equal(host.querySelector('.weather-slot-range').textContent,'Min 17° · Max 26°');}
+    if(presentation==='small'){
+      assert.equal(host.children.length,1);const content=host.querySelector('.weather-slot-small-content');assert.equal(content.children.length,4);
+      assert.equal(content.querySelector('.weather-design-city').dataset.weatherCommand,'details');assert.equal(content.querySelector('.weather-typography-date').dataset.weatherCommand,'calendar');
+      assert.equal(content.querySelector('.weather-design-city').title,scope.weather.city);assert.match(content.querySelector('.weather-typography-date').attributes['aria-label'],/agenda|calendar/i);
+    }
+    scope.render(host, presentation); assert.equal(host.querySelector('.weather-typography-date'),calendar, 'unchanged weather/calendar must preserve the focused control rather than rebuild it');
   }
 });
 
@@ -143,7 +146,8 @@ function detailFixture(language, value = {}) {
     let text = '';
     const element = {tag, className:'', children:[], dataset:{}, attributes:{},
       get textContent() {return text + this.children.map(child => child.textContent).join('');}, set textContent(value) {text = String(value); this.children = [];},
-      append(...items) {this.children.push(...items);}, replaceChildren(...items) {text = ''; this.children = items;},
+      append(...items) {this.children.push(...items);}, prepend(...items) {this.children.unshift(...items);}, replaceChildren(...items) {text = ''; this.children = items;},
+      insertAdjacentHTML(_position,html) {this.insertedHTML=(this.insertedHTML||'')+html;}, addEventListener(type,handler){(this.listeners??={})[type]=handler;},
       setAttribute(key, value) {this.attributes[key] = value; if (key === 'class') this.className = value;}, removeAttribute(key) {delete this.attributes[key];},
       getClientRects() {return [];},
       focus(options) {this.focusedWith=options;},
@@ -151,16 +155,30 @@ function detailFixture(language, value = {}) {
       querySelector(selector) {return this.querySelectorAll(selector)[0];},
       cloneNode() {const copy = node(tag); copy.className = this.className; copy.attributes = {...this.attributes}; copy.textContent = text; copy.children = this.children.map(child => child.cloneNode()); return copy;},
     };
-    element.classList = {add(...names) {element.className = [...new Set([...element.className.split(' ').filter(Boolean), ...names])].join(' ');}};
+    element.classList = {add(...names) {element.className = [...new Set([...element.className.split(' ').filter(Boolean), ...names])].join(' ');},remove(...names){element.className=element.className.split(' ').filter(name=>!names.includes(name)).join(' ');}};
     return element;
   };
   const template = node('svg'); template.append(node('path'));
   const i18n = require('../i18n.js').create({getItem:() => language, setItem(){}}), host = node('div');
-  const scope = {weather:{...snapshot,mode:'city',city:'Kinshasa',displayName:'Kinshasa',icon:'sun',condition:'Ciel dégagé',feelsLike:18,humidity:72,windSpeed:12.5,uvIndex:4.2,sunrise:'2026-10-15T06:13',calendarTodayCount:1,...value},weatherBusy:false,weatherError:'',weatherPickerOpen:false,window:{},document:{hidden:false,createElement:node},i18n,t:i18n.t,weatherDesignValues,weatherConditionPath,weatherGlyphMarkup,localizedWeatherNarrative:weatherNarrative,weatherFreshness:()=>'Updated',byId:()=>template};
+  const scope = {weather:{...snapshot,mode:'city',city:'Kinshasa',displayName:'Kinshasa',icon:'sun',condition:'Ciel dégagé',feelsLike:18,humidity:72,windSpeed:12.5,uvIndex:4.2,sunrise:'2026-10-15T06:13',sunset:'2026-10-15T18:02',calendarTodayCount:1,...value},weatherBusy:false,weatherError:'',weatherPickerOpen:false,window:{},document:{hidden:false,createElement:node},i18n,t:i18n.t,ModuleLayout:require('../module-contracts.js'),uiMessage:value=>value,weatherDesignValues,weatherConditionPath,weatherGlyphMarkup,localizedWeatherNarrative:weatherNarrative,weatherFreshness:()=>'Updated',byId:()=>template};
   const source = fs.readFileSync(require.resolve('../notch.js'), 'utf8'), start = source.indexOf('  function renderWeatherDesign('), end = source.indexOf('  function renderWeatherSummary(', start);
   vm.runInNewContext(source.slice(start, end) + 'this.render = renderWeatherDesign;', scope);
   return {host, scope, node, template};
 }
+
+test('Full weather uses six real detail readings and preserves the user details state after refresh',()=>{
+  const {host,scope}=detailFixture('fr'); scope.render(host,'full');
+  const details=host.querySelector('.weather-slot-details');assert.equal(details.tag,'details');assert.equal(details.open,true);
+  assert.deepEqual(host.querySelectorAll('.weather-slot-metric').map(cell=>cell.textContent),['Ressenti18°','Humidité72 %','Vent13 km/h','Indice UV4.2','Lever06:13','Coucher18:02']);
+  details.open=false;details.listeners.toggle();scope.weather.temperature=22;scope.render(host,'full');
+  assert.equal(host.querySelector('.weather-slot-details').open,false);assert.equal(host.querySelector('.weather-slot-temperature').textContent,'22°');
+});
+
+test('unavailable Full weather details are explicit and never borrowed from another metric',()=>{
+  const {host,scope}=detailFixture('en',{feelsLike:null,humidity:null,windSpeed:null,uvIndex:null,sunrise:null,sunset:null});scope.render(host,'full');
+  assert.deepEqual(host.querySelectorAll('.weather-slot-metric-value').map(cell=>cell.textContent),['—','—','—','—','—','—']);
+  assert.deepEqual(host.querySelectorAll('.weather-slot-metric-label').map(cell=>cell.textContent),['Feels like','Humidity','Wind','UV index','Sunrise','Sunset']);
+});
 
 for (const language of ['fr','en']) test(`balanced weather ${language} preserves city and calendar actions with real readings and five hourly forecasts`, () => {
   const {host,scope} = detailFixture(language); scope.render(host,'rail',{interactive:true});
@@ -249,7 +267,7 @@ test('Nook city opens Balanced inside the same 35% card with five actual hours a
 test('inline X and Escape return to the same Narrative card without closing or moving the media player',()=>{
   const f=inlineFixture();for(const close of [()=>f.click('inline-close'),()=>f.escape()]){
     f.click('details');close();assert.equal(f.scope.view,'nook');assert.equal(f.scope.state,'open');assert.equal(f.scope.weatherInlineDetail,false);assert.equal(f.host.dataset.weatherView,'summary');
-    assert.equal(f.host.querySelector('.weather-typography').children.length,5);assert.equal(f.host.querySelector('.weather-design-city').focusedWith.preventScroll,true);assert.equal(f.scope.music,f.music);assert.deepEqual(f.calls.routes,[]);
+    assert.equal(f.host.dataset.weatherPresentation,'side');assert.equal(f.host.querySelector('.weather-slot-heading').children.length,2);assert.equal(f.host.querySelector('.weather-design-city').focusedWith.preventScroll,true);assert.equal(f.scope.music,f.music);assert.deepEqual(f.calls.routes,[]);
   }
 });
 

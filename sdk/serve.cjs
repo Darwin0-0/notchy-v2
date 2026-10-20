@@ -12,14 +12,23 @@ const routes = new Map([
   ['/sdk/starter.manifest.json', ['sdk/starter.manifest.json', 'application/json; charset=utf-8']],
   ['/sdk/water.manifest.json', ['sdk/water.manifest.json', 'application/json; charset=utf-8']],
   ['/module-runtime.js', ['module-runtime.js', 'text/javascript; charset=utf-8']],
+  ['/module-contracts.js', ['module-contracts.js', 'text/javascript; charset=utf-8']],
+  ['/module-library.css', ['module-library.css', 'text/css; charset=utf-8']],
+  ['/module-layout.css', ['module-layout.css', 'text/css; charset=utf-8']],
+  ['/tokens.js', ['tokens.js', 'text/javascript; charset=utf-8']],
+  ['/tokens.css', ['tokens.css', 'text/css; charset=utf-8']],
+  ['/assets/duration-dm-sans.woff2', ['assets/duration-dm-sans.woff2', 'font/woff2']],
+  ['/assets/manrope-latin.woff2', ['assets/manrope-latin.woff2', 'font/woff2']],
+  ['/assets/manrope-OFL.txt', ['assets/manrope-OFL.txt', 'text/plain; charset=utf-8']],
   ['/docs/MODULES.md', ['docs/MODULES.md', 'text/plain; charset=utf-8']],
+  ['/docs/MODULE_LAYOUT.md', ['docs/MODULE_LAYOUT.md', 'text/plain; charset=utf-8']],
   ['/docs/module-manifest.schema.json', ['docs/module-manifest.schema.json', 'application/json; charset=utf-8']],
 ]);
 
 function handleRequest(request, response) {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
-    response.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'");
+    response.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'");
     if (!['GET', 'HEAD'].includes(request.method)) { response.writeHead(405); response.end('Method not allowed'); return; }
     let pathname;
     try { pathname = new URL(request.url, 'http://127.0.0.1').pathname; }

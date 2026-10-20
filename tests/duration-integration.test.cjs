@@ -55,20 +55,71 @@ test('failed native acknowledgement never falls back to browser storage',async()
 test('oversized or malformed persisted envelopes are rejected before any write',async()=>{
   for(const value of ['x'.repeat(262145),'{broken','[]']){let writes=0;const io=persistence({localStorage:{getItem:()=>value,setItem(){writes++;}}});await assert.rejects(io.load());assert.equal(writes,0);}
 });
-test('placement AUTO chooses the four formats from available dimensions rather than slot role',()=>{
-  for(const [presentation,width,height,expected] of [['full',535,260,'full'],['scene',354,260,'full'],['rail',326,112,'half'],['scene',199,260,'quarter'],['rail',250,190,'details'],['rail',180,260,'quarter'],['rail',180,126,'quarter'],['full',326,140,'half'],['full',326,190,'details']])assert.equal(presentationForPlacement({presentation,width,height}),expected);
-  for(const presentation of ['full','scene','rail',undefined])for(const [width,height,expected]of [[239,260,'quarter'],[240,154,'half'],[240,155,'details'],[354,209,'details'],[354,210,'full']])assert.equal(presentationForPlacement({presentation,width,height}),expected);
+test('legacy placement lookup delegates the shared four-format geometry policy',()=>{
+  for(const [presentation,width,height,expected] of [['full',535,260,'full'],['scene',354,260,'quarter'],['rail',440,120,'half'],['scene',199,260,null],['rail',440,190,'details'],['rail',180,260,null],['rail',220,126,'quarter'],['full',326,140,'quarter'],['full',326,190,'quarter']])assert.equal(presentationForPlacement({presentation,width,height}),expected);
+  for(const presentation of ['full','scene','rail',undefined])for(const [width,height,expected]of [[219,260,null],[220,119,null],[220,120,'quarter'],[439,260,'quarter'],[440,119,null],[440,120,'half'],[440,179,'half'],[440,180,'details'],[440,239,'details'],[440,240,'full']])assert.equal(presentationForPlacement({presentation,width,height}),expected);
   for(const geometry of [{width:0,height:200},{width:200,height:NaN},{width:-1,height:1},{width:Infinity,height:260},{width:354,height:0}])assert.equal(presentationForPlacement(geometry),null);
 });
-function fixture(saved){
-  const storage=new Map(saved?[[Bridge.KEY,JSON.stringify(saved)]]:[]),components=[],callbacks=[],changes=[],opens=[],observers=[],intervals=new Set();let language='fr',languageChanged;
-  const document={createElement(){return{className:'',remove(){this.removed=true;}};}};
-  const win={localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},setTimeout:callback=>(callbacks.push(callback),1),setInterval:callback=>(intervals.add(callback),callback),clearInterval:callback=>intervals.delete(callback),ResizeObserver:class{constructor(callback){this.callback=callback;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}},NotchyI18n:{locale:()=>language,t:value=>value,onChange(callback){languageChanged=callback;return()=>{languageChanged=null;};}},NotchyDuration:{mount(host,options){let view=options.view,size='full';const calls={sizes:[],languages:[],fits:0};const component={ready:Promise.resolve(),calls,options,inspect:()=>({view,size}),setPresentation(value){size=value;calls.sizes.push(value);},fit(){calls.fits++;},setLanguage(value){calls.languages.push(value);},showSettings(){view='settings';options.onViewChange({view});},showTimer(){view='timer';options.onViewChange({view});},showTasks(){view='tasks';options.onViewChange({view});},startCreate(){view='create-title';options.onViewChange({view});},cancelEdit(){view=options.view;options.onViewChange({view});},dispose(){this.disposed=true;}};components.push(component);return component;}}};document.defaultView=win;
-  const host=(presentation='full',width=535,height=260)=>({ownerDocument:document,dataset:{presentation},clientWidth:width,clientHeight:height,hidden:false,children:[],append(node){this.children.push(node);}});
-  const focusHost=host(),focus=Bridge.create({host:focusHost,changed:value=>changes.push(value),openDuration:kind=>opens.push(kind),closeConfiguration(){throw Error('leaveRoute must suppress restoration callbacks');}});
-  return{focus,focusHost,host,components,changes,opens,observers,flush(){while(callbacks.length)callbacks.shift()();},tick(){for(const callback of intervals)callback();},language(value){language=value;languageChanged?.();}};
-}
-const settle=()=>new Promise(resolve=>setImmediate(resolve));
+const {fixture,settle}=require('./helpers/duration-bridge-fixture.cjs');
+
+test('the shared task controller settles earned work once before completion and preserves it on reopen',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000000});
+  const f=fixture();await f.focus.ready;
+  await f.focus.durationStore.configure({work:1,rest:1,longRest:1,interval:4});
+  await f.focus.durationStore.add('The actual task',3);await f.focus.durationStore.add('Keep the next task',3);
+  const id=f.focus.durationStore.snapshot().activeId;
+  await f.focus.durationStore.toggleTimer(id);t.mock.timers.tick(60000);
+  f.focus.tasks({type:'toggle',id});await settle();
+  let current=f.focus.durationStore.snapshot();
+  assert.equal(current.tasks[0].done,true);assert.equal(current.tasks[0].earnedCycles,1);assert.equal(current.tasks[0].elapsedMs,60000);
+  assert.equal(current.tasks[1].done,false);assert.equal(current.startedAt,null);
+  f.focus.tasks({type:'toggle',id});await settle();current=f.focus.durationStore.snapshot();
+  assert.equal(current.tasks[0].done,false);assert.equal(current.tasks[0].earnedCycles,1);assert.equal(current.tasks[0].elapsedMs,60000);assert.equal(current.startedAt,null);
+  assert.equal(f.components.length,1,'the task actions never mount a second timer');f.focus.dispose();
+});
+
+test('selecting through the shared controller credits the old boundary before pausing on the new task',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000000});
+  const f=fixture();await f.focus.ready;
+  await f.focus.durationStore.configure({work:1,rest:1,longRest:1,interval:4});
+  await f.focus.durationStore.add('Previous task',3);await f.focus.durationStore.add('Next task',3);
+  const [first,next]=f.focus.durationStore.snapshot().tasks;
+  await f.focus.durationStore.toggleTimer(first.id);t.mock.timers.tick(60000);
+  f.focus.tasks({type:'select',id:next.id});await settle();
+  const current=f.focus.durationStore.snapshot();
+  assert.equal(current.activeId,next.id);assert.equal(current.startedAt,null);assert.equal(current.tasks[0].elapsedMs,60000);assert.equal(current.tasks[0].earnedCycles,1);
+  assert.equal(current.tasks[1].elapsedMs,0);assert.equal(current.tasks[1].earnedCycles,undefined);
+  assert.equal(f.focus.getState().tasks[0].completedCycles,1);assert.equal(f.focus.getState().tasks[1].completedCycles,0);f.focus.dispose();
+});
+
+test('canonical arrangements consume the host assignment without legacy canvas sizing or clock writes',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000000});
+  const f=fixture(undefined,{canonical:true});await f.focus.ready;await f.focus.durationStore.add('Keep my exact running plan',90);await f.focus.durationStore.toggleTimer(f.focus.durationStore.snapshot().activeId);
+  const component=f.components[0],saved=JSON.stringify(f.focus.durationStore.snapshot()),writes=f.writes.length;
+  for(let round=0;round<3;round++)for(const [presentation,width,height]of [['full',812,368],['main',536,368],['side',260,368],['tall',260,240],['wide',536,112],['small',260,112]]){
+    Object.assign(f.focusHost.dataset,{modulePresentation:presentation,durationTasks:'quarter',durationTimer:'quarter'});f.focusHost.clientWidth=width;f.focusHost.clientHeight=height;
+    component.showTasks();f.focus.render(false);assert.equal(component.inspect().modulePresentation,presentation);component.showTimer();assert.equal(component.inspect().modulePresentation,presentation);
+    assert.equal(component.calls.sizes.length,0,'canonical formats cannot inherit a legacy scaled canvas');assert.equal(JSON.stringify(f.focus.durationStore.snapshot()),saved);assert.equal(f.writes.length,writes);
+  }
+  component.startCreate();const formats=component.calls.presentations.length;f.focusHost.dataset.modulePresentation='full';f.focus.render(false);assert.equal(component.inspect().view,'create-title');assert.equal(component.calls.presentations.length,formats+1);assert.equal(f.writes.length,writes);f.focus.dispose();
+});
+
+test('canonical detail affordances promote the existing Focus or Tasks instance and shared store',async()=>{
+  const f=fixture(undefined,{canonical:true}),tasks=Bridge.createTasks({host:f.host('rail',260,108),focus:f.focus});await tasks.ready;await f.focus.durationStore.add('One shared task',25);
+  const before=JSON.stringify(f.focus.durationStore.snapshot()),writes=f.writes.length;f.components[0].options.onRequestDetails();assert.equal(f.opens.at(-1),'focus');f.components[1].options.onRequestDetails();assert.equal(f.opens.at(-1),'tasks');
+  assert.equal(f.components[0].options.store,f.components[1].options.store);assert.equal(f.components[1].options.store,f.focus.durationStore);assert.equal(JSON.stringify(f.focus.durationStore.snapshot()),before);assert.equal(f.writes.length,writes);assert.equal(f.components.length,2,'opening details does not mount another module');tasks.dispose();f.focus.dispose();
+});
+
+test('detail routes resolve a declared arrangement from the actual mount budget after Back takes its space',async()=>{
+  const f=fixture(undefined,{canonical:true});await f.focus.ready;await f.focus.durationStore.add('Keep the detail and its plan',90);const component=f.components[0],mount=f.focusHost.children[0],saved=JSON.stringify(f.focus.durationStore.snapshot()),writes=f.writes.length;
+  component.options.onRequestDetails();const promotions=f.opens.length;
+  for(const [width,height,expected]of [[812,368,'full'],[640,304,'full'],[639,304,'main'],[536,368,'main'],[536,303,'tall'],[260,368,'side'],[260,304,'side'],[260,303,'tall'],[260,240,'tall'],[260,220,'tall'],[260,219,'small'],[260,112,'small']]){
+    delete f.focusHost.dataset.modulePresentation;f.focusHost.dataset.presentation='full';f.focusHost.clientWidth=width;f.focusHost.clientHeight=height+32;Object.assign(mount,{clientWidth:width,clientHeight:height});
+    f.focus.render(false);assert.equal(component.inspect().modulePresentation,expected,width+'×'+height+' excludes the32px Back band');const redraws=component.calls.presentations.length;f.focus.render(false);assert.equal(component.calls.presentations.length,redraws);
+    assert.equal(component.inspect().view,'tasks');assert.equal(JSON.stringify(f.focus.durationStore.snapshot()),saved);assert.equal(f.writes.length,writes);assert.equal(f.opens.length,promotions,'fitting a promoted route never promotes again');
+  }
+  f.focus.dispose();
+});
 
 test('the unified module restores an ongoing or paused session and otherwise opens its task list',async()=>{
   for(const kind of ['fresh','running','paused','completed']){
@@ -82,12 +133,12 @@ test('the unified module restores an ongoing or paused session and otherwise ope
 test('render(false) avoids model emissions, unchanged format redraws and duplicate language updates',async()=>{
   const f=fixture();await f.focus.ready;f.flush();const count=f.changes.length,sizes=f.components[0].calls.sizes.length;f.focus.render(false);f.focus.render(false);assert.equal(f.changes.length,count);assert.equal(f.components[0].calls.sizes.length,sizes);
   f.language('fr');assert.equal(f.components[0].calls.languages.length,0);f.language('en');f.language('en');assert.deepEqual(f.components[0].calls.languages,['en']);
-  f.focusHost.dataset.presentation='scene';f.focusHost.clientWidth=354;f.focusHost.clientHeight=190;f.focus.render(false);assert.equal(f.components[0].inspect().size,'details');
-  f.focusHost.clientHeight=260;f.focus.render(false);assert.equal(f.components[0].inspect().size,'full');f.focus.dispose();
+  f.focusHost.dataset.presentation='scene';f.focusHost.clientWidth=354;f.focusHost.clientHeight=190;f.focus.render(false);assert.equal(f.components[0].inspect().size,'quarter');
+  f.focusHost.clientHeight=260;f.focus.render(false);assert.equal(f.components[0].inspect().size,'quarter');f.focusHost.clientWidth=440;f.focus.render(false);assert.equal(f.components[0].inspect().size,'full');f.focus.dispose();
 });
-test('the same short slot uses the Tasks list quarter and Focus half without resizing forms',async()=>{
-  const f=fixture(),taskHost=f.host('rail',326,112),tasks=Bridge.createTasks({host:taskHost,focus:f.focus});await tasks.ready;
-  f.focusHost.dataset.presentation='rail';f.focusHost.clientWidth=326;f.focusHost.clientHeight=112;f.focus.render(false);
+test('the native half budget uses the Tasks list quarter and Focus half without redrawing forms',async()=>{
+  const f=fixture(),taskHost=f.host('rail',440,120),tasks=Bridge.createTasks({host:taskHost,focus:f.focus});await tasks.ready;
+  f.focusHost.dataset.presentation='rail';f.focusHost.clientWidth=440;f.focusHost.clientHeight=120;f.focus.render(false);
   assert.equal(f.components[0].inspect().size,'quarter','the unified module starts with its task list');assert.equal(f.components[1].inspect().size,'quarter');
   f.components[0].showTasks();assert.equal(f.components[0].inspect().size,'quarter','opening Tasks immediately uses its compact list canvas');
   f.components[0].showTimer();assert.equal(f.components[0].inspect().size,'half','returning to the timer immediately restores the wide format');
@@ -101,6 +152,38 @@ test('the same short slot uses the Tasks list quarter and Focus half without res
   assert.deepEqual(f.components.map(component=>component.calls.sizes.length),formats,'opening or resizing a form does not redraw its presentation');
   assert.equal(JSON.stringify(f.focus.durationStore.snapshot()),before);tasks.dispose();f.focus.dispose();
 });
+test('host-assigned task and timer formats remain authoritative through repeated placement changes',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:1000000});
+  const f=fixture();await f.focus.ready;await f.focus.durationStore.add('Preserve my running task',90);
+  await f.focus.durationStore.toggleTimer(f.focus.durationStore.snapshot().activeId);
+  const before=JSON.stringify(f.focus.durationStore.snapshot()),writes=f.writes.length,component=f.components[0];
+  for(let pass=0;pass<3;pass++)for(const [presentation,tasks,timer]of [['full','full','full'],['main','quarter','details'],['side','quarter','half'],['small','quarter','quarter']]){
+    Object.assign(f.focusHost.dataset,{modulePresentation:presentation,durationTasks:tasks,durationTimer:timer});
+    component.showTasks();assert.equal(component.inspect().size,tasks);
+    component.showTimer();assert.equal(component.inspect().size,timer);
+    assert.equal(JSON.stringify(f.focus.durationStore.snapshot()),before);
+    assert.equal(f.writes.length,writes,'presentation never persists or resets the running clock');
+  }
+  delete f.focusHost.dataset.durationTasks;delete f.focusHost.dataset.durationTimer;
+  f.focusHost.clientWidth=440;f.focusHost.clientHeight=120;
+  component.showTasks();assert.equal(component.inspect().size,'quarter');component.showTimer();assert.equal(component.inspect().size,'half','unassigned detail hosts still use the shared policy');
+  f.focus.dispose();
+});
+test('a placement assignment during an editor fits the host without redrawing or changing its state',async()=>{
+  const f=fixture();await f.focus.ready;await f.focus.durationStore.add('Keep my task',25);
+  f.components[0].startCreate();const formats=f.components[0].calls.sizes.length,fits=f.components[0].calls.fits,writes=f.writes.length,before=JSON.stringify(f.focus.durationStore.snapshot());
+  Object.assign(f.focusHost.dataset,{modulePresentation:'small',durationTasks:'quarter',durationTimer:'quarter'});
+  f.focusHost.clientWidth=220;f.focusHost.clientHeight=120;f.focus.render(false);
+  assert.equal(f.components[0].inspect().view,'create-title');assert.equal(f.components[0].calls.sizes.length,formats);assert(f.components[0].calls.fits>fits);
+  assert.equal(JSON.stringify(f.focus.durationStore.snapshot()),before);assert.equal(f.writes.length,writes);
+  f.focus.dispose();
+});
+test('unknown host renderer values fall back to the shared policy instead of entering the component',async()=>{
+  const f=fixture();await f.focus.ready;
+  f.focusHost.clientWidth=300;f.focusHost.clientHeight=190;
+  for(const value of ['gigantic','half','details']){Object.assign(f.focusHost.dataset,{durationTasks:value,durationTimer:'__proto__'});f.components[0].showTasks();assert.equal(f.components[0].inspect().size,'quarter','Tasks cannot inherit a timer-only canvas');}
+  f.components[0].showTimer();assert.equal(f.components[0].inspect().size,'quarter');f.focus.dispose();
+});
 test('Tasks mounts real shared content and leaving its editor suppresses recursive route restoration',async()=>{
   const f=fixture(),taskHost=f.host('full'),tasks=Bridge.createTasks({host:taskHost,focus:f.focus});await tasks.ready;f.flush();
   assert.equal(taskHost.hidden,false);assert.equal(f.components[1].options.store,f.focus.durationStore);assert.equal(f.components[1].inspect().view,'tasks');assert.equal(f.focus.views.size,2);
@@ -110,9 +193,9 @@ test('Tasks mounts real shared content and leaving its editor suppresses recursi
   tasks.leaveRoute();assert.equal(f.focus.inspect().configOpen,false);assert.equal(f.components[1].inspect().view,'tasks');
   f.language('en');assert.deepEqual(f.components[1].calls.languages,['en']);tasks.dispose();assert.equal(f.focus.views.size,1);f.focus.dispose();assert(f.observers.every(observer=>observer.disconnected));
 });
-test('opening a detailed Pomodoro promotes its own host without treating it as an editable form',async()=>{
+test('legacy Pomodoro detail no longer promotes a redundant screen or enters editable mode',async()=>{
   const f=fixture(),tasks=Bridge.createTasks({host:f.host('rail',180,126),focus:f.focus});await tasks.ready;
-  f.focus.editView('tasks','pomodoro');assert.equal(f.opens.at(-1),'tasks');assert.equal(f.focus.inspect().configOpen,false);
+  f.focus.editView('tasks','pomodoro');assert.deepEqual(f.opens,[]);assert.equal(f.focus.inspect().configOpen,false);
   const calls=f.opens.length;f.focus.editView('tasks','pomodoro');assert.equal(f.opens.length,calls,'an unchanged detailed view does not promote again');tasks.leaveRoute();assert.equal(f.opens.length,calls,'leaving a detailed view does not promote or restore recursively');tasks.dispose();f.focus.dispose();
 });
 test('start is idempotent while running and pause/resume preserve the single shared task clock',async t=>{
@@ -122,12 +205,22 @@ test('start is idempotent while running and pause/resume preserve the single sha
   t.mock.timers.tick(10000);f.focus.command('pause');await settle();assert.equal(f.focus.durationStore.snapshot().startedAt,null);const elapsed=f.focus.durationStore.snapshot().tasks[0].elapsedMs;
   t.mock.timers.tick(60000);f.focus.command('start');await settle();assert.equal(f.focus.durationStore.snapshot().tasks[0].elapsedMs,elapsed);f.focus.dispose();
 });
+
+test('starting an explicit next task awaits its selection and preserves finished unchecked work',async t=>{
+ t.mock.timers.enable({apis:['Date'],now:1000000});const state=Core.fresh(),task=(id,elapsedMs,done=false)=>({id,title:id,totalMinutes:1,elapsedMs,done,settings:{...state.settings}});state.tasks=[task('finished-unchecked',60000),task('checked',12000,true),task('next',0)];state.activeId='finished-unchecked';
+ const f=fixture({durationModule:state});await f.focus.ready;const finished=f.focus.durationStore.snapshot().tasks[0];f.focus.startTask('next');await settle();const started=f.focus.durationStore.snapshot();assert.equal(started.activeId,'next');assert.equal(started.startedAt,1000000);assert.deepEqual(started.tasks[0],finished);assert.equal(started.tasks[1].done,true);assert.equal(f.components[0].inspect().view,'timer');
+ f.focus.startTask('next');await settle();assert.equal(f.focus.durationStore.snapshot().startedAt,1000000,'repeating an explicit start never pauses it');await f.focus.durationStore.toggleTimer('next');f.focus.startTask('finished-unchecked');await settle();assert.equal(f.focus.durationStore.snapshot().startedAt,null);assert.deepEqual(f.focus.durationStore.snapshot().tasks[0],finished,'completed duration is never reset');f.focus.startTask('checked');await settle();assert.equal(f.focus.durationStore.snapshot().startedAt,null);f.focus.dispose();
+});
+
+test('a failed explicit task selection never proceeds to a timer start',async t=>{
+ const f=fixture();await f.focus.ready;await f.focus.durationStore.add('First task',1);await f.focus.durationStore.add('Next task',1);const before=f.focus.durationStore.snapshot(),next=before.tasks[1].id,errors=[];t.mock.method(console,'error',(...args)=>errors.push(args));f.focusHost.ownerDocument.defaultView.localStorage.setItem=()=>{throw Error('Storage rejected');};f.focus.startTask(next);await settle();assert.deepEqual(f.focus.durationStore.snapshot(),before);assert.equal(f.components[0].inspect().view,'tasks');assert.equal(errors.length,1);assert.match(String(errors[0][1]),/Storage rejected/);f.focus.dispose();
+});
 test('natural timer completion notifies exactly once regardless of the UI and bridge tick order',async t=>{
   t.mock.timers.enable({apis:['Date'],now:1000000});
   for(const settleFirst of [true,false]){
     const f=fixture();await f.focus.ready;f.flush();await f.focus.durationStore.add('Real completion',1);const id=f.focus.durationStore.snapshot().activeId;await f.focus.durationStore.toggleTimer(id);
     t.mock.timers.tick(60000);if(settleFirst)await f.focus.durationStore.settle();f.tick();await f.focus.durationStore.settle();f.tick();f.tick();
-    assert.equal(f.focus.durationStore.snapshot().startedAt,null);assert.deepEqual(f.changes.filter(change=>change.event).map(change=>change.event),[{kind:'complete',title:'Session terminée',detail:'Real completion'}]);f.focus.dispose();
+    assert.equal(f.focus.durationStore.snapshot().startedAt,null);const events=f.changes.filter(change=>change.event).map(change=>change.event);assert.deepEqual(events.map(({kind,title,detail})=>({kind,title,detail})),[{kind:'complete',title:'Session terminée',detail:'Real completion'}]);assert.equal(events[0].boundary.kind,'task');assert.equal(events[0].boundary.taskDone,false);assert.equal(events[0].boundary.title,'Durée terminée');assert.equal(events[0].boundary.nextTask,null);f.focus.dispose();
   }
 });
 test('natural phase boundaries notify but pause, resume, manual skip and restart stay quiet',async t=>{
@@ -137,4 +230,34 @@ test('natural phase boundaries notify but pause, resume, manual skip and restart
   await f.focus.durationStore.toggleTimer(id);t.mock.timers.tick(60000);f.tick();await f.focus.durationStore.toggleTimer(id);
   await f.focus.durationStore.skip(id);await f.focus.durationStore.skip(id);await f.focus.durationStore.restart(id);f.tick();
   assert.deepEqual(f.changes.filter(change=>change.event).map(change=>change.event.kind),['phase']);f.focus.dispose();
+});
+
+
+test('grid previews reuse the real shared renderer without a second clock, write or editable state',async()=>{
+ const f=fixture(undefined,{canonical:true});await f.focus.ready;await f.focus.durationStore.add('Preview actual task',90);const before=JSON.stringify(f.focus.durationStore.snapshot()),writes=f.writes.length;
+ for(const presentation of ['full','main','side','tall','wide','small']){
+  const host=f.host(),preview=f.focus.renderPreview(host,{presentation});assert.equal(await preview.ready,true);
+  const renderer=f.components.at(-1);assert.equal(renderer.options.store,f.focus.durationStore);assert.equal(renderer.options.preview,true);assert.equal(renderer.options.embedded,true);assert.equal(renderer.inspect().modulePresentation,presentation);assert.equal(renderer.calls.fits,1);assert.equal(f.focus.views.size,1,'previews never join active route or language controllers');
+  assert.equal(JSON.stringify(f.focus.durationStore.snapshot()),before);assert.equal(f.writes.length,writes);preview.dispose();preview.dispose();assert.equal(renderer.disposed,true);assert.equal(host.children[0].removed,true);
+ }
+ const host=f.host(),preview=f.focus.renderPreview(host,{presentation:'side'});preview.dispose();assert.equal(await preview.ready,false,'a removed cell cannot fit or remount after readiness');f.focus.dispose();
+});
+
+
+test('discreet boundaries describe actual focus, break, cycle and total completion without advancing the plan',()=>{
+ const initial=Core.fresh();initial.tasks=[{id:'one',title:'Actual work',totalMinutes:150,elapsedMs:0,done:false,settings:{...initial.settings}}];initial.activeId='one';initial.startedAt=1000;
+ for(const [minutes,kind,title]of [[25,'focus','Session terminée'],[30,'break','On reprend ?'],[115,'cycle','Cycle terminé'],[150,'task','Durée terminée']]){
+  const before=Core.materialize(initial,1000+(minutes-1)*60000),after=Core.materialize(initial,1000+minutes*60000),saved=JSON.stringify(after),event=Bridge.elapsedPhaseEvent(before,after,1000+minutes*60000);assert.equal(event.boundary.kind,kind);assert.equal(event.boundary.title,title);assert.equal(event.boundary.taskDone,false);assert.equal(event.boundary.remainingMs,Core.phase(after.tasks[0]).remainingMs);assert.equal(event.boundary.remainingCount,1);assert.equal(event.boundary.nextTask,null);assert.equal(JSON.stringify(after),saved);assert.equal(Bridge.elapsedPhaseEvent(after,after,1000+minutes*60000),null);
+ }
+});
+test('an acknowledged task check exposes the real next task without starting or changing it',()=>{
+ const before=Core.fresh();before.tasks=[{id:'one',title:'Finished real task',totalMinutes:25,elapsedMs:3000,done:false,settings:{...before.settings}},{id:'two',title:'Next real task',totalMinutes:50,elapsedMs:1000,done:false,settings:{...before.settings}}];before.activeId='one';const after=structuredClone(before);after.tasks[0].done=true;const saved=JSON.stringify(after),event=Bridge.elapsedPhaseEvent(before,after,1234);assert.equal(event.boundary.kind,'task');assert.equal(event.boundary.taskDone,true);assert.equal(event.boundary.remainingCount,1);assert.deepEqual(event.boundary.nextTask,{id:'two',title:'Next real task',totalMinutes:50});assert.equal(event.boundary.task.title,'Finished real task');assert.equal(after.startedAt,null);assert.equal(JSON.stringify(after),saved);assert.equal(Bridge.elapsedPhaseEvent(after,after,2234),null);assert.equal(Bridge.elapsedPhaseEvent(after,before,3234),null,'reopening a task never announces a completion');
+});
+
+test('boundary cycles use the actual task interval instead of newer global defaults',()=>{
+ const before=Core.fresh();before.tasks=[{id:'kept',title:'Existing cycle',totalMinutes:8,elapsedMs:175000,done:false,settings:{work:1,rest:1,longRest:2,interval:2}}];before.activeId='kept';before.startedAt=1000;assert.equal(before.settings.interval,4);const after=Core.materialize(before,6000),cycle=Bridge.elapsedPhaseEvent(before,after,6000);assert.equal(cycle.boundary.kind,'cycle');assert.equal(cycle.boundary.interval,2);const checked=structuredClone(after);checked.tasks[0].done=true;assert.equal(Bridge.elapsedPhaseEvent(after,checked,6000).boundary.interval,2);
+});
+
+test('the first immediate task check has a loaded baseline before the deferred initial render',async()=>{
+ const state=Core.fresh();state.tasks=[{id:'current',title:'Check immediately after load',totalMinutes:25,elapsedMs:0,done:false,settings:{...state.settings}},{id:'next',title:'Real next task',totalMinutes:25,elapsedMs:0,done:false,settings:{...state.settings}}];state.activeId='current';const f=fixture({durationModule:state});await f.focus.ready;assert.equal(f.changes.length,0,'the deferred first render has not run');await f.focus.durationStore.complete('current');const events=f.changes.filter(change=>change.event);assert.equal(events.length,1);assert.equal(events[0].event.boundary.taskDone,true);assert.equal(events[0].event.boundary.task.id,'current');assert.equal(events[0].event.boundary.nextTask.id,'next');f.flush();assert.equal(f.changes.filter(change=>change.event).length,1);f.focus.dispose();
 });

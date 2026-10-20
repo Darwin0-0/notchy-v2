@@ -9,7 +9,7 @@ function fixture({motion=true}={}){
  const scope={disposed:false,document:{hidden:false},state:'rest',view:'localsend',pointerInside:false,fileDragging:false,nearbyLoaded:true,
   nearby:{transfer:{id:'receive-1',direction:'receive',status:'receiving',fileCount:3,totalBytes:30,progress:50}},
   localSendContext:{incomingId:'receive-1',direction:'receive',files:[{name:'one.png'},{name:'two.png'},{name:'three.png'}],totalBytes:30},
-  moduleFeedback:null,moduleFeedbackTimer:0,moduleFeedbackSequence:0,moduleFeedbackAnimations:new Set(),moduleActivityStates:new Map(),
+  moduleFeedback:null,moduleFeedbackTimer:0,moduleFeedbackStageTimer:0,moduleFeedbackSequence:0,moduleFeedbackAnimations:new Set(),moduleActivityStates:new Map(),
   moduleDefinitions:Object.fromEntries(getModuleDefinitions().map(value=>[value.id,value])),ISLAND_CONFIG,
   isModuleEnabled:()=>true,motionEnabled:()=>motion,t:value=>value,text:(target,value)=>target.textContent=value,
   localizedFeedback:value=>value,byId:id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);},

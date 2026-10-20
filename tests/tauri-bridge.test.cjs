@@ -3,14 +3,14 @@ const {test} = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src-tauri/src/window_bridge.js'), 'utf8');
 const key = 'notchy-minimal-modules-v1';
-function fixture({saved={},preferences={},invoker,localSendActive=false,startup,keys=[key]}={}) {
+function fixture({saved={},preferences={},invoker,localSendActive=false,startup,development=false,keys=[key]}={}) {
   const calls=[],fetches=[],listeners=[],events=[];
   class Storage {constructor(){this.values=new Map(Object.entries(saved));}getItem(key){return this.values.get(key)??null;}setItem(key,value){this.values.set(key,String(value));}removeItem(key){this.values.delete(key);}}
   class EventSource {constructor(url,options){events.push({url,options});}}
   const localStorage=new Storage();
   const window={fetch:async(input,options)=>{fetches.push({input,options});return {ok:true};},EventSource,__TAURI__:{core:{invoke:async(command,args)=>{calls.push({command,args});return invoker?invoker(command,args):{ok:true};}},event:{listen:async(name,callback)=>{const entry={name,callback,removed:false};listeners.push(entry);return ()=>{entry.removed=true;};}}}};
   const location=new URL('http://127.0.0.1:58252/?desktop=1');
-  vm.runInNewContext(source.replace('__NOTCHY_CONFIG__',JSON.stringify({token:'private-session',keys,preferences,checking:false,localSendActive,startup})),{window,Storage,localStorage,location,URL,Request,Headers,ArrayBuffer,Uint8Array,DataView,TextDecoder});
+  vm.runInNewContext(source.replace('__NOTCHY_CONFIG__',JSON.stringify({token:'private-session',keys,preferences,checking:false,development,localSendActive,startup})),{window,Storage,localStorage,location,URL,Request,Headers,ArrayBuffer,Uint8Array,DataView,TextDecoder});
   return {window,calls,fetches,listeners,events,localStorage};
 }
 test('Tauri credentials apply only to this server and replace legacy public header',async()=>{
@@ -92,6 +92,25 @@ test('module registry errors stay errors and confirmed native restoration overri
   await assert.rejects(context.window.notchyDesktop.saveModuleRegistry(confirmed),/Disk unavailable/);
   assert.equal(context.localStorage.getItem(registryKey),confirmed);
   assert.equal(fixture({keys:[registryKey],saved:{[registryKey]:'unconfirmed'}}).localStorage.getItem(registryKey),null);
+});
+
+test('the native trial seeds a fresh origin but keeps confirmed module imports across a UI reload',()=>{
+  const registryKey='notchy-community-modules-v1',initial='{"registryVersion":1,"modules":[]}',confirmed='{"registryVersion":1,"modules":[{"id":"community.example"}]}';
+  const launch=fixture({development:true,keys:[registryKey],preferences:{[registryKey]:initial}});
+  assert.equal(launch.localStorage.getItem(registryKey),initial,'a new process/origin starts from native profile data');
+  const reload=fixture({development:true,keys:[registryKey],saved:{[registryKey]:confirmed},preferences:{[registryKey]:initial}});
+  assert.equal(reload.localStorage.getItem(registryKey),confirmed,'the startup bridge snapshot must not overwrite a later acknowledged import');
+  const noInitialRegistry=fixture({development:true,keys:[registryKey],saved:{[registryKey]:confirmed}});
+  assert.equal(noInitialRegistry.localStorage.getItem(registryKey),confirmed,'a first import survives even when no registry existed at host startup');
+  assert.equal(launch.calls.length+reload.calls.length+noInitialRegistry.calls.length,0,'restoration never writes stale startup data back to native storage');
+});
+
+test('release module restoration remains native-authoritative unless the debug flag is exactly true',()=>{
+  const registryKey='notchy-community-modules-v1',confirmed='{"registryVersion":1,"modules":[]}';
+  for(const development of [false,undefined,'true',1]) {
+    assert.equal(fixture({development,keys:[registryKey],saved:{[registryKey]:'stale'},preferences:{[registryKey]:confirmed}}).localStorage.getItem(registryKey),confirmed);
+    assert.equal(fixture({development,keys:[registryKey],saved:{[registryKey]:'stale'}}).localStorage.getItem(registryKey),null);
+  }
 });
 test('Windows startup shows confirmed state and updates it only from native replies',async()=>{
   const context=fixture({startup:{supported:true,enabled:true},invoker:(_,args)=>({ok:true,supported:true,enabled:args.value.value})});
