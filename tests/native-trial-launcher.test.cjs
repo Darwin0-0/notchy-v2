@@ -8,9 +8,10 @@ const {spawnSync} = require('node:child_process');
 const windows = process.platform === 'win32';
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'notchy-native-trial-'));
+  const tempRoot = fs.realpathSync.native(os.tmpdir());
+  const root = fs.mkdtempSync(path.join(tempRoot, 'notchy-native-trial-'));
   t.after(() => {
-    assert(root.startsWith(path.resolve(os.tmpdir()) + path.sep));
+    assert(root.startsWith(tempRoot + path.sep));
     fs.rmSync(root, {recursive:true, force:true});
   });
   for (const folder of ['scripts', 'src-tauri', 'native/bin', '.development', 'target/debug']) fs.mkdirSync(path.join(root, folder), {recursive:true});
