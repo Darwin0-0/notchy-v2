@@ -458,6 +458,42 @@ test('typing from a selected result returns to query editing and closes its prev
   } finally {f.controller.dispose();}
 });
 
+test('a status response started before Space cannot clear the preview opened while it was pending', async () => {
+  const pending=deferred(),ready={files:42,indexing:false,quickLook:{supported:true,available:true,previewVisible:false}};
+  let nextStatus=ready;
+  const f=fixture(name=>name==='search_query'?response([hit('one')]):{},'en',
+    {animationFrames:true,status:()=>nextStatus});
+  try {
+    f.controller.open();await f.type('rapport');
+    nextStatus=pending.promise;f.document.defaultView.emit('focus');
+    const {list,preview}=f.controller.elements;
+    list.emit('click',{target:list.children[0]});f.host.emit('keydown',{target:list.children[0],key:' '});await delay(0);
+    assert.equal(f.controller.isPreviewing(),true,'Space has opened the viewer and its Invoke has completed');
+    assert.equal(preview.getAttribute('aria-pressed'),'true');
+    pending.resolve(ready);await delay(0);
+    assert.equal(f.controller.isPreviewing(),true,'A snapshot taken before Invoke cannot describe the current viewer');
+    assert.equal(preview.getAttribute('aria-pressed'),'true');
+    assert.equal(f.calls.some(call=>call.name==='search_preview_close'),false,'A stale visibility snapshot cannot close the active preview');
+  } finally {pending.resolve(ready);f.controller.dispose();}
+});
+
+test('a status snapshot taken during Invoke cannot clear the viewer once Invoke has completed', async () => {
+  const statusReply=deferred(),invokeReply=deferred(),ready={files:42,indexing:false,quickLook:{supported:true,available:true,previewVisible:false}};
+  let nextStatus=ready;
+  const f=fixture(name=>name==='search_query'?response([hit('one')]):name==='search_preview'?invokeReply.promise:{},'en',
+    {animationFrames:true,status:()=>nextStatus});
+  try {
+    f.controller.open();await f.type('rapport');f.controller.elements.preview.emit('click');
+    nextStatus=statusReply.promise;f.document.defaultView.emit('focus');
+    invokeReply.resolve({ok:true});await delay(0);
+    assert.equal(f.controller.isPreviewing(),true);
+    statusReply.resolve(ready);await delay(0);
+    assert.equal(f.controller.isPreviewing(),true,'A status sampled while the native viewer was opening is stale after Invoke completes');
+    assert.equal(f.controller.elements.preview.getAttribute('aria-pressed'),'true');
+    assert.equal(f.calls.some(call=>call.name==='search_preview_close'),false);
+  } finally {invokeReply.resolve({ok:true});statusReply.resolve(ready);f.controller.dispose();}
+});
+
 test('closing the native viewer clears preview state on return without closing search or sending another Close', async () => {
   let visible=true;
   const f=fixture(name=>name==='search_query'?response([hit('one')]):{},'en',

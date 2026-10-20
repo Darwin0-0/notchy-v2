@@ -152,7 +152,7 @@ pub(crate) fn preview(path: &Path) -> Result<(), String> {
     let message = message("Invoke", path.to_str().ok_or("Invalid preview path.")?)?;
     let pipe = pipe_name()?;
     let missing = match write_pipe(&pipe, &message) {
-        Ok(()) => return foreground_preview(),
+        Ok(()) => return show_preview_above_client(),
         Err(error) => error.kind() == std::io::ErrorKind::NotFound,
     };
     if missing {
@@ -162,15 +162,15 @@ pub(crate) fn preview(path: &Path) -> Result<(), String> {
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
-        if write_pipe(&pipe, &message).is_ok() { return foreground_preview(); }
+        if write_pipe(&pipe, &message).is_ok() { return show_preview_above_client(); }
         if std::time::Instant::now() >= deadline { return Err("QuickLook did not become ready.".into()); }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
 
 #[cfg(windows)]
-fn foreground_preview() -> Result<(), String> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, SetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SW_RESTORE};
+fn show_preview_above_client() -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SW_SHOWNOACTIVATE};
     // QuickLook creates its viewer asynchronously after consuming Invoke.
     // This runs on the command's blocking worker, never the WebView/UI thread.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
@@ -178,11 +178,13 @@ fn foreground_preview() -> Result<(), String> {
         let pid = VIEWER_PID.load(std::sync::atomic::Ordering::Relaxed);
         if let Some(window) = (pid != 0).then(|| viewer_window(pid)).flatten() {
             unsafe {
-                if IsIconic(window) != 0 { ShowWindow(window, SW_RESTORE); }
+                if IsIconic(window) != 0 { ShowWindow(window, SW_SHOWNOACTIVATE); }
                 // Notchy has temporarily relinquished its own topmost layer.
+                // Keep keyboard focus in Notchy so physical arrows, typing and
+                // Escape continue to act on the same Spotlight results. This is
+                // also how QuickLook's own BringToFront shows its viewer.
                 // Do not alter QuickLook's persistent Topmost preference.
                 SetWindowPos(window, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                SetForegroundWindow(window);
             }
             return Ok(());
         }
@@ -192,7 +194,7 @@ fn foreground_preview() -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn foreground_preview() -> Result<(), String> { Err("QuickLook requires Windows.".into()) }
+fn show_preview_above_client() -> Result<(), String> { Err("QuickLook requires Windows.".into()) }
 
 pub fn close() -> Result<(), String> {
     let pipe = pipe_name()?;
@@ -248,9 +250,6 @@ fn write_pipe(pipe: &str, bytes: &[u8]) -> std::io::Result<()> {
     let mut pid = 0;
     if unsafe { windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId(client.as_raw_handle().cast(), &mut pid) } != 0 {
         VIEWER_PID.store(pid, std::sync::atomic::Ordering::Relaxed);
-        // Permit the actual IPC peer to activate its window for this user action.
-        // The subsequent foreground operation only targets the pipe owner's viewer.
-        unsafe { windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid); }
     }
     client.write_all(bytes)?;
     Ok(())

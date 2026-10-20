@@ -90,7 +90,7 @@
     let cancelFocus = null;
     let status = {files: 0, indexing: false, shortcutUnavailable: false}, statusReady = false, reindexing = false, opener = null, emptyController = null, menuOpener = null;
     let quickLook = {supported: false, available: false};
-    let previewing = false, previewSent = null, previewFlight = null;
+    let previewing = false, previewSent = null, previewFlight = null, previewVersion = 0;
     const element = (tag, className) => {const node = document.createElement(tag); if (className) node.className = className; return node;};
     const label = (key, values = {}) => {
       const translated = typeof t === 'function' ? t(key) : key;
@@ -197,7 +197,9 @@
       select(selected, false);
     }
     function select(index, scroll = true) {
+      const previousId = hits[selected]?.id;
       selected = hits.length ? Math.max(0, Math.min(index, hits.length - 1)) : -1;
+      if (hits[selected]?.id !== previousId) previewVersion++;
       for (let position = 0; position < list.children.length; position++) list.children[position].setAttribute('aria-selected', String(position === selected));
       if (selected >= 0) {
         const row = list.children[selected]; input.setAttribute('aria-activedescendant', row.id);
@@ -229,26 +231,29 @@
           const id = target();
           await invoke(id ? 'search_preview' : 'search_preview_close', id ? {id} : {});
           previewSent = id;
+          previewVersion++;
         }
       })().catch(async () => {
-        previewing = false;
+        previewing = false; previewVersion++;
         if (previewSent !== null) {try {await invoke('search_preview_close', {});} catch (_) {}}
         previewSent = null;
         if (opened && !disposed) error = 'Impossible de lancer l’aperçu QuickLook.';
       }).finally(() => {previewFlight = null; if (opened && !disposed) render();});
       return previewFlight;
     }
-    function stopPreview() {previewing = false; void syncPreview();}
+    function stopPreview() {previewing = false; previewVersion++; void syncPreview();}
     function togglePreview() {
       if (!quickLook.supported || !hits[selected] || loading || acting) return;
       closeMenu();
       if (!quickLook.available) {void activate('preview'); return;}
-      error = ''; previewing = !previewing; focusResult(); void syncPreview(); render();
+      error = ''; previewing = !previewing; previewVersion++; focusResult(); void syncPreview(); render();
     }
     function results(value) {
       const menuHadFocus = contextMenu.contains(document.activeElement); closeMenu();
       if (menuHadFocus && opened) input.focus({preventScroll: true});
+      const previousId = hits[selected]?.id;
       hits = normalizeHits(value); selected = hits.length ? 0 : -1; list.replaceChildren();
+      if (hits[selected]?.id !== previousId) previewVersion++;
       for (const hit of hits) {
         const row = button('search-result'), glyph = element('span', 'search-result-icon'), copy = element('span', 'search-result-copy');
         row.id = prefix + '-result-' + list.children.length; row.tabIndex = -1; row.setAttribute('role', 'option'); row.dataset.resultId = hit.id;
@@ -278,10 +283,12 @@
       contextMenu.style.top = Math.max(inset, Math.min((y - bounds.top) / scale, (bounds.height - menuBounds.height) / scale - inset)) + 'px';
       menuItems.find(({item}) => !item.hidden)?.item.focus({preventScroll: true});
     }
-    function readStatus(value) {
+    function readStatus(value, previewRequest) {
       if (!value || typeof value !== 'object') return;
       if (value.quickLook && typeof value.quickLook === 'object') quickLook = {supported: value.quickLook.supported === true, available: value.quickLook.available === true};
-      if (previewing && !previewFlight && value.quickLook?.previewVisible === false) {previewing = false; previewSent = null;}
+      // A reply sampled before a toggle, selection or completed Invoke/Close
+      // cannot describe the current viewer, even after its flight has settled.
+      if (previewRequest === previewVersion && previewing && !previewFlight && value.quickLook?.previewVisible === false) {previewing = false; previewSent = null; previewVersion++;}
       if (quickLook.available && error === 'QuickLook est nécessaire pour afficher un aperçu. Installe-le, puis reviens dans Notchy.') error = '';
       status = {files: Number.isSafeInteger(value.files) && value.files >= 0 ? value.files : status.files, indexing: value.indexing === true,
         shortcutUnavailable: typeof value.shortcut?.available === 'boolean' ? !value.shortcut.available : status.shortcutUnavailable};
@@ -295,23 +302,24 @@
       clearTimeout(debounce); debounce = null; error = ''; results([]);
       if (q.length < CONFIG.minimumQuery) {loading = false; render(); return;}
       loading = true; render();
+      const previewRequest = previewVersion;
       try {
         const value = await invoke('search_query', {q, limit: CONFIG.limit});
         if (!opened || disposed || current !== generation) return;
         if (!value || !Array.isArray(value.hits)) throw new Error('Invalid search response');
-        readStatus(value); results(value.hits);
+        readStatus(value, previewRequest); results(value.hits);
       } catch (_) {if (!opened || disposed || current !== generation) return; error = 'La recherche est indisponible.';}
       finally {if (opened && !disposed && current === generation) {loading = false; render();}}
     }
     async function refreshStatus() {
       if (!opened || disposed) return;
       clearTimeout(poll); poll = null;
-      const current = ++statusGeneration, wasIndexing = status.indexing;
+      const current = ++statusGeneration, wasIndexing = status.indexing, previewRequest = previewVersion;
       try {
         const value = await invoke('search_status', {});
         if (!opened || disposed || current !== statusGeneration) return;
         if (!value || typeof value.indexing !== 'boolean' || !Number.isSafeInteger(value.files)) throw new Error('Invalid search status');
-        readStatus(value);
+        readStatus(value, previewRequest);
         if (wasIndexing && !status.indexing && input.value.trim().length >= CONFIG.minimumQuery && !loading && !debounce) void query();
       } catch (_) {if (!opened || disposed || current !== statusGeneration) return; statusError = true; statusReady = true;}
       finally {
@@ -323,12 +331,12 @@
     function refresh() {if (opened && !disposed) {void refreshStatus(); if (input.value.trim().length >= CONFIG.minimumQuery) void query();}}
     async function rebuild() {
       if (!opened || disposed || reindexing || status.indexing) return;
-      const current = ++statusGeneration; input.focus({preventScroll: true}); reindexing = true; error = ''; render();
+      const current = ++statusGeneration, previewRequest = previewVersion; input.focus({preventScroll: true}); reindexing = true; error = ''; render();
       try {
         const value = await invoke('search_reindex', {});
         if (!opened || disposed || current !== statusGeneration) return;
         if (!value || typeof value.indexing !== 'boolean' || !Number.isSafeInteger(value.files)) throw new Error('Invalid search status');
-        generation++; clearTimeout(debounce); debounce = null; loading = false; results([]); readStatus(value);
+        generation++; clearTimeout(debounce); debounce = null; loading = false; results([]); readStatus(value, previewRequest);
         if (!status.indexing && input.value.trim().length >= CONFIG.minimumQuery) void query();
       } catch (_) {if (opened && !disposed && current === statusGeneration) error = 'La recherche est indisponible.';}
       finally {reindexing = false; if (opened && !disposed) render();}

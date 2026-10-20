@@ -185,7 +185,8 @@ pub fn layout(window: &WebviewWindow, geometry: Geometry) -> Result<serde_json::
     if window.outer_position().ok() != Some(target) {
         let _ = window.set_position(target);
     }
-    let _ = window.set_always_on_top(true);
+    // Geometry updates must not reclaim the foreground from an external preview.
+    // The application owns this layer through its QuickLook session state.
     shape_window(window, geometry, width, scale)?;
     Ok(serde_json::json!({"width":width,"height":height,"maxHeight":max_height}))
 }
