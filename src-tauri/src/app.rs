@@ -225,6 +225,8 @@ struct DesktopState {
     search: Option<Arc<notchy::search::SearchService>>,
     search_error: Option<String>,
     search_shortcut: Mutex<Option<Arc<Mutex<notchy::search_hotkey::ShortcutStatus>>>>,
+    quicklook_active: AtomicBool,
+    quicklook_command: tokio::sync::Mutex<()>,
 }
 fn initial_geometry() -> Geometry {
     Geometry {
@@ -259,7 +261,9 @@ fn resume(window: &WebviewWindow, state: &DesktopState, reason: &str) {
     if let Ok(mut dimensions) = desktop::layout(window, geometry) {
         dimensions["reason"] = json!(reason);
         let _ = window.show();
-        let _ = window.set_always_on_top(true);
+        if let Ok(_command) = state.quicklook_command.try_lock() {
+            let _ = window.set_always_on_top(!state.quicklook_active.load(Ordering::Relaxed));
+        }
         let _ = window.emit("notchy:resume", dimensions);
     }
 }
@@ -668,7 +672,20 @@ async fn desktop_command(
             "search-preview" => {
                 let id = search_result_id(argument)?;
                 let search = search_service(&state)?;
-                tokio::task::spawn_blocking(move || search.preview(&id)).await
+                let _command = state.quicklook_command.lock().await;
+                state.quicklook_active.store(true, Ordering::Relaxed);
+                if window.set_always_on_top(false).is_err() {
+                    state.quicklook_active.store(false, Ordering::Relaxed);
+                    return Err(ApiError::new(503, "Aperçu indisponible."));
+                }
+                // Relinquish Notchy's layer before QuickLook creates/activates its
+                // viewer. The normal recovery loop must not raise Notchy over it.
+                let result = tokio::task::spawn_blocking(move || search.preview(&id)).await;
+                if !matches!(&result, Ok(Ok(()))) {
+                    state.quicklook_active.store(false, Ordering::Relaxed);
+                    let _ = window.set_always_on_top(true);
+                }
+                result
                     .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
                     .map_err(|_| ApiError::new(409, "L’aperçu QuickLook est indisponible. Actualise les résultats et vérifie que QuickLook est installé."))?;
                 Ok(json!({"ok":true}))
@@ -680,7 +697,11 @@ async fn desktop_command(
             }
             "search-preview-close" => {
                 if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Commande invalide.")); }
-                tokio::task::spawn_blocking(notchy::quicklook::close).await
+                let _command = state.quicklook_command.lock().await;
+                let result = tokio::task::spawn_blocking(notchy::quicklook::close).await;
+                state.quicklook_active.store(false, Ordering::Relaxed);
+                let _ = window.set_always_on_top(true);
+                result
                     .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
                     .map_err(|_| ApiError::new(503, "Fermeture de l’aperçu indisponible."))?;
                 Ok(json!({"ok":true}))
@@ -843,7 +864,7 @@ pub fn run() {
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
         let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"development":cfg!(debug_assertions),"localSendActive":nearby_active,"startup":startup_status});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
-        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None)});
+        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None),quicklook_active:AtomicBool::new(false),quicklook_command:tokio::sync::Mutex::new(())});
         app.manage(state.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();
         let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}/?desktop=1").parse()?))
@@ -874,7 +895,7 @@ pub fn run() {
         window.on_window_event(move|event|match event{
           tauri::WindowEvent::CloseRequested{api,..}=>{if !events.quitting.load(Ordering::Relaxed){api.prevent_close();hide(&event_window,&events);}},
           tauri::WindowEvent::Focused(true)=>{events.blur.fetch_add(1,Ordering::Relaxed);},
-          tauri::WindowEvent::Focused(false)=>{let generation=events.blur.fetch_add(1,Ordering::Relaxed)+1;let state=events.clone();let window=event_window.clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_millis(180)).await;if state.blur.load(Ordering::Relaxed)==generation&&state.visible.load(Ordering::Relaxed)&&!state.dialog.load(Ordering::Relaxed)&&state.downloads.load(Ordering::Relaxed)==0&&!window.is_focused().unwrap_or(true){let _=window.emit("notchy:deactivate",json!({"reason":"blur","quickLook":notchy::quicklook::is_foreground()}));}});},
+          tauri::WindowEvent::Focused(false)=>{let generation=events.blur.fetch_add(1,Ordering::Relaxed)+1;let state=events.clone();let window=event_window.clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_millis(180)).await;if state.blur.load(Ordering::Relaxed)==generation&&state.visible.load(Ordering::Relaxed)&&!state.dialog.load(Ordering::Relaxed)&&state.downloads.load(Ordering::Relaxed)==0&&!window.is_focused().unwrap_or(true){let _=window.emit("notchy:deactivate",json!({"reason":"blur","quickLook":state.quicklook_active.load(Ordering::Relaxed)||notchy::quicklook::is_foreground()}));}});},
           tauri::WindowEvent::ScaleFactorChanged{..}=>resume(&event_window,&events,"resume"),
           _=>{},
         });
@@ -907,12 +928,20 @@ pub fn run() {
                 if recovery_state.quitting.load(Ordering::Relaxed){break;}
                 let now=std::time::SystemTime::now();let resumed=now.duration_since(sampled).map_or(true,|elapsed|elapsed>Duration::from_secs(5));sampled=now;
                 if !recovery_state.visible.load(Ordering::Relaxed){continue;}
+                // The viewer may be closed with its own Escape/close button.
+                // Reuse this existing two-second recovery cadence; never race a
+                // pending Invoke/Close or introduce an aggressive polling loop.
                 let screen=recovery_window.current_monitor().ok().flatten().or_else(||recovery_window.primary_monitor().ok().flatten()).map(|monitor|{
                     let position=monitor.position();let size=monitor.size();(position.x,position.y,size.width,size.height,monitor.scale_factor().to_bits())
                 });
                 let changed=previous_screen.is_some()&&screen!=previous_screen;previous_screen=screen;
                 if resumed||changed||!recovery_window.is_visible().unwrap_or(true){resume(&recovery_window,&recovery_state,"resume");}
-                else if !recovery_window.is_always_on_top().unwrap_or(true){let _=recovery_window.set_always_on_top(true);}
+                if let Ok(_command)=recovery_state.quicklook_command.try_lock(){
+                    if recovery_state.quicklook_active.load(Ordering::Relaxed)
+                        && notchy::quicklook::status().preview_visible==Some(false)
+                    {recovery_state.quicklook_active.store(false,Ordering::Relaxed);}
+                    if !recovery_state.quicklook_active.load(Ordering::Relaxed)&&!recovery_window.is_always_on_top().unwrap_or(true){let _=recovery_window.set_always_on_top(true);}
+                }
             }
         });
         if checking {let watchdog=app.handle().clone();let directory=data.clone();tauri::async_runtime::spawn(async move{tokio::time::sleep(Duration::from_secs(25)).await;if !directory.join("tauri-check.json").is_file(){let _=tokio::fs::write(directory.join("tauri-check.json"),b"{\"pass\":false,\"error\":\"Le renderer ne repond pas.\"}").await;watchdog.exit(1);}});}
@@ -927,6 +956,11 @@ pub fn run() {
                         let state = state.inner().clone();
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
+                            let _command=state.quicklook_command.lock().await;
+                            if state.quicklook_active.swap(false,Ordering::Relaxed){
+                                let _=tokio::task::spawn_blocking(notchy::quicklook::close).await;
+                                if let Some(window)=app.get_webview_window("main"){let _=window.set_always_on_top(true);}
+                            }
                             if let Some(search)=&state.search { search.stop(); }
                             state.server.dispose().await;
                             state.services.dispose().await;

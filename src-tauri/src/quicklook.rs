@@ -17,18 +17,33 @@ pub fn status() -> Status {
 
 #[cfg(windows)]
 fn preview_visible() -> Option<bool> {
-    use windows_sys::{core::BOOL, Win32::{Foundation::{HWND, LPARAM}, UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible}}};
     let pid = VIEWER_PID.load(std::sync::atomic::Ordering::Relaxed);
     if pid == 0 { return None; }
+    Some(viewer_window(pid).is_some())
+}
+
+#[cfg(windows)]
+fn viewer_window(pid: u32) -> Option<windows_sys::Win32::Foundation::HWND> {
+    use windows_sys::{core::BOOL, Win32::{Foundation::{HWND, LPARAM, RECT}, UI::WindowsAndMessaging::{EnumWindows, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible}}};
     unsafe extern "system" fn visit(window: HWND, context: LPARAM) -> BOOL {
-        let (pid, visible) = &mut *(context as *mut (u32, bool));
+        let (pid, found) = &mut *(context as *mut (u32, HWND));
         let mut owner = 0; GetWindowThreadProcessId(window, &mut owner);
-        if owner == *pid && IsWindowVisible(window) != 0 { *visible = true; return 0; }
+        let mut rect: RECT = std::mem::zeroed();
+        if owner == *pid && IsWindowVisible(window) != 0
+            && preview_window_candidate(GetWindowTextLengthW(window),
+                if GetWindowRect(window, &mut rect) != 0 { rect.right - rect.left } else { 0 },
+                rect.bottom - rect.top)
+        { *found = window; return 0; }
         1
     }
-    let mut state = (pid, false);
-    unsafe { EnumWindows(Some(visit), (&mut state as *mut (u32, bool)) as LPARAM); }
-    Some(state.1)
+    let mut state: (u32, HWND) = (pid, std::ptr::null_mut());
+    unsafe { EnumWindows(Some(visit), (&mut state as *mut (u32, HWND)) as LPARAM); }
+    (!state.1.is_null()).then_some(state.1)
+}
+
+fn preview_window_candidate(title_length: i32, width: i32, height: i32) -> bool {
+    // QuickLook also owns a message/tray window. It is not a file preview.
+    title_length > 0 && width > 0 && height > 0
 }
 
 #[cfg(not(windows))]
@@ -137,7 +152,7 @@ pub(crate) fn preview(path: &Path) -> Result<(), String> {
     let message = message("Invoke", path.to_str().ok_or("Invalid preview path.")?)?;
     let pipe = pipe_name()?;
     let missing = match write_pipe(&pipe, &message) {
-        Ok(()) => return Ok(()),
+        Ok(()) => return foreground_preview(),
         Err(error) => error.kind() == std::io::ErrorKind::NotFound,
     };
     if missing {
@@ -147,11 +162,37 @@ pub(crate) fn preview(path: &Path) -> Result<(), String> {
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
-        if write_pipe(&pipe, &message).is_ok() { return Ok(()); }
+        if write_pipe(&pipe, &message).is_ok() { return foreground_preview(); }
         if std::time::Instant::now() >= deadline { return Err("QuickLook did not become ready.".into()); }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
+
+#[cfg(windows)]
+fn foreground_preview() -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, SetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SW_RESTORE};
+    // QuickLook creates its viewer asynchronously after consuming Invoke.
+    // This runs on the command's blocking worker, never the WebView/UI thread.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+    loop {
+        let pid = VIEWER_PID.load(std::sync::atomic::Ordering::Relaxed);
+        if let Some(window) = (pid != 0).then(|| viewer_window(pid)).flatten() {
+            unsafe {
+                if IsIconic(window) != 0 { ShowWindow(window, SW_RESTORE); }
+                // Notchy has temporarily relinquished its own topmost layer.
+                // Do not alter QuickLook's persistent Topmost preference.
+                SetWindowPos(window, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                SetForegroundWindow(window);
+            }
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline { return Err("QuickLook did not show a preview.".into()); }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+#[cfg(not(windows))]
+fn foreground_preview() -> Result<(), String> { Err("QuickLook requires Windows.".into()) }
 
 pub fn close() -> Result<(), String> {
     let pipe = pipe_name()?;
@@ -204,11 +245,14 @@ fn write_pipe(pipe: &str, bytes: &[u8]) -> std::io::Result<()> {
     use std::{io::Write, os::windows::{fs::OpenOptionsExt, io::AsRawHandle}};
     // Identification-only access prevents a pipe server impersonating Notchy.
     let mut client = std::fs::OpenOptions::new().write(true).custom_flags(0x00110000).open(pipe)?;
-    client.write_all(bytes)?;
     let mut pid = 0;
     if unsafe { windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId(client.as_raw_handle().cast(), &mut pid) } != 0 {
         VIEWER_PID.store(pid, std::sync::atomic::Ordering::Relaxed);
+        // Permit the actual IPC peer to activate its window for this user action.
+        // The subsequent foreground operation only targets the pipe owner's viewer.
+        unsafe { windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid); }
     }
+    client.write_all(bytes)?;
     Ok(())
 }
 
@@ -237,6 +281,14 @@ mod tests {
         assert_eq!(message("Close", "").unwrap(), b"QuickLook.App.PipeMessages.Close||\n");
         for path in ["file|command", "file\ncommand", "file\rcommand", "file\0command"] { assert!(message("Invoke", path).is_err()); }
         assert!(message("RunAndClose", path).is_err());
+    }
+
+    #[test]
+    fn tray_and_message_windows_are_not_reported_as_visible_previews() {
+        assert!(preview_window_candidate(18, 600, 400));
+        for (title, width, height) in [(0, 600, 400), (18, 0, 400), (18, 600, 0), (18, -1, 400)] {
+            assert!(!preview_window_candidate(title, width, height));
+        }
     }
 
     #[cfg(windows)]

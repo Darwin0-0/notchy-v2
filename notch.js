@@ -4038,7 +4038,9 @@
     document.addEventListener('mousemove', desktopPointer);
     document.addEventListener('pointerdown', desktopFocus);
     const removeResume = desktop.onResume(value => { if (value?.maxHeight) desktopMaxHeight = value.maxHeight; if (value?.reason === 'search') showSearch(); else if (value?.reason === 'open') openFromOutside(); else update(); });
-    const removeDeactivate = desktop.onDeactivate?.(event => {if (!event?.quickLook) search?.stopPreview(); scheduleCollapse(true);});
+    // Opening an external viewer transfers focus before its window is ready.
+    // Keep the preview until an explicit close or its next native status check.
+    const removeDeactivate = desktop.onDeactivate?.(() => {scheduleCollapse(true);});
     const removePointer = desktop.onPointer?.(nativePointer);
     desktopRemoveResume = () => { removeResume(); removeDeactivate?.(); removePointer?.(); };
   }

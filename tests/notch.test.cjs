@@ -202,8 +202,9 @@ function interactionFixture() {
     ${source.slice(start, end)}${source.slice(closeStart, closeEnd)}
     ${source.slice(source.indexOf('  function searchOpening() {'), source.indexOf('  function searchClosed() {'))}
     const resume = ${source.match(/const removeResume = desktop\.onResume\((value => \{[^\n]+\})\);/)[1]};
-    this.api={resume,openFromOutside,searchOpening,enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,scheduleCollapse,open,outside,key,
-      get state(){return state;},get view(){return view;},get pending(){return collapseTimer;},set state(value){state=value;},set view(value){view=value;},set closing(value){closingTo=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;},set previewing(value){search={isPreviewing:()=>value};}};
+    const deactivate = ${source.match(/const removeDeactivate = desktop\.onDeactivate\?\.\(([^\n]+)\);/)[1]};
+    this.api={resume,deactivate,openFromOutside,searchOpening,enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,scheduleCollapse,open,outside,key,
+      get state(){return state;},get view(){return view;},get pending(){return collapseTimer;},set state(value){state=value;},set view(value){view=value;},set closing(value){closingTo=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;},set previewing(value){search={isPreviewing:()=>value,stopPreview:()=>{value=false;}};}};
   `, scope);
   function runDue() {
     for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
@@ -398,6 +399,14 @@ test('QuickLook keeps search reachable when the pointer leaves, then releases th
   f.api.leave();f.advance(1000);assert.equal(f.api.state,'open');
   f.api.scheduleCollapse(true);f.advance(1000);assert.equal(f.api.state,'open');
   f.api.previewing=false;f.api.scheduleCollapse(true);f.advance(280);assert.equal(f.api.state,'rest');
+});
+
+test('native deactivation during QuickLook startup preserves the preview and search route', () => {
+  const f=interactionFixture();f.api.state='open';f.api.view='search';f.api.previewing=true;
+  f.documentFocus(false);f.api.deactivate({reason:'blur',quickLook:false});f.advance(1000);
+  assert.equal(f.api.state,'open');assert.equal(f.api.view,'search');
+  f.api.previewing=false;f.api.deactivate({reason:'blur',quickLook:false});f.advance(280);
+  assert.equal(f.api.state,'rest','normal deactivation still collapses after the preview closes');
 });
 
 test('settings close on departure and pointer reentry only previews without opening the route', () => {
