@@ -148,7 +148,7 @@ fn windows_registration() -> Option<PathBuf> {
     found
 }
 
-pub(crate) fn preview(path: &Path) -> Result<(), String> {
+pub fn preview(path: &Path) -> Result<(), String> {
     let message = message("Invoke", path.to_str().ok_or("Invalid preview path.")?)?;
     let pipe = pipe_name()?;
     let missing = match write_pipe(&pipe, &message) {

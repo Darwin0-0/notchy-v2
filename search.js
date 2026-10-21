@@ -251,8 +251,9 @@
     function results(value) {
       const menuHadFocus = contextMenu.contains(document.activeElement); closeMenu();
       if (menuHadFocus && opened) input.focus({preventScroll: true});
+      const resultHadFocus = list.contains(document.activeElement);
       const previousId = hits[selected]?.id;
-      hits = normalizeHits(value); selected = hits.length ? 0 : -1; list.replaceChildren();
+      hits = normalizeHits(value); selected = hits.length ? Math.max(0, resultHadFocus ? hits.findIndex(hit => hit.id === previousId) : 0) : -1; list.replaceChildren();
       if (hits[selected]?.id !== previousId) previewVersion++;
       for (const hit of hits) {
         const row = button('search-result'), glyph = element('span', 'search-result-icon'), copy = element('span', 'search-result-copy');
@@ -263,6 +264,7 @@
         row.setAttribute('aria-haspopup', 'menu'); row.setAttribute('aria-controls', contextMenu.id);
         path.title = hit.path; glyph.append(icon(hit.kind)); copy.append(name, path); row.append(glyph, copy); list.append(row);
       }
+      if (resultHadFocus && opened) {if (hits.length) focusResult(); else focusInput();}
     }
     function closeMenu(restoreFocus = false) {
       if (contextMenu.hidden) return;
@@ -299,7 +301,9 @@
     async function query() {
       if (!opened || disposed) return;
       const q = input.value.trim(), current = ++generation;
-      clearTimeout(debounce); debounce = null; error = ''; results([]);
+      clearTimeout(debounce); debounce = null; error = '';
+      // Keep a keyboard-focused row attached during a refresh; typing already clears old hits.
+      if (!list.contains(document.activeElement) || q.length < CONFIG.minimumQuery) results([]);
       if (q.length < CONFIG.minimumQuery) {loading = false; render(); return;}
       loading = true; render();
       const previewRequest = previewVersion;
@@ -308,7 +312,7 @@
         if (!opened || disposed || current !== generation) return;
         if (!value || !Array.isArray(value.hits)) throw new Error('Invalid search response');
         readStatus(value, previewRequest); results(value.hits);
-      } catch (_) {if (!opened || disposed || current !== generation) return; error = 'La recherche est indisponible.';}
+      } catch (_) {if (!opened || disposed || current !== generation) return; results([]); error = 'La recherche est indisponible.';}
       finally {if (opened && !disposed && current === generation) {loading = false; render();}}
     }
     async function refreshStatus() {
@@ -389,14 +393,16 @@
         event.preventDefault(); event.stopImmediatePropagation(); void activate('preview'); return;
       }
       const row = event.target.closest?.('[data-result-id]'), inResults = !!row && list.contains(row);
-      if (inResults && (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      const queryPreview = event.target === input && quickLook.supported && hits[selected] && !loading && !acting;
+      if ((inResults || queryPreview) && (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
         event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) togglePreview(); return;
       }
       if (event.target !== input && !inResults) return;
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || inResults && previewing && ['ArrowLeft','ArrowRight'].includes(event.key)) {
         event.preventDefault(); if (!hits.length) return;
         const step = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1;
-        select(quickLook.supported ? selected + step : (selected + (step > 0 ? 1 : hits.length - 1)) % hits.length);
+        const enteringResults = quickLook.supported && event.target === input;
+        select(quickLook.supported ? selected + (enteringResults ? 0 : step) : (selected + (step > 0 ? 1 : hits.length - 1)) % hits.length);
         if (quickLook.supported) focusResult();
       } else if (event.key === 'Enter') {event.preventDefault(); void activate(event.ctrlKey || event.metaKey ? 'reveal' : 'open');}
       else if (inResults && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key?.length === 1 || event.key === 'Backspace')) {

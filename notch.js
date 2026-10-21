@@ -1329,6 +1329,7 @@
   }
   function moduleDragStart(event) {
     if (disposed || !moduleEditing || !moduleDraft || !event.dataTransfer) return;
+    if (event.target.closest?.('.experience-module-editor')) return;
     const tile = event.target.closest('[data-module-id]'), id = tile?.dataset.moduleId;
     if (!Object.hasOwn(moduleLabels, id)) { event.preventDefault(); return; }
     event.dataTransfer.setData(moduleMime, id); event.dataTransfer.effectAllowed = 'move'; modulePicked = id;
@@ -1432,6 +1433,7 @@
     if (!experience || disposed) return;
     byId('health-player').hidden = view !== 'health' || moduleEditing;
     const tray = view === 'tray' && !moduleEditing;
+    if (!tray || state !== 'open') sharingExperience?.stopPreview?.();
     const nearbyFailure = nearbyError || nearby.error || '';
     notch.dataset.experienceTray = String(tray);
     byId('sharing-experience').hidden = !tray;
@@ -1447,7 +1449,7 @@
       ]});
     }
     if (tray && sharingExperience) {
-      sharingExperience.render({files:shelfItems.map(item => {const file = acceptedFile(item,'shelf'); return {...item, canOcr:(file.image || file.pdf) && file.toolsAvailable, canConvert:file.image && file.toolsAvailable, canSend:true, canOpen:true, canDownload:true, canRemove:true};}), selectedIds:[...selectedFiles], busy:shelfBusy || nearbyBusy, status:{message:uiMessage(nearbyFailure),error:!!nearbyFailure}, fileStatus:{message:shelfError,error:shelfDownloadError}, peers:nearby.peers || [], favorites:peerFavorites, available:nearby.available, transfer:nearby.transfer, incoming:nearby.incoming});
+      sharingExperience.render({files:shelfItems.map(item => {const file = acceptedFile(item,'shelf'); return {...item, canOcr:(file.image || file.pdf) && file.toolsAvailable, canConvert:file.image && file.toolsAvailable, canSend:true, canOpen:true, canDownload:true, canRemove:true, canPreview:!!desktop?.search && !/\.qlplugin$/i.test(item.name)};}), selectedIds:[...selectedFiles], busy:shelfBusy || nearbyBusy, status:{message:uiMessage(nearbyFailure),error:!!nearbyFailure}, fileStatus:{message:shelfError,error:shelfDownloadError}, peers:nearby.peers || [], favorites:peerFavorites, available:nearby.available, transfer:nearby.transfer, incoming:nearby.incoming});
     }
   }
   async function experienceAction(action) {
@@ -3802,7 +3804,7 @@
   function protectedInteraction({ignoreFeedback = false} = {}) {
     const focused = document.hasFocus() ? document.activeElement : null;
     const editing = focused?.id !== 'music-seek' && !!focused?.closest('input,textarea,select,[contenteditable="true"]');
-    return search?.isPreviewing() || awaitingPointerEntry || calendar?.isOpen() || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || !ignoreFeedback && state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
+    return search?.isPreviewing() || sharingExperience?.isPreviewing?.() || awaitingPointerEntry || calendar?.isOpen() || view === 'module-library' && moduleLibrary?.isBusy() || welcome?.isActive() || fileDialogOpen || fileDragging || seekDragging || getModuleEditorActive() || !ignoreFeedback && state === 'compact' && moduleFeedback?.restoreQuiet === true || state === 'open' && view === 'localsend' && !!nearby.incoming && localSendContext?.incomingId === nearby.incoming.id || queueOpen && (queueState.status === 'connecting' || queueBusy && queueOperation === 'play-track') || editing && (pointerInside || keyboardNavigation) || keyboardNavigation && state !== 'rest' && !!(focused?.closest('#notch-toggle,#notch-panel,#notch-menu,#island-footer') || focused?.closest('#music-hover-controls'));
   }
   function scheduleCollapse(deactivated = false) {
     window.clearTimeout(collapseTimer); collapseTimer = 0;
@@ -3909,11 +3911,6 @@
     if (button.dataset.view === 'nook') islandPage = 'music';
     selectViewButton(button);
   }
-  function menuHover(event) {
-    const button=event.target.closest('button[data-view]'); if (!button || button.hidden || !menu.contains(button)) return;
-    const bounds=button.getBoundingClientRect(), parent=menu.getBoundingClientRect(), scale=parent.width/menu.offsetWidth||1;
-    menu.style.setProperty('--hover-x',((bounds.left-parent.left)/scale)+'px'); menu.style.setProperty('--hover-width',(bounds.width/scale)+'px');
-  }
   function selectViewButton(button) {
     if (!button || calendar?.isOpen() && calendar.isBusy()) return;
     if (!button.restoring && button.dataset.view === 'settings' && !settingsRoute(view) && view !== 'module-library' && !getModuleEditorActive()) {settingsReturn=captureRouteOrigin();if(view==='search')settingsReturn.view=searchReturnView;}
@@ -3963,7 +3960,6 @@
   }
 
   notch.addEventListener('pointerenter', enter);
-  menu.addEventListener('pointerover',menuHover); menu.addEventListener('focusin',menuHover);
   notch.addEventListener('pointerleave', leave);
   toggle.addEventListener('focus', toggleFocus);
   toggle.addEventListener('click', open);
@@ -4059,7 +4055,6 @@
     window.clearTimeout(contentExitTimer); contentExitTimer = 0; closingTo = null;
     for (const animations of contentAnimations.values()) for (const animation of animations) animation.cancel(); contentAnimations.clear();
     for (const [node,entry] of gestureTimers) {window.clearTimeout(entry.timer); node.classList.remove(entry.className);} gestureTimers.clear();
-    menu.removeEventListener('pointerover',menuHover); menu.removeEventListener('focusin',menuHover);
     scenarioController?.dispose();
     removeLanguage?.(); document.removeEventListener('change', languageChoice);
     queueEpoch++; queueOpen = queueActive = queueBusy = false; window.clearTimeout(queueTimer); queueTimer = 0;
@@ -4236,7 +4231,7 @@
   labButton.addEventListener('click',()=>{const id=getModules().slots.find(id=>isModuleEnabled(id))||getModuleDefinitions().find(item=>isModuleEnabled(item.id))?.id;if(id){const contract=layoutContract(id);beginModuleLab({id,presentation:Object.keys(contract.layout)[0]});}});
   byId('settings-player').querySelector('.settings-experience-links').append(labButton);
   const emptyLibraryButton=document.createElement('button'); emptyLibraryButton.type='button'; emptyLibraryButton.dataset.moduleLibraryEmpty=''; emptyLibraryButton.textContent=t('Bibliothèque de modules'); emptyLibraryButton.addEventListener('click',showModuleLibrary); byId('home-empty').append(emptyLibraryButton);
-  sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction});
+  sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction, invoke:desktop?.search ? invokeSearch : null});
   ia = window.NotchyIA.create({document,t,
     motion: motionEnabled,
     onTab(tab) {if (getModuleEditorActive() && tab !== 'modules') closeModuleEditor(false); const route=['general','appearance','notch','about'].includes(tab)?'settings':tab; menu.querySelector('[data-view="'+route+'"]').click();},

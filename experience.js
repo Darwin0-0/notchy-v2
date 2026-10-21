@@ -44,8 +44,8 @@
     const document = healthHost?.ownerDocument || modulesHost?.ownerDocument;
     if (!document) throw new TypeError('A Health or Modules host is required.');
     let disposed = false, moduleState = normalizeModuleState(), moduleIds = [...MODULE_IDS], healthItems = new Map();
-    let moduleGrid = [], moduleOptions = {}, moduleDefinitions = new Map(), editorMenu = null, movingModule = null, draggedModule = null, resizing = null, lastModuleSignature = '', lastPreviewRenderer = null;
-    const healthRows = new Map(), tiles = new Map(), previewCleanups = [];
+    let moduleGrid = [], moduleOptions = {}, moduleDefinitions = new Map(), editorMenu = null, movingModule = null, draggedModule = null, dragGrab = null, dragOffset = {x:0,y:0}, dragPlan = null, deferredModules = null, moveFrame = 0, moveTime = 0, resizing = null, lastModuleSignature = '', lastPreviewRenderer = null;
+    const healthRows = new Map(), tiles = new Map(), moveTargets = new Map(), previewCleanups = [];
     const say = (source, values = {}) => String(t(source, values) ?? source).replace(/\{(\w+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
     const element = (tag, className, text) => {const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node;};
     function icon(name) {
@@ -76,6 +76,7 @@
     const gridCards = modulesHost ? element('div', 'experience-grid-cards') : null;
     const gridMenu = modulesHost ? element('div', 'experience-grid-menu') : null;
     const resizePreview = modulesHost ? element('div','experience-grid-resize-preview') : null;
+    const movePreview = modulesHost ? element('div','experience-grid-move-preview') : null;
     const moduleStatus = modulesHost ? element('p', 'experience-sr') : null;
     if (modulesHost) {
       modulesHost.classList.add('experience-module-editor'); moduleHeading.head.classList.add('experience-editor-toolbar');
@@ -84,7 +85,8 @@
       previewStage.setAttribute('role', 'group'); previewStage.setAttribute('aria-label', say('Grille du panneau, 3 colonnes et 3 lignes'));
       gridMenu.setAttribute('role','menu'); gridMenu.hidden=true; moduleStatus.setAttribute('role', 'status'); moduleStatus.setAttribute('aria-live', 'polite');
       resizePreview.hidden=true;resizePreview.setAttribute('aria-hidden','true');
-      previewStage.append(gridCells,gridCards,resizePreview,gridMenu); moduleBody.append(previewStage, moduleStatus); modulesHost.append(moduleBody);
+      movePreview.hidden=true;movePreview.setAttribute('aria-hidden','true');
+      previewStage.append(gridCells,gridCards,resizePreview,movePreview,gridMenu); moduleBody.append(previewStage, moduleStatus); modulesHost.append(moduleBody);
     }
     function renderHealth({items = []} = {}) {
       if (disposed || !healthHost) return;
@@ -133,17 +135,54 @@
       return result;
     }
     function announce(message) {if (moduleStatus) moduleStatus.textContent=message;}
+    function moveMotionAllowed(){return document.body?.dataset.motion!=='false'&&!document.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;}
+    function paintMoveTarget(item){for(const key of ['x','y','width','height'])item.node.style[{x:'left',y:'top',width:'width',height:'height'}[key]]=100*item.value[key]/(['x','width'].includes(key)?layout.grid.width:layout.grid.height)+'%';}
+    function stopMoveFrame(){if(moveFrame)document.defaultView?.cancelAnimationFrame?.(moveFrame);moveFrame=0;moveTime=0;}
+    function moveStep(time){
+      moveFrame=0;if(disposed||movePreview.hidden)return;
+      const dt=moveTime?Math.min(.05,Math.max(0,(time-moveTime)/1000)):1/60,omega=24,decay=Math.exp(-omega*dt),animate=moveMotionAllowed();moveTime=time;let active=false;
+      for(const item of moveTargets.values()){
+        for(const key of ['x','y','width','height']){
+          const offset=item.value[key]-item.target[key],c=item.velocity[key]+omega*offset;
+          item.value[key]=animate?item.target[key]+(offset+c*dt)*decay:item.target[key];item.velocity[key]=animate?(item.velocity[key]-omega*c*dt)*decay:0;
+          if(Math.abs(item.value[key]-item.target[key])<.05&&Math.abs(item.velocity[key])<.05){item.value[key]=item.target[key];item.velocity[key]=0;}else active=true;
+        }paintMoveTarget(item);
+      }
+      if(active&&document.defaultView?.requestAnimationFrame)moveFrame=document.defaultView.requestAnimationFrame(moveStep);else moveTime=0;
+    }
+    function clearMovePreview(){
+      stopMoveFrame();dragPlan=null;moveTargets.clear();movePreview?.replaceChildren();if(movePreview)movePreview.hidden=true;if(previewStage)delete previewStage.dataset.moving;
+      for(const card of tiles.values())delete card.dataset.moveAffected;
+    }
+    function clearGridDrag(){draggedModule=null;dragGrab=null;clearMovePreview();for(const card of tiles.values())delete card.dataset.dragging;}
+    function flushDeferredModules(value=deferredModules){deferredModules=null;if(value&&!disposed)renderModules({...value,...editorSnapshot()});}
+    function previewMove(candidate){
+      dragPlan=candidate;movePreview.hidden=false;previewStage.dataset.moving='true';const next=new Set(),animate=moveMotionAllowed()&&!!document.defaultView?.requestAnimationFrame;
+      for(const card of tiles.values())delete card.dataset.moveAffected;
+      for(const target of candidate.plan.items){
+        const current=moduleGrid.find(item=>item.id===target.id),changed=current.column!==target.column||current.row!==target.row;
+        next.add(target.id);if(target.id===draggedModule||changed)tiles.get(target.id).dataset.moveAffected='true';
+        let item=moveTargets.get(target.id);
+        if(!item){const node=element('div','experience-grid-move-target'),format=layout.getFormat(current.presentation);item={node,value:{x:current.column*(layout.grid.cellWidth+layout.grid.gap),y:current.row*(layout.grid.cellHeight+layout.grid.gap),width:format.width,height:format.height},target:{},velocity:{x:0,y:0,width:0,height:0}};moveTargets.set(target.id,item);movePreview.append(node);}
+        Object.assign(item.node.dataset,{experienceModule:target.id,gridColumn:String(target.column),gridRow:String(target.row),gridPresentation:target.presentation,primary:String(target.id===draggedModule)});
+        item.node.hidden=target.id!==draggedModule&&!changed;
+        item.target={x:target.x,y:target.y,width:target.width,height:target.height};if(!animate){item.value={...item.target};item.velocity={x:0,y:0,width:0,height:0};}paintMoveTarget(item);
+      }
+      for(const [id,item]of moveTargets)if(!next.has(id)){item.node.remove();moveTargets.delete(id);}
+      if(!animate)stopMoveFrame();else if(!moveFrame)moveFrame=document.defaultView.requestAnimationFrame(moveStep);
+    }
     function candidateAt(id,presentation,column,row) {
       const replacement={id,presentation,column,row},next=moduleGrid.map(item=>item.id===id?replacement:item);if(!next.some(item=>item.id===id))next.push(replacement);
       try {return validateGrid(next);} catch {return null;}
     }
+    function moveCandidate(id,column,row) {return layout?.planGridMove?.(moduleGrid,{id,column,row},{getContract:contractFor}) || null;}
     function focusModule(id) {const card=tiles.get(id); (card || gridCells.querySelector('button') || moduleHeading.back)?.focus({preventScroll:true});}
     function applyGrid(grid, enabled=moduleState.enabled) {
       try {
         const {placements}=validateGrid(grid), next={...copy(moduleState), enabled:[...new Set(enabled)].filter(id=>known(id,moduleIds)),grid:placements};
         const acknowledged=onModulesChange({...next,enabled:[...next.enabled],order:[...next.order],grid:placements.map(item=>({...item}))});
         if (acknowledged===false) {announce(say('La disposition n’a pas été modifiée.'));return false;}
-        editorMenu=null; movingModule=null; draggedModule=null;
+        editorMenu=null; movingModule=null;clearGridDrag();
         renderModules({...moduleOptions,...next});
         announce(say('Disposition mise à jour.'));
         return true;
@@ -151,7 +190,7 @@
     }
     function choosePosition(id,column,row) {
       const current=moduleGrid.find(item=>item.id===id); if (!current) return false;
-      const candidate=candidateAt(id,current.presentation,column,row);
+      const candidate=moveCandidate(id,column,row);
       if (!candidate) {announce(say('Cet emplacement est occupé ou trop petit.'));return false;}
       const applied=applyGrid(candidate.placements); if(applied)focusModule(id); return applied;
     }
@@ -205,8 +244,10 @@
       catch(error) {announce(String(error?.message || say('Disposition invalide.')));return editorSnapshot();}
       const renderer=typeof value.renderPreview==='function'?value.renderPreview:renderModulePreview;
       const signature=JSON.stringify({grid:validated.placements,...state,labels:ids.map(id=>say(typeof definitions.get(id)?.label==='string'?definitions.get(id).label:META[id]?.[0]||id)),descriptions:ids.map(id=>definitions.get(id)?.description||''),movingModule,previewRevision:value.previewRevision??null,title:say('Modifier le panneau')});
-      if(signature===lastModuleSignature&&renderer===lastPreviewRenderer){moduleIds=ids;moduleDefinitions=definitions;moduleOptions={...value};moduleState=state;moduleGrid=validated.placements;renderGridMenu();return editorSnapshot();}
+      if(signature===lastModuleSignature&&renderer===lastPreviewRenderer){deferredModules=null;moduleIds=ids;moduleDefinitions=definitions;moduleOptions={...value};moduleState=state;moduleGrid=validated.placements;renderGridMenu();return editorSnapshot();}
+      if(draggedModule&&JSON.stringify({grid:validated.placements,...state})===JSON.stringify({grid:moduleGrid,...moduleState})){deferredModules={...value};return editorSnapshot();}
       const focusId=document.activeElement?.closest?.('[data-experience-module]')?.dataset.experienceModule;
+      deferredModules=null;clearGridDrag();
       for(const cleanup of previewCleanups.splice(0))cleanup();
       moduleIds=ids;moduleDefinitions=definitions;moduleOptions={...value};moduleState=state;moduleGrid=validated.placements;
       gridCells.replaceChildren();gridCards.replaceChildren();tiles.clear();
@@ -254,7 +295,7 @@
       if(action==='resize-options'){editorMenu={id};renderGridMenu();focusMenu();return;}
       if(action==='grid-options'){editorMenu={id};renderGridMenu();focusMenu();}
       else if(action==='remove')removeModule(id);
-      else if(action==='move'){movingModule=id;editorMenu=null;renderModules({...moduleOptions,...editorSnapshot()});announce(say('Choisis une cellule libre ou utilise les flèches pour déplacer le module.'));focusModule(id);}
+      else if(action==='move'){movingModule=id;editorMenu=null;renderModules({...moduleOptions,...editorSnapshot()});announce(say('Choisis un emplacement ou utilise les flèches pour déplacer le module.'));focusModule(id);}
       else if(action==='place-module')choosePosition(id,Number(target.dataset.gridColumn),Number(target.dataset.gridRow));
       else if(action==='resize') {const current=moduleGrid.find(item=>item.id===id),candidate=current&&candidateAt(id,target.dataset.gridPresentation,current.column,current.row);if(candidate&&applyGrid(candidate.placements))focusModule(id);}
       else if(action==='add-module'&&editorMenu&&!editorMenu.id){const candidate=addFormat(id,editorMenu.column,editorMenu.row);if(candidate&&applyGrid(candidate.placements,[...moduleState.enabled,id]))focusModule(id);}
@@ -265,6 +306,7 @@
     }
     function gridKey(event) {
       if(disposed)return;
+      if(draggedModule&&event.key==='Escape'){event.preventDefault();event.stopPropagation();clearGridDrag();flushDeferredModules();return;}
       if(resizing){
         if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finishResize(false);return;}
         if(event.key==='Tab'){finishResize(false);return;}
@@ -300,17 +342,25 @@
       if(resizing||event.target.closest?.('.experience-grid-resize')){event.preventDefault();return;}
       if(event.type==='dragstart') {
         const card=event.target.closest?.('.experience-grid-module');if(!card||!modulesHost.contains(card))return;
-        draggedModule=card.dataset.experienceModule;event.dataTransfer?.setData('application/x-notchy-module',draggedModule);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';card.dataset.dragging='true';return;
+        const id=card.dataset.experienceModule,grab=dragGrab?.id===id?dragGrab:event;clearGridDrag();draggedModule=id;
+        const current=moduleGrid.find(item=>item.id===draggedModule),rect=previewStage.getBoundingClientRect?.(),format=layout.getFormat(current?.presentation);
+        dragOffset={x:0,y:0};
+        if(current&&format&&rect?.width&&rect?.height&&Number.isFinite(grab.clientX)&&Number.isFinite(grab.clientY))dragOffset={x:Math.max(0,Math.min(format.width,(grab.clientX-rect.left)/rect.width*layout.grid.width-current.column*(layout.grid.cellWidth+layout.grid.gap))),y:Math.max(0,Math.min(format.height,(grab.clientY-rect.top)/rect.height*layout.grid.height-current.row*(layout.grid.cellHeight+layout.grid.gap)))};
+        event.dataTransfer?.setData('application/x-notchy-module',draggedModule);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';card.dataset.dragging='true';return;
       }
-      if(event.type==='dragend'){draggedModule=null;for(const card of tiles.values())delete card.dataset.dragging;return;}
+      if(event.type==='dragend'){clearGridDrag();flushDeferredModules();return;}
       if(!draggedModule)return;
       const rect=previewStage.getBoundingClientRect?.();if(!rect?.width||!rect?.height)return;
-      const logicalX=(event.clientX-rect.left)/rect.width*layout.grid.width,logicalY=(event.clientY-rect.top)/rect.height*layout.grid.height;
-      const column=Math.floor(logicalX/(layout.grid.cellWidth+layout.grid.gap)),row=Math.floor(logicalY/(layout.grid.cellHeight+layout.grid.gap)),current=moduleGrid.find(item=>item.id===draggedModule);
-      if(logicalX<0||logicalY<0||logicalX>layout.grid.width||logicalY>layout.grid.height||logicalX%(layout.grid.cellWidth+layout.grid.gap)>layout.grid.cellWidth||logicalY%(layout.grid.cellHeight+layout.grid.gap)>layout.grid.cellHeight)return;
-      const candidate=current&&candidateAt(draggedModule,current.presentation,column,row);
-      if(event.type==='dragover'){if(candidate){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';}return;}
-      if(event.type==='drop'){event.preventDefault();event.stopPropagation();const id=draggedModule;draggedModule=null;if(candidate&&applyGrid(candidate.placements))focusModule(id);else announce(say('Cet emplacement est occupé ou trop petit.'));}
+      if(event.type==='dragleave'){
+        if(event.relatedTarget&&previewStage.contains(event.relatedTarget))return;
+        if(event.clientX>=rect.left&&event.clientY>=rect.top&&event.clientX<=rect.left+rect.width&&event.clientY<=rect.top+rect.height)return;
+        clearMovePreview();return;
+      }
+      const pointerX=(event.clientX-rect.left)/rect.width*layout.grid.width,pointerY=(event.clientY-rect.top)/rect.height*layout.grid.height;
+      if(pointerX<0||pointerY<0||pointerX>layout.grid.width||pointerY>layout.grid.height){if(event.type==='drop'){clearGridDrag();flushDeferredModules();}else clearMovePreview();return;}
+      const candidate=event.type==='drop'&&dragPlan||layout?.snapGridMove?.(moduleGrid,{id:draggedModule,x:pointerX-dragOffset.x,y:pointerY-dragOffset.y,previous:dragPlan?.target},{getContract:contractFor});
+      if(event.type==='dragover'){if(candidate){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';previewMove(candidate);}else clearMovePreview();return;}
+      if(event.type==='drop'){event.preventDefault();event.stopPropagation();const id=draggedModule,pending=deferredModules,changed=candidate?.placements.some((item,index)=>item.column!==moduleGrid[index].column||item.row!==moduleGrid[index].row);deferredModules=null;clearGridDrag();if(candidate&&(!changed||applyGrid(candidate.placements)))focusModule(id);else announce(say('Cet emplacement est occupé ou trop petit.'));flushDeferredModules(pending);}
     }
     function finishResize(commit=false){
       const gesture=resizing;if(!gesture)return;
@@ -327,6 +377,8 @@
     function resizeGesture(event){
       if(disposed)return;
       if(event.type==='pointerdown'){
+        const pressedCard=event.target.closest?.('.experience-grid-module');dragGrab=null;
+        if(event.button===0&&pressedCard&&modulesHost.contains(pressedCard)&&!event.target.closest?.('button'))dragGrab={id:pressedCard.dataset.experienceModule,clientX:event.clientX,clientY:event.clientY};
         const handle=event.target.closest?.('.experience-grid-resize');
         if(!handle||event.button!==0||resizing||!modulesHost.contains(handle))return;
         const id=handle.dataset.experienceModule,current=moduleGrid.find(item=>item.id===id),bounds=previewStage.getBoundingClientRect();
@@ -338,7 +390,7 @@
         modulesHost.setPointerCapture?.(event.pointerId);
         return;
       }
-      const gesture=resizing;if(!gesture||event.pointerId!==gesture.pointerId)return;
+      const gesture=resizing;if(!gesture){if(event.type==='pointerup')dragGrab=null;return;}if(event.pointerId!==gesture.pointerId)return;
       if(event.type==='pointercancel'||event.type==='lostpointercapture'){finishResize(false);return;}
       if(event.type==='pointerup'){
         event.preventDefault();event.stopPropagation();const tapped=!gesture.moved,id=gesture.id;finishResize(true);
@@ -360,10 +412,15 @@
       resizePreview.style.width=100*Math.max(80,Math.min(maxWidth,width))/layout.grid.width+'%';resizePreview.style.height=100*Math.max(56,Math.min(maxHeight,height))/layout.grid.height+'%';
       resizePreview.textContent=gesture.candidate?nearest.presentation+' · '+nearest.width+' × '+nearest.height:say('Espace occupé');
     }
-    function resizeBlur(){finishResize(false);}
+    function resizeBlur(){finishResize(false);clearGridDrag();flushDeferredModules();}
     function command(event) {
       if (disposed) return;
       const target = event.target.closest?.('[data-experience-command]');
+      if(!target&&movingModule&&modulesHost?.contains(event.target)){
+        const card=event.target.closest?.('.experience-grid-module'),destination=moduleGrid.find(item=>item.id===card?.dataset.experienceModule),current=moduleGrid.find(item=>item.id===movingModule),format=layout.getFormat(current?.presentation);
+        if(destination&&format)choosePosition(movingModule,Math.min(destination.column,layout.grid.columns-format.cols),Math.min(destination.row,layout.grid.rows-format.rows));
+        return;
+      }
       if (!target || target.disabled || !(healthHost?.contains(target) || modulesHost?.contains(target) || modulesToolbarHost?.contains(target))) return;
       const action = target.dataset.experienceCommand;
       if (action === 'back' || action === 'done') {finishResize(false);onAction(action); return;}
@@ -373,15 +430,15 @@
     }
     healthHost?.addEventListener('click', command); modulesHost?.addEventListener('click', command); modulesToolbarHost?.addEventListener('click',command);
     modulesHost?.addEventListener('contextmenu',gridContext);modulesHost?.addEventListener('keydown',gridKey);modulesToolbarHost?.addEventListener('keydown',gridKey);
-    for(const type of ['dragstart','dragend','dragover','drop'])modulesHost?.addEventListener(type,gridDrag);
+    for(const type of ['dragstart','dragend','dragleave','dragover','drop'])modulesHost?.addEventListener(type,gridDrag);
     for(const type of ['pointerdown','pointermove','pointerup','pointercancel','lostpointercapture'])modulesHost?.addEventListener(type,resizeGesture);
     document.defaultView?.addEventListener('blur',resizeBlur);
     return {renderHealth, renderModules, dispose() {
-      if(disposed)return;finishResize(false);disposed=true;
+      if(disposed)return;finishResize(false);clearGridDrag();disposed=true;
       for(const cleanup of previewCleanups.splice(0))cleanup();
       healthHost?.removeEventListener('click',command);modulesHost?.removeEventListener('click',command);modulesToolbarHost?.removeEventListener('click',command);
       modulesHost?.removeEventListener('contextmenu',gridContext);modulesHost?.removeEventListener('keydown',gridKey);modulesToolbarHost?.removeEventListener('keydown',gridKey);
-      for(const type of ['dragstart','dragend','dragover','drop'])modulesHost?.removeEventListener(type,gridDrag);
+      for(const type of ['dragstart','dragend','dragleave','dragover','drop'])modulesHost?.removeEventListener(type,gridDrag);
       for(const type of ['pointerdown','pointermove','pointerup','pointercancel','lostpointercapture'])modulesHost?.removeEventListener(type,resizeGesture);
       document.defaultView?.removeEventListener('blur',resizeBlur);
       if(modulesToolbarHost)moduleHeading.head.remove();healthItems.clear();healthRows.clear();tiles.clear();

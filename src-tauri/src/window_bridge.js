@@ -92,7 +92,7 @@
       return reply;
     },
     search: async (operation, args = {}) => {
-      const commands = {search_query:'search-query',search_status:'search-status',search_open:'search-open',search_reveal:'search-reveal',search_preview:'search-preview',search_preview_close:'search-preview-close',search_quicklook_install:'search-quicklook-install',search_reindex:'search-reindex',search_stage:'search-stage'};
+      const commands = {search_query:'search-query',search_status:'search-status',search_open:'search-open',search_reveal:'search-reveal',search_preview:'search-preview',shelf_preview:'shelf-preview',search_preview_close:'search-preview-close',shelf_preview_close:'shelf-preview-close',search_quicklook_install:'search-quicklook-install',search_reindex:'search-reindex',search_stage:'search-stage'};
       if (!Object.prototype.hasOwnProperty.call(commands, operation)) throw new TypeError('Unknown search operation');
       const value = await request(commands[operation], args);
       if (value?.ok === false) throw new Error(value.error || 'Search unavailable');

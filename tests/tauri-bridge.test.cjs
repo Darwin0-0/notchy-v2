@@ -135,11 +135,15 @@ test('Windows startup errors preserve the actual native registration instead of 
 test('QuickLook search commands use the origin-checked bridge and preserve native failures', async () => {
   const f = fixture();
   await f.window.notchyDesktop.search('search_preview', {id:'opaque-result'});
+  await f.window.notchyDesktop.search('shelf_preview', {id:'opaque-shelf-file'});
   await f.window.notchyDesktop.search('search_preview_close', {});
+  await f.window.notchyDesktop.search('shelf_preview_close', {});
   await f.window.notchyDesktop.search('search_quicklook_install', {});
   const commands = f.calls.filter(call => call.command === 'desktop_command').map(call => call.args.value);
   assert(commands.some(call => call.command === 'search-preview' && call.value.id === 'opaque-result'));
+  assert(commands.some(call => call.command === 'shelf-preview' && call.value.id === 'opaque-shelf-file'));
   assert(commands.some(call => call.command === 'search-preview-close' && Object.keys(call.value).length === 0));
+  assert(commands.some(call => call.command === 'shelf-preview-close' && Object.keys(call.value).length === 0));
   assert(commands.some(call => call.command === 'search-quicklook-install' && Object.keys(call.value).length === 0));
   await assert.rejects(() => f.window.notchyDesktop.search('run-executable', {}), /Unknown search operation/);
   const failing = fixture({invoker: () => ({ok:false,error:'Preview unavailable'})});

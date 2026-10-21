@@ -53,6 +53,73 @@ function fixture() {
   return {document,host,all,find,command,click};
 }
 const file = (id,extra={}) => ({id,name:id+'.png',canOcr:true,canConvert:true,canSend:true,canOpen:true,canDownload:true,canRemove:true,...extra});
+const settle = () => new Promise(resolve => setImmediate(resolve));
+function shelfKey(f, target, key, extra={}) {
+  const event={target,key,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;},...extra};
+  f.host.listeners.keydown(event); return event;
+}
+
+test('Shelf Space previews the selected file, arrows change the actual preview and Escape closes only the viewer first', async () => {
+  const f=fixture(),calls=[],actions=[],component=create({...f,onAction:(command,payload)=>actions.push({command,payload}),invoke:async (...args)=>{calls.push(args);return {};}});
+  component.render({files:[file('a',{canPreview:true}),file('b',{canPreview:true}),file('c',{canPreview:true})]});
+  const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
+  f.click(row('a')); row('a').focus();
+  assert.equal(shelfKey(f,row('a'),' ').defaultPrevented,true); await settle();
+  assert.deepEqual(calls,[['shelf_preview',{id:'a'}]]); assert.equal(component.isPreviewing(),true);
+  assert.equal(row('a').title,'','native tooltips must not float above the external preview');
+  assert(f.all(f.host,node=>node.className==='sharing-file-name').every(node=>node.title===''));
+  shelfKey(f,row('a'),' ',{repeat:true}); await settle(); assert.equal(calls.length,1);
+  shelfKey(f,row('a'),'ArrowRight'); await settle();
+  assert.deepEqual(calls.at(-1),['shelf_preview',{id:'b'}]); assert.equal(f.document.activeElement,row('b'));
+  assert.deepEqual(actions.at(-1).payload.selectedIds,['b']);
+  shelfKey(f,row('b'),'ArrowDown'); await settle(); assert.deepEqual(calls.at(-1),['shelf_preview',{id:'c'}]);
+  shelfKey(f,row('c'),'ArrowDown'); await settle(); assert.equal(calls.length,3,'navigation clamps at the final file');
+  shelfKey(f,row('c'),'ArrowLeft'); await settle(); assert.deepEqual(calls.at(-1),['shelf_preview',{id:'b'}]);
+  assert.equal(shelfKey(f,row('b'),'Escape').stopped,true); await settle();
+  assert.deepEqual(calls.at(-1),['shelf_preview_close',{}]); assert.equal(component.isPreviewing(),false);
+  assert.equal(shelfKey(f,row('b'),'Escape').defaultPrevented,undefined,'a second Escape returns to the normal Notchy route');
+  assert.equal(row('b').attributes['aria-pressed'],'true','closing preserves the file selection'); component.dispose();
+});
+
+test('rapid Shelf navigation and leaving during Invoke serialize the newest file and then close without reopening', async () => {
+  const f=fixture(),calls=[]; let finish;
+  const component=create({...f,invoke:(command,args)=>{calls.push([command,args]);return calls.length===1?new Promise(resolve=>finish=resolve):Promise.resolve({});}});
+  component.render({files:[file('a',{canPreview:true}),file('b',{canPreview:true}),file('c',{canPreview:true})],selectedIds:['a']});
+  const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
+  shelfKey(f,row('a'),' '); shelfKey(f,row('a'),'ArrowRight'); shelfKey(f,row('b'),'ArrowRight');
+  assert.equal(calls.length,1); finish({}); await settle();
+  assert.deepEqual(calls,[['shelf_preview',{id:'a'}],['shelf_preview',{id:'c'}]],'intermediate requests do not queue old previews');
+  component.stopPreview(); await settle(); assert.deepEqual(calls.at(-1),['shelf_preview_close',{}]);
+  shelfKey(f,row('c'),' '); await settle(); assert.equal(component.isPreviewing(),true);
+  component.dispose(); await settle(); assert.deepEqual(calls.at(-1),['shelf_preview_close',{}]);
+});
+
+test('Shelf preview failures are announced, removal closes an active preview, and inputs or unsupported files keep native Space behavior', async () => {
+  const f=fixture(),calls=[],component=create({...f,invoke:async (command,args)=>{calls.push([command,args]);if(args.id==='bad')throw Error('missing');return {};}});
+  component.render({files:[file('a',{canPreview:true}),file('bad',{canPreview:true}),file('unsupported')],selectedIds:['bad']});
+  const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
+  shelfKey(f,row('bad'),' '); await settle();
+  assert.equal(component.isPreviewing(),false); assert(f.find(node=>node.className==='sharing-file-status').textContent.includes('QuickLook'));
+  assert.equal(shelfKey(f,row('unsupported'),' ').defaultPrevented,undefined);
+  assert.equal(shelfKey(f,f.command('manual-ip'),' ').defaultPrevented,undefined);
+  shelfKey(f,row('bad'),' ',{ctrlKey:true}); await settle(); assert.equal(calls.length,1);
+  f.click(row('a')); shelfKey(f,row('a'),' '); await settle(); assert.equal(component.isPreviewing(),true);
+  component.render({files:[],selectedIds:[]}); await settle(); assert.equal(component.isPreviewing(),false); assert.deepEqual(calls.at(-1),['shelf_preview_close',{}]);
+  component.dispose();
+});
+
+test('Shelf detects a native viewer closed externally without letting a stale status close a newer preview', async t => {
+  t.mock.timers.enable({apis:['setInterval']});
+  const f=fixture(),calls=[]; let reply;
+  const component=create({...f,invoke:(command,args)=>{calls.push([command,args]);return command==='search_status'?new Promise(resolve=>reply=resolve):Promise.resolve({});}});
+  component.render({files:[file('a',{canPreview:true}),file('b',{canPreview:true})],selectedIds:['a']});
+  const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
+  shelfKey(f,row('a'),' '); await settle(); t.mock.timers.tick(1000);
+  shelfKey(f,row('a'),'ArrowRight'); await settle(); reply({quickLook:{previewVisible:false}}); await settle();
+  assert.equal(component.isPreviewing(),true,'an old reply cannot describe the newly selected preview');
+  t.mock.timers.tick(1000); reply({quickLook:{previewVisible:false}}); await settle();
+  assert.equal(component.isPreviewing(),false); assert.deepEqual(calls.at(-1),['shelf_preview_close',{}]); component.dispose();
+});
 
 test('real file controls keep multi-selection and dispatch supported actions with the intended file IDs', () => {
   const f=fixture(), actions=[], component=create({...f,onAction:(command,payload)=>actions.push({command,payload})});

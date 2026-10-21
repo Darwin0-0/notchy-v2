@@ -226,7 +226,51 @@ struct DesktopState {
     search_error: Option<String>,
     search_shortcut: Mutex<Option<Arc<Mutex<notchy::search_hotkey::ShortcutStatus>>>>,
     quicklook_active: AtomicBool,
-    quicklook_command: tokio::sync::Mutex<()>,
+    quicklook_command: tokio::sync::Mutex<Option<PreviewSource>>,
+    quicklook_shelf_copies: Mutex<BTreeMap<String, notchy::shelf::ShelfPreview>>,
+    quicklook_shelf_cleanup: Mutex<Vec<notchy::shelf::ShelfPreview>>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreviewSource { Search, Shelf }
+fn quicklook_shelf_directory(data: &std::path::Path) -> PathBuf {
+    data.join(".desktop-profile").join("quicklook-shelf")
+}
+fn preview_close_matches(owner: Option<PreviewSource>, source: PreviewSource) -> bool {
+    owner == Some(source)
+}
+#[cfg(test)]
+mod preview_ownership_tests {
+    use super::{preview_close_matches, PreviewSource::{Search, Shelf}};
+    #[test]
+    fn a_delayed_shelf_close_cannot_close_the_new_search_owner_and_vice_versa() {
+        for (previous, current) in [(Shelf, Search), (Search, Shelf)] {
+            let mut owner = Some(current);
+            if preview_close_matches(owner, previous) { owner = None; }
+            assert_eq!(owner, Some(current));
+            assert!(preview_close_matches(owner, current));
+            owner = None;
+            assert!(!preview_close_matches(owner, previous));
+            assert!(!preview_close_matches(owner, current));
+        }
+    }
+    #[cfg(windows)]
+    #[test]
+    fn shelf_preview_directory_uses_native_windows_path_components() {
+        let directory = super::quicklook_shelf_directory(std::path::Path::new(r"C:\Native QA\profile"));
+        assert_eq!(directory, std::path::PathBuf::from(r"C:\Native QA\profile\.desktop-profile\quicklook-shelf"));
+        assert!(!directory.as_os_str().to_string_lossy().contains('/'), "Canonical Shelf directory checks require native separators");
+    }
+}
+async fn clear_quicklook_shelf_copies(state: &DesktopState) {
+    let mut copies: Vec<_> = std::mem::take(&mut *state.quicklook_shelf_copies.lock().unwrap()).into_values().collect();
+    copies.append(&mut std::mem::take(&mut *state.quicklook_shelf_cleanup.lock().unwrap()));
+    if !copies.is_empty() {
+        if let Ok(retained) = tokio::task::spawn_blocking(move || {
+            let mut retained = Vec::new();
+            for mut copy in copies { if copy.try_cleanup().is_err() { retained.push(copy); } }
+            retained
+        }).await { state.quicklook_shelf_cleanup.lock().unwrap().extend(retained); }
+    }
 }
 fn initial_geometry() -> Geometry {
     Geometry {
@@ -669,21 +713,47 @@ async fn desktop_command(
                 if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Recherche invalide.")); }
                 search_service(&state)?.request_reindex(); Ok(search_status_value(&state))
             }
-            "search-preview" => {
+            "search-preview" | "shelf-preview" => {
                 let id = search_result_id(argument)?;
-                let search = search_service(&state)?;
-                let _command = state.quicklook_command.lock().await;
+                let mut owner = state.quicklook_command.lock().await;
+                let source = if command == "shelf-preview" { PreviewSource::Shelf } else { PreviewSource::Search };
+                let search = if command == "search-preview" { Some(search_service(&state)?) } else { None };
+                let shelf_path = if command == "shelf-preview" {
+                    // Revalidate the opaque ID even when its immutable session
+                    // copy is already cached: a removed Shelf item is not valid.
+                    drop(state.services.shelf.open(&id, false).await?);
+                    let existing = state.quicklook_shelf_copies.lock().unwrap().get(&id).map(|copy| copy.checked_path()).transpose()?;
+                    if let Some(path) = existing { Some(path) } else {
+                        if state.quicklook_shelf_copies.lock().unwrap().len() + state.quicklook_shelf_cleanup.lock().unwrap().len() >= notchy::shelf::MAX_FILES {
+                            return Err(ApiError::new(409, "Ferme les aperçus avant de prévisualiser davantage de fichiers."));
+                        }
+                        let prepared = state.services.shelf.prepare_preview(&id, &quicklook_shelf_directory(&state.data)).await?;
+                        let path = prepared.path.clone();
+                        state.quicklook_shelf_copies.lock().unwrap().insert(id.clone(), prepared);
+                        Some(path)
+                    }
+                } else { None };
                 state.quicklook_active.store(true, Ordering::Relaxed);
+                *owner = Some(source);
                 if window.set_always_on_top(false).is_err() {
                     state.quicklook_active.store(false, Ordering::Relaxed);
+                    *owner = None;
+                    clear_quicklook_shelf_copies(&state).await;
                     return Err(ApiError::new(503, "Aperçu indisponible."));
                 }
                 // Relinquish Notchy's layer before QuickLook creates/activates its
                 // viewer. The normal recovery loop must not raise Notchy over it.
-                let result = tokio::task::spawn_blocking(move || search.preview(&id)).await;
+                let result = tokio::task::spawn_blocking(move || match (search, shelf_path) {
+                    (Some(search), _) => search.preview(&id),
+                    (_, Some(path)) => notchy::quicklook::preview(&path),
+                    _ => Err("Invalid preview source.".into()),
+                }).await;
                 if !matches!(&result, Ok(Ok(()))) {
+                    let _ = tokio::task::spawn_blocking(notchy::quicklook::close).await;
                     state.quicklook_active.store(false, Ordering::Relaxed);
+                    *owner = None;
                     let _ = window.set_always_on_top(true);
+                    clear_quicklook_shelf_copies(&state).await;
                 }
                 result
                     .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
@@ -695,12 +765,18 @@ async fn desktop_command(
                 desktop::open_uri("https://github.com/QL-Win/QuickLook/releases/latest")?;
                 Ok(json!({"ok":true}))
             }
-            "search-preview-close" => {
+            "search-preview-close" | "shelf-preview-close" => {
                 if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Commande invalide.")); }
-                let _command = state.quicklook_command.lock().await;
+                let mut owner = state.quicklook_command.lock().await;
+                let source = if command == "shelf-preview-close" { PreviewSource::Shelf } else { PreviewSource::Search };
+                // A controller's delayed Close must not dismiss the other
+                // controller's newer Invoke once it has acquired this mutex.
+                if !preview_close_matches(*owner, source) { return Ok(json!({"ok":true,"closed":false})); }
                 let result = tokio::task::spawn_blocking(notchy::quicklook::close).await;
                 state.quicklook_active.store(false, Ordering::Relaxed);
+                *owner = None;
                 let _ = window.set_always_on_top(true);
+                clear_quicklook_shelf_copies(&state).await;
                 result
                     .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
                     .map_err(|_| ApiError::new(503, "Fermeture de l’aperçu indisponible."))?;
@@ -864,7 +940,7 @@ pub fn run() {
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
         let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"development":cfg!(debug_assertions),"localSendActive":nearby_active,"startup":startup_status});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
-        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None),quicklook_active:AtomicBool::new(false),quicklook_command:tokio::sync::Mutex::new(())});
+        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None),quicklook_active:AtomicBool::new(false),quicklook_command:tokio::sync::Mutex::new(None),quicklook_shelf_copies:Mutex::new(BTreeMap::new()),quicklook_shelf_cleanup:Mutex::new(Vec::new())});
         app.manage(state.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();
         let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}/?desktop=1").parse()?))
@@ -936,10 +1012,11 @@ pub fn run() {
                 });
                 let changed=previous_screen.is_some()&&screen!=previous_screen;previous_screen=screen;
                 if resumed||changed||!recovery_window.is_visible().unwrap_or(true){resume(&recovery_window,&recovery_state,"resume");}
-                if let Ok(_command)=recovery_state.quicklook_command.try_lock(){
+                if let Ok(mut owner)=recovery_state.quicklook_command.try_lock(){
                     if recovery_state.quicklook_active.load(Ordering::Relaxed)
                         && notchy::quicklook::status().preview_visible==Some(false)
-                    {recovery_state.quicklook_active.store(false,Ordering::Relaxed);}
+                    {recovery_state.quicklook_active.store(false,Ordering::Relaxed);*owner=None;}
+                    if !recovery_state.quicklook_active.load(Ordering::Relaxed){clear_quicklook_shelf_copies(&recovery_state).await;}
                     if !recovery_state.quicklook_active.load(Ordering::Relaxed)&&!recovery_window.is_always_on_top().unwrap_or(true){let _=recovery_window.set_always_on_top(true);}
                 }
             }
@@ -956,11 +1033,13 @@ pub fn run() {
                         let state = state.inner().clone();
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            let _command=state.quicklook_command.lock().await;
+                            let mut owner=state.quicklook_command.lock().await;
                             if state.quicklook_active.swap(false,Ordering::Relaxed){
                                 let _=tokio::task::spawn_blocking(notchy::quicklook::close).await;
                                 if let Some(window)=app.get_webview_window("main"){let _=window.set_always_on_top(true);}
                             }
+                            clear_quicklook_shelf_copies(&state).await;
+                            *owner=None;
                             if let Some(search)=&state.search { search.stop(); }
                             state.server.dispose().await;
                             state.services.dispose().await;

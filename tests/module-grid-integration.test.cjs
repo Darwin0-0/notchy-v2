@@ -1,6 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const Shell=require('../notch.js'),Layout=require('../module-contracts.js'),Modules=require('../module-runtime.js');
+const Experience=require('../experience.js'),{fixture:gridDom}=require('./helpers/experience-dom.cjs');
 const source=fs.readFileSync(require.resolve('../notch.js'),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 function excerpt(name,next){const begin=source.indexOf('  function '+name+'('),end=source.indexOf('  function '+next+'(',begin);assert(begin>=0&&end>begin,'real shell function '+name+' is available');return source.slice(begin,end);}
@@ -23,6 +24,49 @@ function fixture(profile){
   return {scope,api:scope.api,definitions,community,memory,writes,changes};
 }
 function nineProfile(){const ids=['music','focus','weather',...Array.from({length:6},(_,index)=>'community.grid-'+index)];return {enabled:ids,slots:['music','focus','weather',null],grid:ids.map((id,index)=>({id,presentation:'small',column:index%3,row:Math.floor(index/3)}))};}
+
+test('grid drags remain active when bubbling through the legacy editor and keep scaled placement validation',()=>{
+  for(const scale of [.5,.7,1]){
+    const dom=gridDom(),changes=[],initial=[{id:'music',presentation:'small',column:0,row:0},{id:'weather',presentation:'small',column:1,row:0}];
+    const component=Experience.create({...dom,layout:Layout,onModulesChange:value=>changes.push(structuredClone(value))});
+    component.renderModules({enabled:['music','weather'],grid:initial});
+    const card=id=>dom.modulesHost.querySelectorAll('.experience-grid-module').find(node=>node.dataset.experienceModule===id),stage=dom.modulesHost.querySelector('.experience-module-grid');
+    stage.rect={left:20,top:40,width:Layout.grid.width*scale,height:Layout.grid.height*scale};
+    let legacyRenders=0;
+    const scope={disposed:false,moduleEditing:true,moduleDraft:{grid:initial},moduleLabels:{music:'Music',weather:'Weather'},moduleMime:'application/x-notchy-module',moduleEditorLayout(){legacyRenders++;},modulePicked:null};
+    vm.runInNewContext(excerpt('moduleDragStart','moduleEditorKey')+'this.drag={dragstart:moduleDragStart,dragover:moduleDragOver,drop:moduleDrop};',scope);
+    const data=new Map(),transfer={setData(type,value){data.set(type,value);},getData:type=>data.get(type),get types(){return [...data.keys()];}};
+    const bubble=(type,target,point={})=>{const event=dom.event(dom.modulesHost,type,target,{dataTransfer:transfer,...point});if(!event.stopped)scope.drag[type]?.(event);return event;};
+    const point=(column,row)=>({clientX:20+(column*(Layout.grid.cellWidth+Layout.grid.gap)+30)*scale,clientY:40+(row*(Layout.grid.cellHeight+Layout.grid.gap)+30)*scale});
+    const original=card('music'),start=bubble('dragstart',original);
+    assert.notEqual(start.prevented,true,'the legacy handler must not cancel a real grid drag');
+    assert.equal(legacyRenders,0);assert.equal(scope.modulePicked,null);assert.equal(card('music'),original);assert.equal(transfer.effectAllowed,'move');
+    bubble('drop',stage,point(1,0));assert.deepEqual(changes[0].grid,[{...initial[0],column:1},{...initial[1],column:0}],'an occupied target repacks the same module rectangles');
+    bubble('dragstart',card('music'));bubble('drop',stage,{clientX:19,clientY:39});bubble('dragend',card('music'));assert.equal(changes.length,1,'outside the grid does not commit');
+    bubble('dragstart',card('music'));const over=bubble('dragover',stage,point(0,1));assert.equal(over.prevented,true);assert.equal(transfer.dropEffect,'move');
+    bubble('drop',stage,point(0,1));assert.deepEqual(changes[1].grid,[{...initial[0],row:1},{...initial[1],column:0}]);assert.equal(dom.document.activeElement,card('music'));
+    dom.event(dom.modulesHost,'keydown',card('music'),{key:'ArrowLeft'});assert.equal(changes.length,2,'keyboard movement retains its boundary validation');
+    dom.event(dom.modulesHost,'keydown',card('music'),{key:'ArrowDown'});assert.deepEqual(changes[2].grid,[{...initial[0],row:2},{...initial[1],column:0}]);
+    const resize=card('music').querySelector('.experience-grid-resize'),resizeDrag=bubble('dragstart',resize);assert.equal(resizeDrag.prevented,true,'the resize handle remains reserved for resizing');
+    assert.deepEqual(initial,[{id:'music',presentation:'small',column:0,row:0},{id:'weather',presentation:'small',column:1,row:0}]);
+    component.dispose();
+  }
+});
+
+for(const commit of [false,true])test(`full-grid movement preserves the real task/file state and saved profile until ${commit?'Done commits':'Escape cancels'} the production draft`,()=>{
+  const profile={enabled:['music','focus','weather'],slots:['music','focus','weather',null],grid:[{id:'music',presentation:'main',column:0,row:0},{id:'focus',presentation:'tall',column:2,row:0},{id:'weather',presentation:'small',column:2,row:2}]},f=fixture(profile),dom=gridDom();
+  f.scope.shelfItems=[{id:'owned-file',name:'Existing file.pdf'}];const tasks=clone(f.scope.focus),files=clone(f.scope.shelfItems),fallback=dom.document.createElement('button');dom.document.body.append(fallback);
+  Object.assign(f.scope,{moduleEditing:true,moduleDraft:clone(profile),moduleDraftOrder:['music','focus','weather','shelf'],moduleOrderSaved:false,moduleOrder:['music','focus','weather','shelf'],modulePicked:null,moduleEditorMount:null,moduleReturnFocus:null,modulePreviousView:'nook',modulePreviousState:'open',state:'open',document:dom.document,modulesPlayer:dom.modulesHost,menu:{querySelector:()=>fallback},moduleEditorLayout(){}});
+  vm.runInNewContext(excerpt('closeModuleEditor','moduleContextMenu')+'this.closeEditor=closeModuleEditor;',f.scope);
+  const component=Experience.create({...dom,modulesToolbarHost:dom.toolbar,layout:Layout,onModulesChange(value){f.scope.moduleDraft=f.api.normalizeModules({enabled:value.order.filter(id=>value.enabled.includes(id)),slots:value.order.filter(id=>value.enabled.includes(id)).slice(0,3),grid:value.grid});},onAction:action=>f.scope.closeEditor(action==='done')});
+  component.renderModules({enabled:profile.enabled,grid:profile.grid});const card=()=>dom.modulesHost.querySelectorAll('.experience-grid-module').find(node=>node.dataset.experienceModule==='music');
+  dom.event(dom.modulesHost,'keydown',card(),{key:'ArrowRight'});const expected=[{...profile.grid[0],column:1},{...profile.grid[1],column:0},{...profile.grid[2],column:0}];
+  assert.deepEqual(clone(f.scope.moduleDraft.grid),expected);assert.deepEqual(clone(f.api.getModules()),profile);assert.deepEqual(f.writes,[]);assert.deepEqual(f.scope.focus,tasks);assert.deepEqual(f.scope.shelfItems,files);
+  if(commit)dom.click(dom.toolbar,dom.toolbar.querySelector('button'));else dom.event(dom.modulesHost,'keydown',card(),{key:'Escape'});
+  assert.equal(f.scope.moduleEditing,false);assert.deepEqual(clone(f.api.getModules()),commit?{...profile,grid:expected}:profile);
+  const saved=f.writes.filter(item=>item.key==='notchy-modules-v1');assert.equal(saved.length,commit?1:0);if(commit)assert.deepEqual(JSON.parse(saved[0].value).grid,expected);
+  assert.deepEqual(f.scope.focus,tasks);assert.deepEqual(f.scope.shelfItems,files);assert.deepEqual(profile.grid,[{id:'music',presentation:'main',column:0,row:0},{id:'focus',presentation:'tall',column:2,row:0},{id:'weather',presentation:'small',column:2,row:2}]);component.dispose();
+});
 
 test('a saved nine-cell profile round-trips through normalization without changing module state or old reserved slots',()=>{
   const profile=nineProfile(),before=clone(profile),f=fixture(profile),states=clone([...f.community.values()].map(entry=>entry.state));

@@ -7,7 +7,7 @@
   'use strict';
   const array = value => Array.isArray(value) ? value : [];
   const text = value => typeof value === 'string' ? value : '';
-  const CAPABILITIES = ['canOcr', 'canConvert', 'canSend', 'canOpen', 'canDownload', 'canRemove'];
+  const CAPABILITIES = ['canOcr', 'canConvert', 'canSend', 'canOpen', 'canDownload', 'canRemove', 'canPreview'];
   let instance = 0;
   const PATHS = {upload: 'M12 16V4M7 9l5-5 5 5M4 20h16', file: 'M6 3h8l4 4v14H6z', ocr: 'M3 7V5a2 2 0 0 1 2-2h2 M17 3h2a2 2 0 0 1 2 2v2 M21 17v2a2 2 0 0 1-2 2h-2 M7 21H5a2 2 0 0 1-2-2v-2 M7 12h10', convert: 'M4 7h15l-3-3 M20 17H5l3 3 M20 7v5 M4 17v-5', send: 'm22 2-7 20-4-9-9-4Z M22 2 11 13', open: 'M14 3h7v7 M10 14 21 3 M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5', download: 'M12 3v12 m-4-4 4 4 4-4 M5 15v5h14v-5', remove: 'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7', star: 'm12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.3-5.7-3-5.7 3 1.1-6.3-4.5-4.4 6.3-.9Z', phone: 'M7 4.5a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 17 4.5v15a2.5 2.5 0 0 1-2.5 2.5h-5A2.5 2.5 0 0 1 7 19.5zM11 18h2', laptop: 'M6 5h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM2 20h20', check: 'm5 12 4 4L19 6', back: 'm14 6-6 6 6 6', cancel: 'm6 6 12 12 M18 6 6 18', retry: 'M21 12a9 9 0 1 1-3-6.7L21 8 M21 3v5h-5'};
   // Geometry and timing from Nook_Search.dc.html. Anonymous approach glyphs
@@ -52,10 +52,11 @@
     return normalizeSharingFiles(files).filter(item => selected.has(item.id));
   }
 
-  function create({host, t = value => value, onAction = () => {}} = {}) {
+  function create({host, t = value => value, onAction = () => {}, invoke = null} = {}) {
     if (!host?.ownerDocument) throw new TypeError('A sharing host is required.');
     const document = host.ownerDocument;
     let disposed = false, state = {}, files = [], devices = [], selected = [], dragDepth = 0, ipOpen = false, ipError = '', searching = false, searchTimer = null;
+    let activeFile = null, previewing = false, previewSent = null, previewFlight = null, previewVersion = 0, previewError = '', previewTimer = null;
     const fileRows = new Map(), deviceRows = new Map();
     const say = (source, values = {}) => String(t(source, values) ?? source).replace(/\{(\w+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
     const make = (tag, className, value) => {const node = document.createElement(tag); if (className) node.className = className; if (value !== undefined) node.textContent = value; return node;};
@@ -109,6 +110,8 @@
       state = {...state, ...next}; files = normalizeSharingFiles(state.files); devices = sharingDeviceList(state); selected = sharingSelection(files, state.selectedIds);
       const focused = host.contains(document.activeElement) ? document.activeElement : null, busy = state.busy === true, chosen = new Set(selected.map(item => item.id));
       const currentIds = new Set(files.map(item => item.id));
+      if (!currentIds.has(activeFile)) activeFile = selected.at(-1)?.id || null;
+      if (previewing && (!chosen.has(activeFile) || !files.find(item => item.id === activeFile)?.canPreview)) stopPreview();
       for (const [id, row] of fileRows) if (!currentIds.has(id)) {row.row.remove(); fileRows.delete(id);}
       for (const [index, item] of files.entries()) {
         let row = fileRows.get(item.id);
@@ -119,7 +122,10 @@
           node.append(select, actions); row = {row: node, select, name, size, tick, actions, tools}; fileRows.set(item.id, row);
           node.classList.add('experience-new-row'); node.style.setProperty('--entry-index', String(index));
         }
-        row.name.textContent = item.name; row.name.title = item.name; row.select.setAttribute('aria-label', say('Sélectionner {file}', {file: item.name})); row.select.setAttribute('aria-pressed', String(chosen.has(item.id))); row.select.disabled = busy; row.row.dataset.selected = String(chosen.has(item.id));
+        row.name.textContent = item.name; row.name.title = previewing ? '' : item.name; row.select.setAttribute('aria-label', say('Sélectionner {file}', {file: item.name})); row.select.setAttribute('aria-pressed', String(chosen.has(item.id))); row.select.disabled = busy; row.row.dataset.selected = String(chosen.has(item.id));
+        row.select.title = previewing ? '' : typeof invoke === 'function' && item.canPreview ? say('Espace pour l’aperçu · flèches pour parcourir') : item.name;
+        if (typeof invoke === 'function' && item.canPreview) row.select.setAttribute('aria-keyshortcuts', 'Space ArrowUp ArrowDown ArrowLeft ArrowRight');
+        else row.select.removeAttribute('aria-keyshortcuts');
         const extension = item.name.split('.').at(-1).toLowerCase(); row.row.dataset.tone = /^(pdf|pptx?|docx?)$/.test(extension) ? 'red' : /^(jpe?g|heic|gif)$/.test(extension) ? 'orange' : /^(png|webp|svg)$/.test(extension) ? 'mint' : 'blue';
         row.size.textContent = item.size === null ? '—' : item.size < 1048576 ? Math.ceil(item.size / 1024)+' '+say('Ko') : new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(item.size / 1048576)+' '+say('Mo');
         for (const [command, node] of row.tools) {node.hidden = item['can' + command[0].toUpperCase() + command.slice(1)] !== true; node.disabled = busy; node.setAttribute('aria-label', toolLabel(command) + ' · ' + item.name); node.title = toolLabel(command);}
@@ -131,8 +137,8 @@
       selectAll.hidden = !files.length; selectAll.disabled = busy; selectAll.textContent = say('Tout'); selectAll.setAttribute('aria-label', say(selected.length === files.length ? 'Tout désélectionner' : 'Tout sélectionner')); selectAll.setAttribute('aria-pressed', String(files.length > 0 && selected.length === files.length));
       for (const [command, node] of selectionButtons) {const capability = 'can' + command[0].toUpperCase() + command.slice(1); node.hidden = !selected.length || command === 'open' && selected.length !== 1 || !selected.every(item => item[capability]); node.disabled = busy; node.setAttribute('aria-label', toolLabel(command)); node.title = toolLabel(command);}
       selectedTools.hidden = !selected.length;
-      const fileMessage = typeof state.fileStatus === 'string' ? state.fileStatus : text(state.fileStatus?.message || state.fileStatus?.error);
-      put(fileStatus,fileMessage); fileStatus.hidden = !fileMessage; fileStatus.dataset.error = String(!!state.fileStatus?.error || state.fileStatus?.kind === 'error');
+      const fileMessage = previewError || (typeof state.fileStatus === 'string' ? state.fileStatus : text(state.fileStatus?.message || state.fileStatus?.error));
+      put(fileStatus,fileMessage); fileStatus.hidden = !fileMessage; fileStatus.dataset.error = String(!!previewError || !!state.fileStatus?.error || state.fileStatus?.kind === 'error');
       const peerIds = new Set(devices.map(peer => peer.identity));
       for (const [id, row] of deviceRows) if (!peerIds.has(id)) {row.row.remove(); deviceRows.delete(id);}
       for (const [index, peer] of devices.entries()) {
@@ -179,6 +185,44 @@
         if (!restore.disabled && document.activeElement !== restore) restore.focus({preventScroll: true});
       }
       syncRadarMotion();
+      if (previewing) void syncPreview();
+    }
+    function syncPreview() {
+      if (previewFlight) return previewFlight;
+      const target = () => !disposed && previewing && selected.some(item => item.id === activeFile) ? activeFile : null;
+      if (target() === previewSent) return Promise.resolve();
+      previewFlight = (async () => {
+        while (target() !== previewSent) {
+          const id = target();
+          await invoke(id ? 'shelf_preview' : 'shelf_preview_close', id ? {id} : {});
+          previewSent = id; previewVersion++;
+        }
+      })().catch(async () => {
+        stopPreview();
+        if (previewSent !== null) {try {await invoke('shelf_preview_close', {});} catch (_) {}}
+        previewSent = null;
+        if (!disposed) previewError = say('Impossible de lancer l’aperçu QuickLook. Vérifie que QuickLook est installé.');
+      }).finally(() => {previewFlight = null; if (!disposed) render();});
+      return previewFlight;
+    }
+    function stopPreview() {
+      previewing = false; previewVersion++; clearInterval(previewTimer); previewTimer = null;
+      void syncPreview();
+    }
+    async function refreshPreview() {
+      if (!previewing || disposed || previewFlight) return;
+      const version = previewVersion;
+      try {
+        const status = await invoke('search_status', {});
+        if (!disposed && previewing && !previewFlight && version === previewVersion && status?.quickLook?.previewVisible === false) stopPreview();
+      } catch (_) { /* A temporary status failure does not close an existing viewer. */ }
+    }
+    function togglePreview() {
+      if (typeof invoke !== 'function' || state.busy || !selected.find(item => item.id === activeFile)?.canPreview) return false;
+      previewError = ''; previewing = !previewing; previewVersion++;
+      clearInterval(previewTimer); previewTimer = null;
+      if (previewing) {previewTimer = setInterval(refreshPreview, 1000); previewTimer.unref?.();}
+      void syncPreview(); render(); return true;
     }
     function emit(command, payload = {}) {onAction(command, payload);}
     function command(event) {
@@ -189,7 +233,7 @@
       if (command === 'manual-ip' || command === 'close-ip') {ipOpen = command === 'manual-ip'; ipError = ''; render(); (ipOpen ? address : manual).focus({preventScroll: true}); return;}
       if (command === 'select' || command === 'select-all') {
         const chosen = new Set(selected.map(item => item.id));
-        if (command === 'select' && files.some(file => file.id === id)) {if (chosen.has(id)) chosen.delete(id); else chosen.add(id);}
+        if (command === 'select' && files.some(file => file.id === id)) {activeFile = id; if (previewing) {chosen.clear(); chosen.add(id);} else if (chosen.has(id)) chosen.delete(id); else chosen.add(id);}
         else if (command === 'select-all') {chosen.clear(); if (selected.length !== files.length) for (const item of files) chosen.add(item.id);}
         else return;
         const selectedIds = files.filter(item => chosen.has(item.id)).map(item => item.id); render({selectedIds}); emit('select', {id: id || null, selected: !!id && chosen.has(id), selectedIds}); return;
@@ -214,7 +258,23 @@
       ipError = ''; address.value = value; render(); emit('connect', {address: value});
     }
     function input() {if (ipError) {ipError = ''; render();}}
-    function keydown(event) {if (!disposed && ipOpen && event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); ipOpen = false; ipError = ''; render(); manual.focus({preventScroll: true});}}
+    function keydown(event) {
+      if (disposed || event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (ipOpen) {if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); ipOpen = false; ipError = ''; render(); manual.focus({preventScroll: true});} return;}
+      if (event.key === 'Escape' && previewing) {event.preventDefault(); event.stopPropagation(); stopPreview(); return;}
+      const target = event.target?.closest?.('[data-sharing-command]'), id = target?.dataset.sharingFile;
+      if (state.busy || target?.dataset.sharingCommand !== 'select' || !files.some(item => item.id === id)) return;
+      activeFile = id;
+      if (event.key === ' ' && event.repeat) {if (typeof invoke === 'function' && selected.find(item => item.id === id)?.canPreview) event.preventDefault(); return;}
+      if (event.key === ' ' && togglePreview()) {event.preventDefault(); event.stopPropagation(); return;}
+      const direction = {ArrowUp:-1, ArrowLeft:-1, ArrowDown:1, ArrowRight:1}[event.key];
+      if (!direction) return;
+      event.preventDefault(); event.stopPropagation();
+      const index = files.findIndex(item => item.id === activeFile), next = files[Math.max(0, Math.min(files.length - 1, index + direction))];
+      activeFile = next.id; previewVersion++; render({selectedIds:[next.id]});
+      emit('select', {id:next.id, selected:true, selectedIds:[next.id]});
+      const row = fileRows.get(next.id); row.select.focus({preventScroll:true}); row.row.scrollIntoView?.({block:'nearest'});
+    }
     function isFileDrag(event) {return Array.from(event.dataTransfer?.types || []).includes('Files');}
     function enter(event) {if (!isFileDrag(event) || disposed || state.busy) return; dragDepth++; host.dataset.dragging = 'true';}
     function over(event) {if (!isFileDrag(event) || disposed) return; event.preventDefault(); event.stopPropagation(); if (event.dataTransfer) event.dataTransfer.dropEffect = state.busy ? 'none' : 'copy'; if (!state.busy) host.dataset.dragging = 'true';}
@@ -222,7 +282,7 @@
     function dropFiles(event) {if (!isFileDrag(event) || disposed) return; event.preventDefault(); event.stopPropagation(); dragDepth = 0; host.dataset.dragging = 'false'; const incomingFiles = Array.from(event.dataTransfer?.files || []); if (!state.busy && incomingFiles.length) emit('add', {files: incomingFiles});}
     const listeners = [['click', command], ['keydown', keydown], ['dragenter', enter], ['dragover', over], ['dragleave', leave], ['drop', dropFiles]];
     for (const [name, handler] of listeners) host.addEventListener(name, handler); form.addEventListener('submit', submit); address.addEventListener('input', input);
-    return {render, dispose() {if (disposed) return; disposed = true; endSearch(); syncRadarMotion(); motionObserver?.disconnect(); motionQuery?.removeEventListener?.('change',syncRadarMotion); document.removeEventListener?.('visibilitychange',syncRadarMotion); shelfEmptyView.dispose(); deviceEmptyView.dispose(); for (const [name, handler] of listeners) host.removeEventListener(name, handler); form.removeEventListener('submit', submit); address.removeEventListener('input', input); fileRows.clear(); deviceRows.clear(); host.dataset.dragging = 'false';}};
+    return {render, stopPreview, isPreviewing: () => previewing, dispose() {if (disposed) return; disposed = true; stopPreview(); endSearch(); syncRadarMotion(); motionObserver?.disconnect(); motionQuery?.removeEventListener?.('change',syncRadarMotion); document.removeEventListener?.('visibilitychange',syncRadarMotion); shelfEmptyView.dispose(); deviceEmptyView.dispose(); for (const [name, handler] of listeners) host.removeEventListener(name, handler); form.removeEventListener('submit', submit); address.removeEventListener('input', input); fileRows.clear(); deviceRows.clear(); host.dataset.dragging = 'false';}};
   }
   return Object.freeze({normalizeSharingFiles, sharingDeviceList, manualIPv4, sharingSelection, create});
 });

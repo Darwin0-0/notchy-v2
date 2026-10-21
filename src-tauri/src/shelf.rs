@@ -267,6 +267,53 @@ pub struct ShelfFile {
     pub mime: String,
     pub path: PathBuf,
 }
+/// A detached copy kept alive only for the native QuickLook session. A viewer
+/// (or its own Open action) must never edit the authoritative Shelf object.
+pub struct ShelfPreview {
+    pub path: PathBuf,
+    directory: PathBuf,
+    temporary: Option<tempfile::TempDir>,
+    received: bool,
+}
+impl ShelfPreview {
+    pub fn checked_path(&self) -> Result<PathBuf> {
+        if self.temporary.is_none() { return Err(error(409, "Cette copie d’aperçu est en cours de fermeture.")); }
+        let parent = &self.directory;
+        let parent_meta = std::fs::symlink_metadata(parent).map_err(storage_error)?;
+        let metadata = std::fs::symlink_metadata(&self.path).map_err(storage_error)?;
+        let actual = std::fs::canonicalize(&self.path).map_err(storage_error)?;
+        if !parent_meta.is_dir() || reparse(&parent_meta) || !metadata.is_file()
+            || reparse(&metadata) || !canonical_equal(&actual, &self.path)
+        { return Err(error(409, "La copie de l’aperçu a changé.")); }
+        #[cfg(windows)]
+        if self.received {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            let marked = std::fs::File::open(origin_stream(&self.path)).is_ok_and(|file| {
+                file.take(RECEIVED_ZONE.len() as u64 + 1).read_to_end(&mut bytes).is_ok()
+                    && bytes == RECEIVED_ZONE
+            });
+            if !marked { return Err(error(415, "La protection Windows de cet aperçu reçu est indisponible.")); }
+        }
+        Ok(self.path.clone())
+    }
+    /// Keep this lease after an error and retry later. TempDir::close consumes
+    /// its guard even when Windows refuses to delete a file held by a viewer.
+    pub fn try_cleanup(&mut self) -> std::io::Result<()> {
+        match std::fs::symlink_metadata(&self.directory) {
+            Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => { self.temporary.take(); return Ok(()); }
+            Err(cause) => return Err(cause),
+            Ok(metadata) => {
+                let actual = std::fs::canonicalize(&self.directory)?;
+                if !metadata.is_dir() || reparse(&metadata) || !canonical_equal(&actual, &self.directory) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Preview directory changed"));
+                }
+            }
+        }
+        if let Some(temporary) = self.temporary.take() { temporary.close() }
+        else { std::fs::remove_dir_all(&self.directory) }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct SharedFile {
     pub path: PathBuf,
@@ -304,6 +351,26 @@ impl Drop for UploadCleanup {
 }
 
 impl Shelf {
+    pub async fn prepare_preview(&self, id: &str, directory: &Path) -> Result<ShelfPreview> {
+        let opened = self.open(id, false).await?;
+        let name = opened.item["name"].as_str().filter(|name| valid_name(name))
+            .ok_or_else(|| error(400, "Nom de fichier invalide."))?;
+        let received = opened.item["received"] == true;
+        // QuickLook treats this suffix as a request to install a plugin, rather
+        // than a read-only preview. This also covers the hidden .qlplugin name.
+        if extension(name) == "qlplugin" {
+            return Err(error(415, "Les extensions QuickLook doivent être installées depuis QuickLook."));
+        }
+        drop(opened);
+        check_directory(directory, true).await?;
+        let temporary = tempfile::Builder::new().prefix("shelf-preview-").tempdir_in(directory)
+            .map_err(storage_error)?;
+        // The existing export path validates the owned source handle and marks
+        // received bytes before copying, preserving Windows origin protection.
+        let path = self.export_copy(id, temporary.path()).await?;
+        Ok(ShelfPreview { path, directory: temporary.path().to_path_buf(), temporary: Some(temporary), received })
+    }
+
     /// Stream a user-requested copy into the native download directory without
     /// overwriting an existing file or losing received-file origin metadata.
     pub async fn export_copy(&self, id: &str, directory: &Path) -> Result<PathBuf> {
@@ -894,6 +961,98 @@ impl Shelf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn quicklook_uses_a_disposable_detached_copy_and_never_edits_the_shelf_original() {
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let value = shelf.add_bytes("Résumé original.txt", b"original bytes".to_vec()).await.unwrap();
+        let id = value["item"]["id"].as_str().unwrap();
+        let snapshot = shelf.list().await.unwrap();
+        let prepared = shelf.prepare_preview(id, &temporary.path().join("quicklook")).await.unwrap();
+        assert_eq!(prepared.path.file_name().unwrap(), "Résumé original.txt");
+        assert_eq!(prepared.checked_path().unwrap(), prepared.path);
+        assert_eq!(fs::read(&prepared.path).await.unwrap(), b"original bytes");
+        fs::write(&prepared.path, b"edited preview").await.unwrap();
+        let mut owner = shelf.open(id, false).await.unwrap();
+        let mut bytes = Vec::new(); owner.file.read_to_end(&mut bytes).await.unwrap();
+        assert_eq!(bytes, b"original bytes");
+        assert_eq!(shelf.list().await.unwrap(), snapshot);
+        let second = shelf.prepare_preview(id, &temporary.path().join("quicklook")).await.unwrap();
+        assert_ne!(prepared.path, second.path);
+        assert_eq!(fs::read(&second.path).await.unwrap(), b"original bytes");
+        let old_path = prepared.path.clone(); drop(prepared);
+        assert!(!old_path.exists(), "The session lease removes only its own detached preview copy");
+        assert!(shelf.open(id, false).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn quicklook_refuses_a_cached_snapshot_replaced_by_a_directory() {
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let value = shelf.add_bytes("notes.txt", b"safe original".to_vec()).await.unwrap();
+        let id = value["item"]["id"].as_str().unwrap();
+        let prepared = shelf.prepare_preview(id, &temporary.path().join("quicklook")).await.unwrap();
+        fs::remove_file(&prepared.path).await.unwrap();fs::create_dir(&prepared.path).await.unwrap();
+        assert_eq!(prepared.checked_path().unwrap_err().status, 409);
+        assert!(shelf.open(id, false).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn quicklook_rejects_plugin_installers_missing_items_and_nonopaque_ids_before_copying() {
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let directory = temporary.path().join("previews");
+        for name in ["plugin.qlplugin", "plugin.QLPLUGIN", ".qlplugin"] {
+            let value = shelf.add_bytes(name, b"inert plugin fixture".to_vec()).await.unwrap();
+            let id = value["item"]["id"].as_str().unwrap();
+            assert_eq!(shelf.prepare_preview(id, &directory).await.err().unwrap().status, 415);
+        }
+        for id in ["../outside.txt", "C:\\outside.txt", "", &"A".repeat(32)] {
+            assert_eq!(shelf.prepare_preview(id, &directory).await.err().unwrap().status, 400);
+        }
+        assert_eq!(shelf.prepare_preview(&"a".repeat(32), &directory).await.err().unwrap().status, 404);
+        assert!(!directory.exists(), "Rejected requests create no preview directory");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn quicklook_received_snapshot_retains_windows_origin_protection() {
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let source = temporary.path().join("received.txt");
+        fs::write(&source, b"inert received preview").await.unwrap();
+        let value = shelf.adopt_path("received.txt", &source, 22).await.unwrap();
+        let id = value["item"]["id"].as_str().unwrap();
+        let prepared = shelf.prepare_preview(id, &temporary.path().join("quicklook")).await.unwrap();
+        assert!(origin_is_marked(&prepared.path).await);
+        assert!(prepared.checked_path().is_ok());
+        assert!(origin_is_marked(&shelf.directory.join(id)).await);
+        assert_eq!(fs::read(&prepared.path).await.unwrap(), b"inert received preview");
+        fs::remove_file(origin_stream(&prepared.path)).await.unwrap();
+        assert_eq!(prepared.checked_path().unwrap_err().status, 415);
+        assert!(origin_is_marked(&shelf.directory.join(id)).await);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn quicklook_cleanup_can_retry_a_snapshot_locked_by_an_external_application() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temporary = tempfile::tempdir().unwrap();
+        let shelf = Shelf::new(temporary.path().join("shelf")).await.unwrap();
+        let value = shelf.add_bytes("locked.txt", b"untouched original".to_vec()).await.unwrap();
+        let id = value["item"]["id"].as_str().unwrap();
+        let mut prepared = shelf.prepare_preview(id, &temporary.path().join("quicklook")).await.unwrap();
+        let external = std::fs::OpenOptions::new().read(true).share_mode(0).open(&prepared.path).unwrap();
+        assert!(prepared.try_cleanup().is_err(), "Windows retains the viewer's locked copy");
+        assert!(prepared.path.exists());
+        drop(external);
+        prepared.try_cleanup().unwrap();
+        assert!(!prepared.path.exists(), "The retained lease retries the same owned directory successfully");
+        let mut owner = shelf.open(id, false).await.unwrap();
+        let mut bytes = Vec::new();owner.file.read_to_end(&mut bytes).await.unwrap();
+        assert_eq!(bytes, b"untouched original");
+    }
 
     #[cfg(windows)]
     #[tokio::test]

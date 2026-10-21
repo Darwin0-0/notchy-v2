@@ -2485,10 +2485,13 @@ body[data-motion="false"] #music-player .music-main,body[data-motion="false"] .m
 #nook-layout .focus-summary[data-presentation="scene"] > .focus-summary-controls { grid-row:6; }
 
 /* Shared field appearance: focusing keeps the normal surface, border and caret. */
-:is(input,textarea,select,[contenteditable="true"],[role="textbox"],[role="searchbox"],[role="spinbutton"]):is(:focus,:focus-visible) {
+:is(input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="searchbox"],[role="spinbutton"]):is(:focus,:focus-visible) {
   outline: none !important;
   box-shadow: none !important;
 }
+input[type="number"] { appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
 
 .search-field:focus-within {
   border-color: var(--color-ffffff14) !important;

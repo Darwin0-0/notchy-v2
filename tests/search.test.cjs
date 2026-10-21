@@ -42,7 +42,7 @@ function fixture(invoke, language = 'fr', options = {}) {
   const calls = [];
   const controller = search.create({host, invoke: async (name, args) => {calls.push({name, args}); return name === 'search_status' ? options.status?.() || {files: 42, indexing: false} : invoke?.(name, args);}, ...options});
   const type = async value => {controller.elements.input.value = value; controller.elements.input.emit('input'); await delay(search.CONFIG.debounce + 15);};
-  const key = (name, options = {}) => host.emit('keydown', {target: controller.elements.input, key: name, ...options});
+  const key = (name, options = {}) => host.emit('keydown', {target: document.activeElement || controller.elements.input, key: name, ...options});
   const paint = () => {const pending = [...frames.values()]; frames.clear(); for (const callback of pending) callback(0);};
   return {document, host, controller, calls, type, key, opener, original, frames, paint};
 }
@@ -132,6 +132,14 @@ test('result names and visible paths both mark all words using text nodes and th
     const css = fs.readFileSync(require.resolve('../search.css'),'utf8');
     assert.match(css,/\.notchy-search \.search-result-copy mark\s*\{[^}]*color:\s*var\(--accent-focus\)[^}]*text-decoration:\s*none/);
   } finally {f.controller.dispose();}
+});
+
+test('Spotlight uses neutral selected-result shading with orange query marks and no keyboard rings', () => {
+  const css=fs.readFileSync(require.resolve('../search.css'),'utf8');
+  assert.doesNotMatch(css,/--color-0066bd/);
+  assert.match(css,/\.search-result\[aria-selected="true"\]\s*\{[^}]*background-color:\s*var\(--color-ffffff24\)/);
+  assert.match(css,/#notch #search-player :is\(button,input\):is\(:focus,:focus-visible\)\s*\{[^}]*outline:\s*none;[^}]*box-shadow:\s*none;/);
+  assert.match(css,/\.search-result-copy mark\s*\{[^}]*color:\s*var\(--accent-focus\)/);
 });
 
 test('opening focuses the combobox, waits for two characters, and Escape restores the opener', async () => {
@@ -329,18 +337,115 @@ test('QuickLook previews files and folders by opaque ID while preserving search 
   } finally {f.controller.dispose();}
 });
 
-test('Alt+P previews once, normal spaces and IME input remain editable', async () => {
+test('Alt+P previews once and IME input remains editable', async () => {
   const f = fixture(name => name === 'search_query' ? response([hit('file')]) : {}, 'fr',
     {status: () => ({files:42, indexing:false, quickLook:{supported:true,available:true}})});
   try {
     f.controller.open(); await f.type('report');
-    assert.equal(f.key(' ').prevented, undefined);
     assert.equal(f.key('p', {altKey:true,isComposing:true}).prevented, undefined);
     assert.equal(f.key('p', {altKey:true,repeat:true}).prevented, undefined);
     assert.equal(f.key('p', {altKey:true}).prevented, true); await delay(0);
     assert.equal(f.calls.filter(call => call.name === 'search_preview').length, 1);
     assert.equal(f.controller.isOpen(), true);
   } finally {f.controller.dispose();}
+});
+
+test('the first Down enters the initial selected result and Space previews it without a down/up detour', async () => {
+  const f=fixture(name=>name==='search_query'?response([hit('first'),hit('second')]):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('rapport');const {input,list}=f.controller.elements;
+    assert.equal(f.document.activeElement,input);
+    f.key('ArrowDown');assert.equal(f.document.activeElement?.dataset.resultId,'first');assert.equal(list.children[0].getAttribute('aria-selected'),'true');
+    const event=f.key(' ');assert.equal(event.prevented,true);await delay(0);
+    assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args.id),['first']);assert.equal(input.value,'rapport');
+    f.key('ArrowDown');await delay(0);assert.equal(f.document.activeElement?.dataset.resultId,'second');
+    assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args.id),['first','second']);
+  } finally {f.controller.dispose();}
+});
+
+test('Space from the query immediately previews the initial result and keeps its opaque selection', async () => {
+  const f=fixture(name=>name==='search_query'?response([hit('first'),hit('second')]):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('rapport final');const {input,list}=f.controller.elements;
+    assert.equal(f.document.activeElement,input);assert.equal(list.children[0].getAttribute('aria-selected'),'true');
+    assert.equal(f.key(' ',{code:'Space'}).prevented,true);await delay(0);
+    assert.equal(input.value,'rapport final');assert.equal(f.document.activeElement,list.children[0]);
+    assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args.id),['first']);
+    f.key('ArrowDown');await delay(0);input.focus();f.key(' ');await delay(0);
+    assert.equal(f.controller.isPreviewing(),false,'Space toggles the current selected result after returning to the query');
+    f.key(' ');await delay(0);
+    assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args.id),['first','second','second']);
+    assert.equal(f.document.activeElement,list.children[1]);
+  } finally {f.controller.dispose();}
+});
+
+test('query Space preview ignores repeats, modifiers and composition without disturbing input or requests', async () => {
+  const f=fixture(name=>name==='search_query'?response([hit('first')]):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('rapport');const {input}=f.controller.elements;
+    for(const modifier of ['ctrlKey','altKey','metaKey','shiftKey'])assert.equal(f.key(' ',{[modifier]:true}).prevented,undefined,modifier);
+    assert.equal(f.key(' ',{isComposing:true}).prevented,undefined);
+    input.emit('compositionstart');assert.equal(f.key(' ').prevented,undefined);input.emit('compositionend');
+    await f.type('rapport');assert.equal(f.key(' ',{repeat:true}).prevented,true);
+    await delay(0);assert.equal(f.calls.some(call=>call.name==='search_preview'),false);assert.equal(f.document.activeElement,input);
+    f.key(' ');await delay(0);input.focus();assert.equal(f.key(' ',{repeat:true}).prevented,true);await delay(0);
+    assert.equal(f.controller.isPreviewing(),true);assert.equal(f.calls.filter(call=>call.name==='search_preview').length,1);
+    assert.equal(input.value,'rapport');
+  } finally {f.controller.dispose();}
+});
+
+test('Space stays normal query text without eligible loaded results, including pending search and unsupported QuickLook', async () => {
+  const pending=deferred();let count=0;
+  const f=fixture(name=>name==='search_query'?(++count===1?response([]):pending.promise):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();assert.equal(f.key(' ').prevented,undefined);
+    await f.type('none');assert.equal(f.key(' ').prevented,undefined);
+    const typing=f.type('pending');await delay(search.CONFIG.debounce+10);assert.equal(count,2,'The second native query is still in flight');assert.equal(f.key(' ').prevented,undefined);
+    pending.resolve(response([hit('first')]));await typing;assert.equal(f.key(' ').prevented,true);await delay(0);
+    assert.deepEqual(f.calls.find(call=>call.name==='search_preview').args,{id:'first'});
+  } finally {f.controller.dispose();pending.resolve(response([]));}
+  const unsupported=fixture(name=>name==='search_query'?response([hit('first')]):{});
+  try {unsupported.controller.open();await unsupported.type('rapport');assert.equal(unsupported.key(' ').prevented,undefined);assert.equal(unsupported.calls.some(call=>call.name==='search_preview'),false);}
+  finally {unsupported.controller.dispose();}
+});
+
+test('query Space retains the official setup flow when QuickLook is supported but missing', async () => {
+  const f=fixture(name=>name==='search_query'?response([hit('first')]):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:false}})});
+  try {f.controller.open();await f.type('rapport');assert.equal(f.key(' ').prevented,true);await delay(0);
+    assert.deepEqual(f.calls.find(call=>call.name==='search_quicklook_install').args,{});assert.equal(f.calls.some(call=>call.name==='search_preview'),false);assert.equal(f.controller.elements.input.value,'rapport');assert.equal(f.controller.isOpen(),true);
+  } finally {f.controller.dispose();}
+});
+
+test('a result refetch preserves the focused opaque ID and its immediate Space preview', async () => {
+  const pending=deferred();let count=0;
+  const f=fixture(name=>name==='search_query'?(++count===1?response([hit('first'),hit('second')]):pending.promise):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('rapport');const {list,input}=f.controller.elements;
+    list.emit('click',{target:list.children[0]});const original=list.children[0];f.controller.refresh();
+    assert.equal(f.document.activeElement,original,'Refreshing cannot detach the focused result while waiting');assert.equal(list.children.length,2);
+    pending.resolve(response([hit('second'),hit('first')]));await delay(0);
+    assert.equal(f.document.activeElement?.dataset.resultId,'first');assert.equal(f.document.activeElement,list.children[1]);assert.equal(list.children[1].getAttribute('aria-selected'),'true');
+    f.key(' ');await delay(0);assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args.id),['first']);assert.equal(input.value,'rapport');
+  } finally {f.controller.dispose();pending.resolve(response([]));}
+});
+
+test('a pending result refetch never steals focus back after the query input is deliberately resumed', async () => {
+  const pending=deferred();let count=0;
+  const f=fixture(name=>name==='search_query'?(++count===1?response([hit('first')]):pending.promise):{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('rapport');const {list,input}=f.controller.elements;
+    list.emit('click',{target:list.children[0]});f.controller.refresh();input.focus();
+    pending.resolve(response([hit('first')]));await delay(0);
+    assert.equal(f.document.activeElement,input);assert.equal(f.calls.some(call=>call.name==='search_preview'),false);
+    assert.equal(f.key(' ').prevented,true);await delay(0);assert.deepEqual(f.calls.find(call=>call.name==='search_preview').args,{id:'first'});
+  } finally {f.controller.dispose();pending.resolve(response([]));}
 });
 
 test('missing QuickLook opens only its official setup action and leaves the result available', async () => {

@@ -6,7 +6,7 @@ function fixture() {
   const nodes=new Map(),animations=[],timers=new Map();let timer=0;
   const node=()=>({hidden:false,textContent:'',querySelector:()=>node(),querySelectorAll:()=>[],cloneNode:()=>node(),getClientRects:()=>[{}]});
   const scope={...core,disposed:false,state:'open',view:'nook',pointerInside:true,commandBusy:false,queueBusy:false,queueOpen:false,queueState:{},queueOperation:'',
-    awaitingPointerEntry:false,keyboardNavigation:false,moduleLibrary:null,calendar:null,welcome:null,fileDialogOpen:false,fileDragging:false,seekDragging:false,search:null,
+    awaitingPointerEntry:false,keyboardNavigation:false,moduleLibrary:null,calendar:null,welcome:null,fileDialogOpen:false,fileDragging:false,seekDragging:false,search:null,sharingExperience:null,
     localSendContext:null,nearby:{},document:{hidden:false,hasFocus:()=>true,activeElement:null},
     moduleFeedback:null,moduleFeedbackTimer:0,moduleFeedbackStageTimer:0,moduleFeedbackSequence:0,moduleFeedbackAnimations:new Set(),moduleActivityStates:new Map(),
     moduleDefinitions:Object.fromEntries(core.getModuleDefinitions().map(item=>[item.id,item])),isModuleEnabled:()=>true,

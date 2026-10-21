@@ -147,10 +147,18 @@ test('a failed edit preserves the task draft and re-enables the same Save action
  f.context.finishDuration(true);await f.flush();assert.equal(f.context.draft.id,'existing');assert.equal(f.context.draft.title,'Read a chapter');assert.equal(f.context.draft.h,'1');assert.equal(f.context.draft.m,'30');assert.equal(f.fields.save.disabled,false);assert.deepEqual(f.calls.views,[]);assert.match(f.context.status.textContent,/enregistrer/);
 });
 
-function recoveryFixture(store,owners){
- const status={children:[],get textContent(){return this.children.map(child=>child.textContent).join('');},set textContent(value){this.children=value?[{textContent:value}]:[];},append(...children){this.children.push(...children);},replaceChildren(){this.children=[];},querySelector(){return this.children.find(child=>child.command==='undo-remove')||null;}};
- const token={clear(){if(status.querySelector())status.replaceChildren();}},context=uiContext({store,RECOVERY_OWNERS:owners,recoveryToken:token,status,t:value=>value,node:(_tag,_class,textContent)=>({textContent}),button:command=>({command,textContent:''})});
- vm.runInContext(between('    function recovery()','    function setSize('),context);return {context,status,token,hasUndo:()=>!!status.querySelector()};
+function recoveryFixture(store,owners,clock=recoveryClock()){
+ const status={children:[],get textContent(){return this.children.map(child=>child.textContent).join('');},set textContent(value){this.children=value?[{textContent:value}]:[];},append(...children){for(const child of children){child.parent=this;this.children.push(child);}},replaceChildren(){this.children=[];},querySelector(selector){return this.children.find(child=>selector==='[data-command=undo-remove]'?child.command==='undo-remove':child.className==='nd-recovery-message')||null;}};
+ const node=(_tag,className='',textContent='')=>({className,textContent,remove(){if(this.parent)this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;}});
+ const context=uiContext({disposed:false,store,RECOVERY_OWNERS:owners,status,win:clock,t:value=>value,node,button:command=>Object.assign(node('button'),{command})});
+ vm.runInContext(between('    let recoveryTimer=','    let language =')+'this.token=recoveryToken;'+between('    function recovery()','    function setSize('),context);return {context,status,token:context.token,clock,hasUndo:()=>!!status.querySelector('[data-command=undo-remove]')};
+}
+function recoveryClock(){
+ let time=0,sequence=0;const pending=new Map();return{pending,setTimeout(callback,delay){const id=++sequence;pending.set(id,{callback,at:time+delay});return id;},clearTimeout(id){pending.delete(id);},advance(ms){time+=ms;for(const [id,timer]of [...pending])if(timer.at<=time){pending.delete(id);timer.callback();}}};
+}
+function disposeRecovery(f){
+ Object.assign(f.context,{stopWatchingMotion(){},unsubscribe(){},feedbackTimer:null,feedback:null,interval:null,cleanView(){},screen:{removeEventListener(){}},onClick(){},onInput(){},onSubmit(){},onKey(){},onContext(){},ownStore:false,link:{remove(){}},surface:{remove(){}}});f.context.win.clearInterval=()=>{};f.status.removeEventListener=()=>{};
+ vm.runInContext(source.match(/dispose\(\)\{[^\n]+\}/)[0].replace(/^dispose/,'function dispose'),f.context);f.context.dispose();
 }
 
 test('a shared task deletion offers one Undo only in its initiating mount across its view changes',async()=>{
@@ -166,6 +174,87 @@ test('a rejected deletion does not steal recovery ownership and a failed owner a
  await tasks.context.removeTask('one');tasks.context.recovery();reject=true;await assert.rejects(focus.context.removeTask('two'));focus.context.recovery();assert.equal(tasks.hasUndo(),true);assert.equal(focus.hasUndo(),false);assert.equal(owners.get(store),tasks.token);
  tasks.status.textContent='Could not save. Try again.';tasks.context.recovery();assert.equal(tasks.hasUndo(),true);assert.match(tasks.status.textContent,/Could not save/);
 });
+
+test('a real deleted task remains recoverable for five seconds, then redraws and other mounts cannot resurrect its toast',async()=>{
+ const Core=require('../duration-core.js'),store=Core.createStore({load:()=>null,save:async()=>{},makeId:()=> 'duration-task'});await store.ready;await store.add('Entered duration',90);
+ const original=store.snapshot().tasks[0],owners=new WeakMap(),f=recoveryFixture(store,owners);
+ await f.context.removeTask(original.id);f.context.recovery();f.clock.advance(4999);assert.equal(f.hasUndo(),true);assert.equal(store.canUndoRemove(),true);
+ f.clock.advance(1);assert.equal(f.hasUndo(),false);assert.equal(f.status.textContent,'');assert.equal(owners.has(store),false);assert.equal(f.clock.pending.size,0);
+ assert.equal(store.canUndoRemove(),true,'the visual timeout does not mutate the saved task model');
+ for(let tick=0;tick<4;tick++){f.context.recovery();f.status.textContent='';f.context.recovery();}
+ const other=recoveryFixture(store,owners);other.context.recovery();assert.equal(f.hasUndo(),false);assert.equal(other.hasUndo(),false);store.dispose();
+});
+
+test('Undo during the window restores the exact real task and releases its pending visual timeout',async()=>{
+ const Core=require('../duration-core.js'),store=Core.createStore({load:()=>null,save:async()=>{},makeId:()=> 'undo-exact'});await store.ready;await store.add('Specific duration',90);
+ const original=store.snapshot().tasks[0],owners=new WeakMap(),f=recoveryFixture(store,owners);
+ await f.context.removeTask(original.id);f.context.recovery();f.clock.advance(4500);await store.undoRemove();f.context.recovery();
+ assert.deepEqual(store.snapshot().tasks,[original]);assert.equal(f.hasUndo(),false);assert.equal(f.clock.pending.size,0);assert.equal(owners.has(store),false);f.clock.advance(1000);f.context.recovery();assert.equal(f.status.textContent,'');store.dispose();
+});
+
+test('a newer successful deletion renews its window and an already queued old callback cannot dismiss it',async()=>{
+ const store={canUndoRemove:()=>true,async remove(){}},owners=new WeakMap(),f=recoveryFixture(store,owners);
+ await f.context.removeTask('one');f.context.recovery();const old=[...f.clock.pending.values()][0].callback;f.clock.advance(4000);
+ await f.context.removeTask('two');f.context.recovery();old();assert.equal(f.hasUndo(),true);f.clock.advance(4999);assert.equal(f.hasUndo(),true);f.clock.advance(1);assert.equal(f.hasUndo(),false);
+});
+
+test('transferred recovery owns a fresh window while stale callbacks and disposal stay local',async()=>{
+ const store={canUndoRemove:()=>true,async remove(){}},owners=new WeakMap(),clock=recoveryClock(),a=recoveryFixture(store,owners,clock),b=recoveryFixture(store,owners,clock);
+ await a.context.removeTask('one');a.context.recovery();const old=[...clock.pending.values()][0].callback;clock.advance(3000);await b.context.removeTask('two');b.context.recovery();old();
+ assert.equal(a.hasUndo(),false);assert.equal(b.hasUndo(),true);assert.equal(clock.pending.size,1);clock.advance(4999);assert.equal(b.hasUndo(),true);
+ disposeRecovery(b);assert.equal(clock.pending.size,0);assert.equal(owners.has(store),false);clock.advance(1);a.context.recovery();assert.equal(a.hasUndo(),false);assert.equal(b.hasUndo(),false);
+});
+
+test('a deletion acknowledged after its mount was disposed cannot create a recovery owner or timeout',async()=>{
+ let acknowledge;const store={canUndoRemove:()=>true,remove:()=>new Promise(resolve=>{acknowledge=resolve;})},owners=new WeakMap(),f=recoveryFixture(store,owners),operation=f.context.removeTask('one');
+ disposeRecovery(f);acknowledge('saved');assert.equal(await operation,'saved');assert.equal(owners.has(store),false);assert.equal(f.clock.pending.size,0);assert.equal(f.hasUndo(),false);
+});
+
+test('expiry removes only recovery feedback and never an unrelated persistent save error',async()=>{
+ const store={canUndoRemove:()=>true,async remove(){}},f=recoveryFixture(store,new WeakMap());await f.context.removeTask('one');f.context.recovery();
+ f.status.textContent='Could not save. Try again.';f.context.recovery();assert.equal(f.hasUndo(),true);f.clock.advance(5000);assert.equal(f.hasUndo(),false);assert.equal(f.status.textContent,'Could not save. Try again.');f.context.recovery();assert.equal(f.status.textContent,'Could not save. Try again.');
+});
+function taskMenuFixture(){
+ const shadow={activeElement:null};let context,globalEditors=0;
+ const node=(tag,className='')=>({tag,className,dataset:{},attributes:{},children:[],parent:null,
+  append(...children){for(const child of children){child.parent=this;this.children.push(child);}},
+  get firstChild(){return this.children[0];},setAttribute(name,value){this.attributes[name]=value;},focus(){shadow.activeElement=this;},
+  closest(selector){return selector==='.'+this.className?this:this.parent?.closest(selector)||null;},
+  querySelectorAll(){return this.children.filter(child=>child.attributes.role==='menuitem');}});
+ const row=node('div','nd-row');row.dataset.id='owned-task';const title=node('button','nd-title-button');row.append(title);
+ const screen=node('div','nd-screen'),host=node('div','duration-mount');
+ context=uiContext({context:null,screen,shadow,node,t:value=>value,view:'nook',welcome:null,window:{getSelection:()=>({toString:()=>''})},notch:{contains:()=>true},
+  closeMenu(){context.context=null;},button(command,_label,_glyph,className){const value=node('button',className);value.dataset.command=command;return value;},
+  openModuleEditor(){globalEditors++;return true;}});
+ vm.runInContext(between('    function onKey(','    if(options.preview!==true)'),context);
+ const notchSource=fs.readFileSync(path.join(__dirname,'../notch.js'),'utf8');
+ vm.runInContext(notchSource.slice(notchSource.indexOf('  function moduleContextMenu('),notchSource.indexOf('  function modulePreview(')),context);
+ const event=(target,key)=>({target,key,defaultPrevented:false,stopped:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;},composedPath:()=>[target,screen,host]});
+ return{context,shadow,row,title,get globalEditors(){return globalEditors;},
+  key(key){const value=event(shadow.activeElement,key);context.onKey(value);return value;},
+  nativeContext(target){const value=event(target);context.onContext(value);value.target=host;if(!value.stopped)context.moduleContextMenu(value);return value;}};
+}
+
+test('the native contextmenu following the task menu key cannot open the global module editor',()=>{
+ const f=taskMenuFixture();f.title.focus();f.key('ContextMenu');assert.equal(f.shadow.activeElement.dataset.command,'edit-task');
+ const menu=f.context.context,followup=f.nativeContext(f.shadow.activeElement);
+ assert.equal(followup.defaultPrevented,true);assert.equal(followup.stopped,true);assert.equal(f.globalEditors,0);assert.equal(f.context.context,menu);
+ f.key('ArrowDown');assert.equal(f.shadow.activeElement.dataset.command,'remove');assert.equal(f.shadow.activeElement.dataset.id,'owned-task');
+});
+
+test('task row context menus remain local while untouched module background keeps its global menu',()=>{
+ const f=taskMenuFixture(),owned=f.nativeContext(f.title);assert.equal(owned.defaultPrevented,true);assert.equal(owned.stopped,true);assert.equal(f.globalEditors,0);
+ const background=f.nativeContext({closest:()=>null});assert.equal(background.defaultPrevented,true);assert.equal(background.stopped,false);assert.equal(f.globalEditors,1);
+});
+
+test('opening duration editing focuses Hours without automatically selecting its text',()=>{
+ let focused=0,selected=0,editing=false;const hour={focus(){focused++;},select(){selected++;}};
+ const context=uiContext({draft:{title:'Original'},closeMenu(){},setDurationEditing(value){editing=value;},$:selector=>selector==='[name=title]'?{value:'Kept title'}:hour});
+ vm.runInContext(between('    function onClick(','    function onInput('),context);
+ context.onClick({target:{closest:()=>({dataset:{command:'edit-duration'},disabled:false})}});
+ assert.equal(context.draft.title,'Kept title');assert.equal(editing,true);assert.equal(focused,1);assert.equal(selected,0);
+});
+
 test('slot presentation changes preserve the task, form or timer route',()=>{
  const method=source.match(/setPresentation\(value\)\{[^\n]+\}/)[0].replace(/^setPresentation/,'function setPresentation');
  for(const view of ['tasks','timer','create-duration','settings','pomodoro']){
@@ -388,7 +477,7 @@ test('empty cards use the exact available native cell budget, including compact 
 });
 
 test('the compact empty illustration and copy win the CSS cascade over their larger embedded defaults',()=>{
- const css=fs.readFileSync(path.join(__dirname,'../duration-module.css'),'utf8'),marker='@container(max-height:287px)',at=css.indexOf(marker);assert(at>0);const compact=css.slice(at,css.indexOf('@media',at));
+ const css=fs.readFileSync(path.join(__dirname,'../duration-module.css'),'utf8'),marker='@container nd-empty-cell (max-height:287px)',at=css.indexOf(marker);assert(at>0);const compact=css.slice(at,css.indexOf('@container',at+marker.length));
  const specificity=selector=>(selector.match(/\.[\w-]+|\[[^\]]+\]/g)||[]).length;
  for(const [target,property,value]of [['.nd-empty-art','width','40px'],['.nd-empty h2','font-size','16px'],['.nd-empty p','font-size','12px']]){
   const rules=text=>[...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(match=>match[1].trim().endsWith(target)),base=rules(css.slice(0,at)).filter(match=>match[1].includes('[data-empty-card=true]')).at(-1),override=rules(compact).at(-1);assert(base&&override,target+' has both large and compact styles');assert(specificity(override[1])>=specificity(base[1]),target+' compact selector cannot lose to the embedded default');assert(new RegExp('(?:^|;)'+property+':'+value+'(?:;|$)').test(override[2]),target+' resolves its compact metric');
@@ -513,7 +602,7 @@ test('motion preference follows both the app and OS, settling only visual work w
 
 test('disposing the module disconnects motion subscriptions exactly once',()=>{
  const f=motionFixture(),stop=f.context.watchMotionPreference();Object.assign(f.context,{stopWatchingMotion:stop,unsubscribe(){},win:{clearInterval(){},clearTimeout(){}},feedbackTimer:null,feedback:null,interval:91,cleanView(){},
-  screen:{removeEventListener(){}},status:{removeEventListener(){}},RECOVERY_OWNERS:new WeakMap(),recoveryToken:{},onClick(){},onInput(){},onSubmit(){},onKey(){},onContext(){},ownStore:false,link:{remove(){}},surface:{remove(){}}});
+  screen:{removeEventListener(){}},status:{removeEventListener(){}},RECOVERY_OWNERS:new WeakMap(),recoveryToken:{clear(){}},onClick(){},onInput(){},onSubmit(){},onKey(){},onContext(){},ownStore:false,link:{remove(){}},surface:{remove(){}}});
  const method=source.match(/dispose\(\)\{[^\n]+\}/)[0].replace(/^dispose/,'function dispose');vm.runInContext(method,f.context);f.context.dispose();f.context.dispose();
  assert.equal(f.calls.disconnected,1);assert.equal(f.calls.listenerRemoved,1);assert.equal(f.listeners.size,0);assert.equal(f.context.disposed,true);
 });
@@ -577,11 +666,11 @@ function clockFixture(){
 test('clock animates only changed digits, keeping unchanged cells and the colon motionless',()=>{
  const f=clockFixture();f.update(f.clock,'24:59');const cells=[...f.clock.children],digits=cells.map(cell=>cell.children[0]);f.update(f.clock,'24:58');
  assert.equal(f.clock.attributes['aria-label'],'24:58');assert.equal(f.clock.attributes.role,'timer');assert.equal(f.clock.attributes['aria-live'],'off');assert.equal(f.animations.length,2);assert(f.animations.every(animation=>animation.node.parentNode===cells[4]));assert.deepEqual(f.clock.children,cells);for(let i=0;i<4;i++)assert.equal(cells[i].children[0],digits[i]);
- assert.equal(f.animations[0].frames.at(-1).transform,'translateY(12px)');assert.equal(f.animations[0].options.duration,350);assert.equal(f.animations[1].frames[0].transform,'translateY(-12px)');assert.equal(f.animations[1].options.duration,500);assert.equal(f.animations[0].node.attributes['aria-hidden'],'true');
+ assert.equal(f.animations[0].frames.at(-1).transform,'translateY(0.25em)');assert.equal(f.animations[0].options.duration,260);assert.equal(f.animations[1].frames[0].transform,'translateY(-0.25em)');assert.equal(f.animations[1].options.duration,260);assert(f.animations.every(animation=>animation.frames.every(frame=>!('filter' in frame))),'small digits stay readable without animated raster blur');assert.equal(f.animations[0].node.attributes['aria-hidden'],'true');
  assert.equal(f.update(f.clock,'24:58'),false);assert.equal(f.animations.length,2);f.animations[0].onfinish();assert.equal(f.clock.textContent,'24:58');
 });
 test('minute rollover animates each changed digit and reverses direction for a larger value',()=>{
- const f=clockFixture();f.update(f.clock,'24:00');f.update(f.clock,'23:59');assert.equal(f.animations.length,6);assert(f.animations.every(animation=>animation.node.parentNode!==f.clock.children[0]&&animation.node.parentNode!==f.clock.children[2]));f.update(f.clock,'24:00');assert.equal(f.animations.at(-1).frames[0].transform,'translateY(12px)');
+ const f=clockFixture();f.update(f.clock,'24:00');f.update(f.clock,'23:59');assert.equal(f.animations.length,6);assert(f.animations.every(animation=>animation.node.parentNode!==f.clock.children[0]&&animation.node.parentNode!==f.clock.children[2]));f.update(f.clock,'24:00');assert.equal(f.animations.at(-1).frames[0].transform,'translateY(0.25em)');
 });
 test('reduced motion updates the real clock silently and external text replacement rebuilds its detached cells',()=>{
  const f=clockFixture();f.update(f.clock,'25:00');f.update(f.clock,'24:59',{motion:false});assert.equal(f.animations.length,0);assert.equal(f.clock.textContent,'24:59');f.clock.textContent='Session terminée';assert.equal(f.update(f.clock,'24:59',{motion:false}),true);assert.equal(f.clock.textContent,'24:59');assert.equal(f.clock.children.length,5);

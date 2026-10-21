@@ -177,7 +177,7 @@ function interactionFixture() {
   const timers = new Map(), changes = [];
   let nextTimer = 0, focused = null, now = 1000, transfer = null, documentFocused=true;
   const scope = {
-    calendar:null, moduleLab:null, search:null,
+    calendar:null, moduleLab:null, search:null, sharingExperience:null,
     ISLAND_CONFIG, Date: {now: () => now},
     scenarioController: null,
     geometry: {width: 780, height: 480},
@@ -204,7 +204,7 @@ function interactionFixture() {
     const resume = ${source.match(/const removeResume = desktop\.onResume\((value => \{[^\n]+\})\);/)[1]};
     const deactivate = ${source.match(/const removeDeactivate = desktop\.onDeactivate\?\.\(([^\n]+)\);/)[1]};
     this.api={resume,deactivate,openFromOutside,searchOpening,enter,leave,nativePointer,focusInteraction,focusDeparture,keyboardInteraction,pointerPosition,pointerInteraction,protectLayoutResize,toggleFocus,scheduleCollapse,open,outside,key,
-      get state(){return state;},get view(){return view;},get pending(){return collapseTimer;},set state(value){state=value;},set view(value){view=value;},set closing(value){closingTo=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;},set previewing(value){search={isPreviewing:()=>value,stopPreview:()=>{value=false;}};}};
+      get state(){return state;},get view(){return view;},get pending(){return collapseTimer;},set state(value){state=value;},set view(value){view=value;},set closing(value){closingTo=value;},set dragging(value){seekDragging=value;},set dialog(value){fileDialogOpen=value;},set disposed(value){disposed=value;},set previewing(value){search={isPreviewing:()=>value,stopPreview:()=>{value=false;}};},set shelfPreviewing(value){sharingExperience={isPreviewing:()=>value};}};
   `, scope);
   function runDue() {
     for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
@@ -399,6 +399,14 @@ test('QuickLook keeps search reachable when the pointer leaves, then releases th
   f.api.leave();f.advance(1000);assert.equal(f.api.state,'open');
   f.api.scheduleCollapse(true);f.advance(1000);assert.equal(f.api.state,'open');
   f.api.previewing=false;f.api.scheduleCollapse(true);f.advance(280);assert.equal(f.api.state,'rest');
+});
+
+test('a Shelf QuickLook preview keeps Tray open through departure and native blur, then releases the guard', () => {
+  const f=interactionFixture(); f.api.state='open'; f.api.view='tray'; f.api.shelfPreviewing=true;
+  f.api.leave(); f.advance(1000); assert.equal(f.api.state,'open');
+  f.documentFocus(false); f.api.deactivate({reason:'blur',quickLook:false}); f.advance(1000);
+  assert.equal(f.api.state,'open'); assert.equal(f.api.view,'tray');
+  f.api.shelfPreviewing=false; f.api.scheduleCollapse(true); f.advance(280); assert.equal(f.api.state,'rest');
 });
 
 test('native deactivation during QuickLook startup preserves the preview and search route', () => {

@@ -192,6 +192,17 @@ test('production sharing integration selects and downloads exactly the chosen sh
   f.dispose();
 });
 
+test('Tray offers native QuickLook without treating previews as default-app launches and closes them when leaving', () => {
+  const f=fixture({files:[file('a','notes.txt'),file('b','unrecognized.binary'),file('c','plugin.QLPLUGIN')]});
+  assert(f.calls.sharing.at(-1).files.every(item=>!item.canPreview),'browser previews cannot claim native QuickLook');
+  f.scope.desktop.search=async()=>({}); f.scope.renderExperience();
+  assert.deepEqual(f.calls.sharing.at(-1).files.map(item=>item.canPreview),[true,true,false],'the external viewer can show metadata for unknown files, while plugin installers stay blocked');
+  let closes=0; f.scope.sharingExperience.stopPreview=()=>closes++;
+  f.scope.view='nook'; f.scope.renderExperience(); assert.equal(closes,1);
+  f.scope.view='tray'; f.scope.state='rest'; f.scope.renderExperience(); assert.equal(closes,2);
+  f.dispose();
+});
+
 test('native Tray export sends only selected opaque IDs, retains originals and avoids browser links', async () => {
   const f=fixture(), exported=[], notices=[];
   const status=f.document.createElement('p'); f.nodes.set('shelf-status',status);

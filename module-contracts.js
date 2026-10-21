@@ -131,6 +131,58 @@
     const freeCells=[];for(let row=0;row<grid.rows;row++)for(let column=0;column<grid.columns;column++)if(!occupied.has(row*grid.columns+column))freeCells.push({column,row});
     return {version:VERSION,width,height,gap,mode:'grid',items,freeCells};
   }
+  // A move anchors one module and repacks the same rectangles. Resize and Add
+  // still use strict planGrid validation, so a gesture cannot change a format.
+  function planGridMove(entries,target,options={}){
+    try{
+      if(!object(target)||typeof target.id!=='string'||!Number.isInteger(target.column)||!Number.isInteger(target.row))return null;
+      const contracts=new Map(),lookup=options.getContract||getBuiltinContract;
+      const settings={...options,getContract(id){if(!contracts.has(id))contracts.set(id,lookup(id));return contracts.get(id);}};
+      const original=planGrid(entries,settings),source=original.items.find(item=>item.id===target.id);
+      if(!source||original.items.some(item=>!item.fits)||target.column<0||target.row<0||target.column+source.cols>grid.columns||target.row+source.rows>grid.rows)return null;
+      const maskFor=(column,row,cols,rows)=>{let mask=0;for(let y=row;y<row+rows;y++)for(let x=column;x<column+cols;x++)mask|=1<<(y*grid.columns+x);return mask;};
+      const vacated=maskFor(source.column,source.row,source.cols,source.rows),remaining=original.items.filter(item=>item.id!==source.id).map((item,index)=>({...item,index}));
+      remaining.sort((a,b)=>b.cols*b.rows-a.cols*a.rows||a.index-b.index);
+      const choices=remaining.map(item=>{
+        const positions=[];for(let row=0;row+item.rows<=grid.rows;row++)for(let column=0;column+item.cols<=grid.columns;column++)positions.push({column,row,mask:maskFor(column,row,item.cols,item.rows)});
+        positions.sort((a,b)=>Math.abs(a.column-item.column)+Math.abs(a.row-item.row)-Math.abs(b.column-item.column)-Math.abs(b.row-item.row)||Number(!!(b.mask&vacated))-Number(!!(a.mask&vacated))||a.row-b.row||a.column-b.column);
+        return positions;
+      });
+      const chosen=new Map([[source.id,{column:target.column,row:target.row}]]),failed=new Set();
+      function place(index,occupied){
+        if(index===remaining.length)return true;
+        const key=index+':'+occupied;if(failed.has(key))return false;
+        for(const position of choices[index])if(!(position.mask&occupied)){
+          chosen.set(remaining[index].id,position);
+          if(place(index+1,occupied|position.mask))return true;
+        }
+        chosen.delete(remaining[index].id);failed.add(key);return false;
+      }
+      // At most nine levels and 512 occupancy masks per level, even for nine Small modules.
+      if(!place(0,maskFor(target.column,target.row,source.cols,source.rows)))return null;
+      const placements=entries.map(entry=>({...entry,column:chosen.get(entry.id).column,row:chosen.get(entry.id).row})),plan=planGrid(placements,settings);
+      return plan.items.every(item=>item.fits)?{placements,plan}:null;
+    }catch{return null;}
+  }
+  // Pointer origins use logical grid units; a small hold margin avoids target flicker.
+  function snapGridMove(entries,target,options={}){
+    try{
+      if(!object(target)||!Number.isFinite(target.x)||!Number.isFinite(target.y))return null;
+      const contracts=new Map(),lookup=options.getContract||getBuiltinContract,settings={...options,getContract(id){if(!contracts.has(id))contracts.set(id,lookup(id));return contracts.get(id);}};
+      const original=planGrid(entries,settings),source=original.items.find(item=>item.id===target.id);
+      if(!source||original.items.some(item=>!item.fits))return null;
+      const candidates=[],pitchX=(original.width-original.gap*2)/grid.columns+original.gap,pitchY=(original.height-original.gap*2)/grid.rows+original.gap;
+      for(let row=0;row+source.rows<=grid.rows;row++)for(let column=0;column+source.cols<=grid.columns;column++){
+        const result=planGridMove(entries,{id:target.id,column,row},settings);if(!result)continue;
+        const x=column*pitchX,y=row*pitchY;
+        candidates.push({...result,target:{column,row,x,y},distance:Math.hypot(target.x-x,target.y-y)});
+      }
+      candidates.sort((a,b)=>a.distance-b.distance||a.target.row-b.target.row||a.target.column-b.target.column);
+      const best=candidates[0];if(!best)return null;
+      const previous=target.previous||source,held=candidates.find(item=>item.target.column===previous.column&&item.target.row===previous.row);
+      return held&&held.distance<=best.distance+original.gap/2?held:best;
+    }catch{return null;}
+  }
   function applyTokens(host){if(!host?.style)return;const padding=['small','wide'].includes(host.dataset?.modulePresentation)?metrics.compactPadding:['side','tall'].includes(host.dataset?.modulePresentation)?20:metrics.modulePadding;for(const [name,value]of Object.entries({'--slot-main-min-width':metrics.mainMinWidth,'--slot-side-width':metrics.sideMinWidth,'--slot-small-min-height':metrics.smallMinHeight,'--module-padding':padding,'--module-lab-inset':metrics.labInset,'--module-canvas-inset':metrics.canvasInset,'--module-compact-padding':metrics.compactPadding,'--gap-between-modules':metrics.gap,'--radius-module':metrics.radius}))host.style.setProperty(name,value+'px');}
   function clearHost(host){if(!host?.dataset)return;for(const key of ['moduleSlot','modulePresentation','moduleReason','moduleCols','moduleRows','moduleColumn','moduleRow','durationTasks','durationTimer','slotFits'])delete host.dataset[key];}
   function applyHost(host,assignment){
@@ -143,5 +195,5 @@
     if(duration){host.dataset.durationTasks=duration.tasks;host.dataset.durationTimer=duration.timer;}else{delete host.dataset.durationTasks;delete host.dataset.durationTimer;}
     applyTokens(host);return true;
   }
-  return Object.freeze({VERSION,PRESENTATIONS,grid,formats,getFormat,supportedFormats,metrics,surfaceLimits,normalizeLayout,getBuiltinContract,getCommunityContract,supports,legacyPresentation,resolvePresentation,resolveDurationLayouts,planSlots,planGrid,applyTokens,applyHost,clearHost});
+  return Object.freeze({VERSION,PRESENTATIONS,grid,formats,getFormat,supportedFormats,metrics,surfaceLimits,normalizeLayout,getBuiltinContract,getCommunityContract,supports,legacyPresentation,resolvePresentation,resolveDurationLayouts,planSlots,planGrid,planGridMove,snapGridMove,applyTokens,applyHost,clearHost});
 });

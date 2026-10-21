@@ -2,6 +2,8 @@
   'use strict';
   const storageKey = 'notchy-language-v1';
   const english = {
+    'Espace pour l’aperçu · flèches pour parcourir':'Space to preview · arrows to browse',
+    'Impossible de lancer l’aperçu QuickLook. Vérifie que QuickLook est installé.':'QuickLook preview could not be started. Check that QuickLook is installed.',
     'Redimensionner {module}':'Resize {module}',
     'Tire pour redimensionner · flèches pour choisir la taille':'Drag to resize · arrow keys to choose a size',
     'Taille du module mise à jour.':'Module size updated.',
@@ -32,7 +34,7 @@
     'Ce format ne tient pas dans cet emplacement.':'This format does not fit this position.',
     'Cet emplacement est occupé ou trop petit.':'This position is occupied or too small.',
     'Cette disposition est indisponible.':'This layout is unavailable.',
-    'Choisis une cellule libre ou utilise les flèches pour déplacer le module.':'Choose a free cell or use the arrow keys to move the module.',
+    'Choisis un emplacement ou utilise les flèches pour déplacer le module.':'Choose a position or use the arrow keys to move the module.',
     'Disposition invalide.':'Invalid layout.', 'Disposition mise à jour.':'Layout updated.',
     'La disposition n’a pas été modifiée.':'The layout has not been changed.',
     'La grille contient un module indisponible ou une position invalide.':'The grid contains an unavailable module or an invalid position.',
