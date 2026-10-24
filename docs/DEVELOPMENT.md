@@ -8,7 +8,15 @@ Run `npm run build` to generate `dist/`. The [frontend manifest](../scripts/fron
 
 The [Windows x64 setup](https://github.com/Darwin0-0/notchy-v2/releases/latest) contains the application, its interface and the required Notchy helpers. End users do not need Rust, Node.js or the source repository. If the shared WebView2 runtime is absent, setup downloads its bootstrapper; that step needs an internet connection. The development prerequisites below are for compiling Notchy, not for using the installer.
 
-The first visible launch plays Mimo's entrance before the welcome screen. A hidden window does not consume the animation. Choosing **Start** or completing the guide saves onboarding completion; subsequent launches remain discreet. Reduced motion and the animation setting are respected.
+The first visible launch plays Galet's entrance before the welcome screen. A hidden window does not consume the animation. Choosing **Start** or completing the guide saves onboarding completion; subsequent launches remain discreet. Reduced motion and the animation setting are respected.
+
+`mimo-renderer.js` contains the drawing and animation block copied unchanged from the supplied **Mimo — états et émotes** HTML. Its sixteen canonical states use the original Canvas paths, gradients, eye projection, spiral formula, particles and timings. `galet.js` supplies application aliases, visibility and input handling around one persistent Bot per host; there is no parallel SVG approximation. Five short emotes (`love`, `surprised`, `proud`, `wink`, `yawn`) overlay the current state for two seconds without replacing its tint or badge; explicit greeting and happy feedback remain available. Existing Focus/attention event aliases keep their role colors. Hidden instances stop animating and system reduced motion keeps static feedback. The exact reference block is hash-checked in `tests/mimo-renderer.test.cjs`.
+
+Tray follows the latest supplied **Notchy · Tray et Nook.html**: equal columns with matching header/body/footer structure, real kept-file count, a transparent LocalSend body, and three rings that float with the shared Mimo while remaining behind the copy and actions. Cards use the reference's 24-pixel radius and dark blue surfaces. Its visible sphere is 72 logical pixels; the centered Canvas compensates for its original transparent margin without changing the drawing. The outer radius is `island.tray.radius` (28 logical pixels, with the existing user corner preference offset); the island width, height and display scales stay unchanged. File selection, QuickLook, discovery and manual IP controls retain their actual adapters. Opening or validating the manual IP form never autofocuses the input.
+
+The shell moves one instance between the compact band, the open header (including Market), the empty home view and the file-drop area; welcome and About own instances that run only while visible. Focus boundaries and LocalSend supply real state. Integrated document previews supply reading; source-file extensions can supply coding. External QuickLook Office windows are not tracked by this passive document context. Gain, loss, news and rate-limit remain available render states without a connected service here. Rendering never starts a transfer, a trade or a device connection, and hovering never greets automatically. The resting notch keeps its existing dimensions. The local trial launcher builds the same single frontend bundle as the application, without the former private Lueur override. Mimo remains an animated companion: it has no external-window drag gesture, window reader, conversation or summary view.
+
+File drag uses the existing shell character: it watches the dragged file, shifts slightly toward it, then returns to the header in 420 ms while a small page joins it in 360 ms. These timings come from Coucou's prototype and are presentation only; pending uploads stay pending until the actual file service acknowledges them. The shell captures file hover/drop before nested Tray handlers, so a real drop has one owner and cannot add the same file twice. An occupied destination refuses another drop without a catch animation or request. Leaving, Escape, drag end, hidden/reduced motion and disposal release the temporary state or animation. LocalSend keeps its own persistent Mimo through discovery, confirmed peer arrival, consent, transfer and the manual IP form; polling the same identity does not replay success, and a timeout/cancellation never fabricates a device. Network responses and byte progress remain authoritative. No external-application control or fake upload sequence is introduced.
 
 A normal release registers itself to start at Windows sign-in on its first launch. **Start with Windows** in Settings changes the current user's startup registration, without administrator access, a background service or a Notchy delay. A saved opt-out is preserved. Removing the Windows startup entry also leaves it disabled until the user enables it again. Uninstall removes only the matching installed copy's registration; an update or a separate portable profile is preserved.
 
@@ -22,8 +30,9 @@ Prerequisites:
 - Rust with the MSVC x64 toolchain.
 - Visual Studio C++ build tools with a Windows SDK.
 - Node.js 22 or later for the frontend build and JavaScript tests; set `NOTCHY_NODE` if its executable is not on `PATH`.
+- For the small GPL QuickLook PDF compatibility component: MSBuild 17.14, Roslyn 4.14 and .NET Framework 4.8 WPF. These are developer prerequisites only; end users do not need a compiler.
 
-Clone the repository and open a **64-bit PowerShell** in its folder:
+Clone the repository and open a **64-bit PowerShell** in its folder. Before invoking `Build-Notchy.ps1`, prepare `native/bin/QuickLookPdfCompatibility.zip` using the [pinned PDFViewer rebuild recipe](../native/quicklook-compat/README.md). It uses the official QuickLook source archive and an extracted portable engine as local references; it does not install or launch QuickLook. The generated package includes its GPL licence, patch and rebuild recipe and stays outside Git.
 
 ```powershell
 git clone https://github.com/Darwin0-0/notchy-v2.git
@@ -31,7 +40,7 @@ cd notchy-v2
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Build-Notchy.ps1 -Release
 ```
 
-[Build-Notchy.ps1](../Build-Notchy.ps1) first compiles the helpers from [native/](../native/) using the Windows .NET Framework compiler, then builds Rust with `Cargo.lock`. The portable application and its helpers are placed in `build/release/`. Omit `-Release` for `build/debug/`.
+[Build-Notchy.ps1](../Build-Notchy.ps1) checks that the PDF compatibility package is prepared, compiles the helpers from [native/](../native/) using the Windows .NET Framework compiler, then builds Rust with `Cargo.lock`. The portable application, compatibility package and helpers are placed in `build/release/`. Omit `-Release` for `build/debug/`.
 
 After building, double-click `Notchy V2.cmd`. It prefers a release build, otherwise uses the debug build. LocalSend starts automatically with either. This launcher passes the repository folder as the data root. A release executable without `--data-root` uses the Windows application-data folder; a debug executable defaults to the isolated `.development/profile` folder.
 
@@ -150,3 +159,11 @@ This version does not run collectors for calls, system notifications or clipboar
 ## Licensing
 
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) covers NAudio, fonts and icons. Their licences are retained in source and builds. No project-wide licence has been selected for the application code yet.
+
+## Mimo, compagnon visuel
+
+Mimo conserve les expressions et animations de la référence, les réactions Focus et partage, ainsi que le suivi visuel des fichiers déposés dans Notchy. Le déplacement des modules, le dépôt de fichiers et les aperçus QuickLook gardent leurs parcours dédiés. Le glissement du personnage vers une autre application, la lecture de sa fenêtre et les réponses de Mimo ont été retirés.
+
+Les couleurs Mimo suivent une identité de module indépendante de l’état : Focus `#FF7A45`, Musique `#F08A9A`, Étagère `#FF9F1C`, Partage `#86B7FF`, Météo `#9DB8D9`, Recherche `#66CFE5`, Market `#FFAB6E`. `NotchyGalet.variants` expose ces valeurs immuables ; `create` accepte `variant` et `setVariant` actualise le rendu sans relancer l’émote. Seuls les états neutres prennent cette teinte. Les états canoniques conservent les configurations du ZIP, et les événements historiques restent des alias sémantiques distincts. Une tâche vide reste au repos, sans badge Focus actif. Le Canvas conserve le rayon de `.31 × largeur` du prototype, soit un corps de 39,68 px dans une boîte de 64 px. L’ancienne fonction `createSvg`, sans appelant produit, a été retirée avec le moteur approximatif.
+
+Les mini-plans de taille viennent des maquettes « Choix de la taille » : les neuf cases reflètent les véritables lignes et colonnes du format, sans changer les dimensions enregistrées.

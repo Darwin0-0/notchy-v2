@@ -38,6 +38,7 @@
 .module-library-icon.is-large svg {width:35px; height:35px}
 .module-library .module-library-get {display:flex; align-items:center; justify-content:center; gap:var(--space-4); flex:none; align-self:flex-start; min-height:30px; padding:0 var(--space-16); border-radius:15px; background:var(--accent-focus); color:var(--on-accent); font-size:12.5px; font-weight:700; white-space:nowrap}
 .module-library .module-library-get.is-installed {padding:0 var(--space-12); background:var(--surface-control); color:var(--text-secondary)}
+.module-library .module-library-card-top .module-library-get {flex:0 1 auto; min-width:0; max-width:100%; padding-block:var(--space-4); white-space:normal; overflow-wrap:anywhere; text-align:center}
 .module-library-get svg {width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round}
 .module-library-featured {display:flex; align-items:center; gap:var(--space-24); flex:none; min-width:0; padding:var(--space-24); background:var(--surface-card); border-radius:var(--market-card-radius)}
 .module-library-featured-copy {display:flex; flex:1; min-width:0; flex-direction:column; align-items:flex-start; gap:var(--space-8)}
@@ -78,6 +79,9 @@
 .module-library-sizes {justify-content:center; gap:var(--space-4); flex-wrap:wrap; margin-top:var(--space-12)}
 .module-library-sizes button {min-height:30px; padding:var(--space-4) var(--space-8); font-size:11px; background:var(--surface-raised)}
 .module-library-sizes button[aria-pressed=true] {background:var(--surface-control); color:var(--text-primary)}
+.module-library-sizes button {display:flex; align-items:center; gap:var(--space-8)}
+.module-library-sizes .module-format-icon {width:24px; height:24px; flex:none; fill:none; stroke:none; color:var(--text-tertiary)}
+.module-library-sizes button[aria-pressed=true] .module-format-icon {color:var(--accent-focus)}
 .module-library-included-preview {display:flex; align-items:center; gap:var(--space-12); flex-wrap:wrap; min-height:116px}
 .module-library-included-preview span:last-child {flex:1 1 100%; color:var(--text-tertiary); font-size:var(--callout-size)}
 .module-library-facts {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--space-8)}
@@ -92,6 +96,7 @@
 .module-library-permissions {margin-top:auto; padding-top:var(--space-12)}
 .module-library-access {font-size:12.5px!important; margin-top:var(--space-12)!important; color:var(--text-secondary)!important}
 .module-library-empty {padding:var(--space-32) var(--space-16); display:flex; flex-direction:column; gap:var(--space-12)}
+.module-library-empty-mimo {--galet-size:64px; align-self:flex-start}
 .module-library .module-library-remove {align-self:flex-start; background:transparent; color:var(--status-negative); font-size:var(--callout-size)}
 .module-library-placement {display:flex; flex-direction:column; gap:var(--space-12)}
 .module-library-placement [aria-pressed=true] {outline:1px solid var(--accent-focus); outline-offset:-1px}

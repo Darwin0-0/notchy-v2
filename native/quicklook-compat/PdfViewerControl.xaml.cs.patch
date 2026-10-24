@@ -1,0 +1,117 @@
+--- a/PdfViewerControl.xaml.cs
++++ b/PdfViewerControl.xaml.cs
+@@ -37,6 +37,7 @@
+     private double _minZoomFactor = double.NaN;
+ 
+     private bool _pdfLoaded;
++    private bool _disposed;
+     private double _viewRenderFactor = double.NaN;
+ 
+     public PdfViewerControl()
+@@ -50,6 +51,8 @@
+ 
+         pagePanel.ZoomChanged += ReRenderCurrentPageDelayed;
+         pagePanel.ImageScrolled += NavigatePage;
++        pagePanel.SizeChanged += ReRenderWhenReady;
++        Loaded += ReRenderWhenReady;
+     }
+ 
+     public ObservableCollection<int> PageThumbnails { get; set; } = [];
+@@ -73,13 +76,20 @@
+ 
+     public void Dispose()
+     {
++        if (_disposed)
++            return;
++
++        _disposed = true;
+         GC.SuppressFinalize(this);
+ 
+         if (pagePanel != null)
+         {
+             pagePanel.ZoomChanged -= ReRenderCurrentPageDelayed;
+             pagePanel.ImageScrolled -= NavigatePage;
+-        }
++            pagePanel.SizeChanged -= ReRenderWhenReady;
++        }
++        Loaded -= ReRenderWhenReady;
++        listThumbnails.SelectionChanged -= UpdatePageViewWhenSelectionChanged;
+ 
+         _pdfLoaded = false;
+         PdfDocumentWrapper?.Dispose();
+@@ -93,6 +103,11 @@
+         ReRenderCurrentPage();
+     }
+ 
++    private void ReRenderWhenReady(object sender, RoutedEventArgs e)
++    {
++        ReRenderCurrentPage();
++    }
++
+     public event EventHandler CurrentPageChanged;
+ 
+     private void NavigatePage(object sender, int delta)
+@@ -144,10 +159,17 @@
+ 
+     private void ReRenderCurrentPage()
+     {
+-        if (!_pdfLoaded)
++        if (_disposed || !_pdfLoaded || !IsLoaded || PdfDocumentWrapper?.PdfDocument == null)
+             return;
+ 
+         if (CurrentPage < 0 || CurrentPage >= TotalPages)
++            return;
++
++        // OfficeViewer can supply the PDF before this control has a viewport.
++        // Retry on Loaded/SizeChanged instead of asking PDFium for a 0px bitmap.
++        var pageSize = PdfDocumentWrapper.PdfDocument.PageSizes[CurrentPage];
++        if (!PositiveFinite(pagePanel.ActualWidth) || !PositiveFinite(pagePanel.ActualHeight)
++            || !PositiveFinite(pageSize.Width) || !PositiveFinite(pageSize.Height))
+             return;
+ 
+         Debug.WriteLine($"Re-rendering page {CurrentPage}");
+@@ -179,6 +201,9 @@
+             pagePanel.MaxZoomFactor = _maxZoomFactor / factor;
+         }
+ 
++        if (!PositiveFinite(factor))
++            return;
++
+         var image = PdfDocumentWrapper.Render(CurrentPage, factor);
+ 
+         pagePanel.Source = image;
+@@ -189,6 +214,11 @@
+         pagePanel.SetScrollPosition(pos);
+ 
+         Dispatcher.Delay(500, t => GC.Collect());
++    }
++
++    private static bool PositiveFinite(double value)
++    {
++        return value > 0 && !double.IsNaN(value) && !double.IsInfinity(value);
+     }
+ 
+     private void UpdatePageViewWhenSelectionChanged(object sender, SelectionChangedEventArgs e)
+@@ -235,6 +265,9 @@
+ 
+     public void LoadPdf(string path, string password = null)
+     {
++        if (_disposed)
++            return;
++
+         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+         PdfDocumentWrapper = new PdfDocumentWrapper(stream, password);
+         _pdfLoaded = true;
+@@ -247,6 +280,12 @@
+ 
+     public void LoadPdf(MemoryStream stream)
+     {
++        if (_disposed)
++        {
++            stream?.Dispose();
++            return;
++        }
++
+         stream.Position = 0;
+         PdfDocumentWrapper = new PdfDocumentWrapper(stream);
+         _pdfLoaded = true;

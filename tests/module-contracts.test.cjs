@@ -85,6 +85,20 @@ test('six canonical cell formats preserve safe renderer aliases and exact grid s
 });
 
 function permutations(values,count){return count?values.flatMap((value,index)=>permutations(values.filter((_,other)=>other!==index),count-1).map(rest=>[value,...rest])):[[]];}
+test('size wireframes keep nine cells and fill the real format span without changing dimensions',()=>{
+  const {document}=require('./helpers/experience-dom.cjs').fixture();
+  for(const presentation of Layout.PRESENTATIONS){
+    const before=Layout.getFormat(presentation),svg=Layout.createFormatIcon(document,presentation),cells=svg.children;
+    assert.equal(svg.attributes.viewBox,'0 0 54 54');assert.equal(svg.attributes['aria-hidden'],'true');assert.equal(svg.attributes.focusable,'false');assert.equal(cells.length,9);
+    for(const [index,cell]of cells.entries()){
+      const row=Math.floor(index/3),column=index%3;
+      assert.equal(cell.attributes.x,String(column*19));assert.equal(cell.attributes.y,String(row*19));
+      assert.equal(cell.attributes.fill,column<before.cols&&row<before.rows?'currentColor':'var(--border-subtle)');
+    }
+    assert.deepEqual(Layout.getFormat(presentation),before);
+  }
+  for(const presentation of ['unknown','__proto__','constructor',null])assert.equal(Layout.createFormatIcon(document,presentation),null);
+});
 function assertGeometry(plan,label){
   const epsilon=1e-6;
   for(const item of plan.items){

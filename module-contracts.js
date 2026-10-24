@@ -13,6 +13,17 @@
     canvasInset:24,compactPadding:16,modulePadding:24,labInset:40,radius:24,sceneHeight:grid.height});
   const surfaceLimits=Object.freeze({richMinWidth:grid.width+grid.padding*2,maxWidth:Tokens.island.states.expanded.width,sceneHeight:Tokens.island.activities.sceneHeight,fullHeight:Tokens.island.activities.fullHeight,labHeight:Tokens.island.activities.sceneHeight+metrics.labInset,fullLabHeight:Tokens.island.activities.fullHeight+metrics.labInset});
   const getFormat=presentation=>Object.hasOwn(formats,presentation)?{...formats[presentation]}:null;
+  function createFormatIcon(document,presentation){
+    const format=getFormat(presentation);if(!format)return null;
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    for(const [name,value]of Object.entries({viewBox:'0 0 54 54',width:'30',height:'30',class:'module-format-icon','aria-hidden':'true',focusable:'false'}))svg.setAttribute(name,value);
+    for(let row=0;row<grid.rows;row++)for(let column=0;column<grid.columns;column++){
+      const cell=document.createElementNS('http://www.w3.org/2000/svg','rect');
+      for(const [name,value]of Object.entries({x:column*19,y:row*19,width:16,height:16,rx:3.5,fill:column<format.cols&&row<format.rows?'currentColor':'var(--border-subtle)'}))cell.setAttribute(name,String(value));
+      svg.append(cell);
+    }
+    return svg;
+  }
   const copy=value=>JSON.parse(JSON.stringify(value));
   function freeze(value){if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;}
   function object(value){return !!value&&typeof value==='object'&&!Array.isArray(value);}
@@ -195,5 +206,5 @@
     if(duration){host.dataset.durationTasks=duration.tasks;host.dataset.durationTimer=duration.timer;}else{delete host.dataset.durationTasks;delete host.dataset.durationTimer;}
     applyTokens(host);return true;
   }
-  return Object.freeze({VERSION,PRESENTATIONS,grid,formats,getFormat,supportedFormats,metrics,surfaceLimits,normalizeLayout,getBuiltinContract,getCommunityContract,supports,legacyPresentation,resolvePresentation,resolveDurationLayouts,planSlots,planGrid,planGridMove,snapGridMove,applyTokens,applyHost,clearHost});
+  return Object.freeze({VERSION,PRESENTATIONS,grid,formats,getFormat,createFormatIcon,supportedFormats,metrics,surfaceLimits,normalizeLayout,getBuiltinContract,getCommunityContract,supports,legacyPresentation,resolvePresentation,resolveDurationLayouts,planSlots,planGrid,planGridMove,snapGridMove,applyTokens,applyHost,clearHost});
 });

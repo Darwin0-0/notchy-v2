@@ -49,7 +49,7 @@
     'Modifier les réglages':'Edit settings','Chargement…':'Loading…','Impossible de charger les tâches. Les données sont conservées.':'Cannot load tasks. Saved data has been preserved.',
     'Impossible d’enregistrer. Réessaie.':'Could not save. Try again.','Écris le titre de la tâche.':'Enter a task title.',
     'Choisis une durée entre 1 minute et 23 h 59.':'Choose a duration between 1 minute and 23 h 59.',
-    'Créer une tâche pour commencer':'Create a task to begin','Enregistrer la tâche':'Save task','restante':'remaining','restantes':'remaining',
+    'Créer une tâche pour commencer':'Create a task to begin','Enregistrer la tâche':'Save task','restante':'remaining','restantes':'remaining','Active':'Active',
     'Suivante':'Next','Ensuite':'Up next','Restant':'Remaining','sur':'of','aucune pause':'no breaks','pause':'break','pauses':'breaks','longue':'long break','longues':'long breaks'
   });
   function mount(host, options = {}) {
@@ -74,7 +74,7 @@
     const recoveryToken={clear(){win.clearTimeout(recoveryTimer);recoveryTimer=null;recoveryVersion++;status.querySelector('[data-command=undo-remove]')?.remove();status.querySelector('.nd-recovery-message')?.remove();}};
     let language = options.language === 'en' ? 'en' : 'fr', size = SIZES[options.size] ? options.size : 'full';
     let view = ['timer','pomodoro'].includes(options.view) ? 'timer' : 'tasks', previousView = 'tasks', settingsReturn = 'tasks', settingsSize=size, disposed=false, busy=false, settling=false, interval, context, previousPhase=null;
-    let viewToken=0, renderedPlan='', taskListReturn=null, feedback=null, feedbackTimer=null, boundary=null;
+    let viewToken=0, renderedPlan='', taskListReturn=null, feedback=null, feedbackTimer=null, boundary=null, emptyGalet=null;
     let draft = {title:'',h:'1',m:'30',split:false}, rows = new Map(), timers = new Map(), rowAnimations = new Map();
     const reduced = win.matchMedia('(prefers-reduced-motion: reduce)');
     const t = value => language === 'en' ? EN[value] || value : value;
@@ -97,7 +97,7 @@
     }
     function motionEnabled() {return doc.body?.dataset.motion!=='false'&&!reduced.matches;}
     function syncMotionPreference() {
-      if(disposed)return;const enabled=motionEnabled();surface.dataset.motion=String(enabled);if(enabled)return;
+      if(disposed)return;const enabled=motionEnabled();surface.dataset.motion=String(enabled);emptyGalet?.setMotion(motionEnabled);if(enabled)return;
       for(const animation of rowAnimations.values())animation.cancel();rowAnimations.clear();
       for(const timer of timers.values())win.clearTimeout(timer);timers.clear();
       for(const row of rows.values())row.classList.remove('is-completing');
@@ -121,20 +121,24 @@
     function removeTask(id) {return store.remove(id).then(result=>{if(disposed)return result;RECOVERY_OWNERS.get(store)?.clear();RECOVERY_OWNERS.set(store,recoveryToken);const version=++recoveryVersion;recoveryTimer=win.setTimeout(()=>{if(disposed||version!==recoveryVersion||RECOVERY_OWNERS.get(store)!==recoveryToken)return;RECOVERY_OWNERS.delete(store);recoveryToken.clear();},5000);return result;});}
     function setSize(next) {if(!SIZES[next])throw Error('Unknown module size');size=next;surface.style.removeProperty('width');surface.style.removeProperty('height');surface.dataset.size=size;if(options.embedded!==true)options.onResize?.({...SIZES[size],size});}
     function closeMenu(){context?.remove();context=null;}
-    function cleanView(){clearCompletion();closeMenu();for(const timer of timers.values())win.clearTimeout(timer);timers.clear();for(const animation of rowAnimations.values())animation.cancel();rowAnimations.clear();rows.clear();screen.replaceChildren();}
+    function cleanView(){emptyGalet?.dispose();emptyGalet=null;clearCompletion();closeMenu();for(const timer of timers.values())win.clearTimeout(timer);timers.clear();for(const animation of rowAnimations.values())animation.cancel();rowAnimations.clear();rows.clear();screen.replaceChildren();}
     function changeView(next) {viewToken++;view=next;if(options.embedded!==true&&['tasks','create-title','create-duration','settings'].includes(view))setSize('full');status.textContent='';draw();options.onViewChange?.({view,size});}
     function rememberTaskList(id,command) {taskListReturn={id,command,scroll:$('.nd-list')?.scrollTop||0};}
     function returnToTasks() {changeView('tasks');const list=$('.nd-list');if(list&&taskListReturn)list.scrollTop=taskListReturn.scroll;const row=rows.get(taskListReturn?.id);(row?.querySelector(taskListReturn?.command==='play'?'.nd-row-play':'.nd-title-button')||$('[data-command=add]'))?.focus({preventScroll:true});}
-    function header(focus=false,parent=screen,details=false) {
+    function header(focus=false,parent=screen,details=false,inlineAdd=true) {
       const bar=node('header','nd-header'+(focus?' nd-focus-header':'')),heading=details?button('open-details','Tâches',null,'nd-heading'):node('div','nd-heading');
       heading.append(node('span','nd-kicker',t('Tâches')),node('span','nd-count'));bar.append(heading);
-      const actions=node('div','nd-header-actions');actions.append(button('settings','Modifier les réglages','settings'),button('add','Ajouter une tâche','plus','nd-icon accent'));bar.append(actions);parent.append(bar);
+      const actions=node('div','nd-header-actions');actions.append(button('settings','Modifier les réglages','settings'));if(inlineAdd)actions.append(button('add','Ajouter une tâche','plus','nd-icon accent'));bar.append(actions);parent.append(bar);
     }
     function empty() {
       header();const content=node('div','nd-empty'),message=node('div','nd-empty-content'),art=node('div','nd-empty-art');
       art.innerHTML='<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><circle class="nd-empty-rays" cx="32" cy="32" r="31" stroke="#3a3a3d" stroke-width="2" stroke-dasharray="3 5"/><path d="M22 26h2m5 0h13M22 37h2m5 0h13" stroke="#8e8e93" stroke-width="2" stroke-linecap="round"/></svg>';
       const add=button('add','Nouvelle tâche','plus','nd-primary');add.append(node('span','',t('Nouvelle tâche')));
       message.append(art,node('h2','',t('Aucune tâche')),node('p','',t('Elles seront découpées en sessions Pomodoro.')));content.append(message,add);screen.append(content);
+      if(typeof win.NotchyGalet?.create==='function'){
+        art.querySelector('path')?.remove();const mascot=node('span','nd-empty-mimo');mascot.setAttribute('aria-hidden','true');art.append(mascot);
+        emptyGalet=win.NotchyGalet.create(mascot,{variant:'focus',motion:motionEnabled,active:options.preview!==true,scope:doc});
+      }
     }
     function segmentBar(task, preview=false) {
       const bar=node('div','nd-segments');bar.setAttribute('aria-hidden','true');
@@ -192,7 +196,7 @@
         const progress=Core.phase(task),started=task.elapsedMs>0||state.activeId===task.id&&state.startedAt!==null;
         const fullTimer=['full','main'].includes(moduleLayout)||view==='timer'&&size==='full',active=state.activeId===task.id&&!task.done;
         row.classList.toggle('is-active',active);
-        row.querySelector('.nd-time-value').textContent=fullTimer?active?t(state.startedAt!==null?'En cours':'En pause'):totalLabel(task.totalMinutes):started&&!task.done?clock(progress.remainingMs):totalLabel(task.totalMinutes);
+        row.querySelector('.nd-time-value').textContent=fullTimer?active?t('Active')+' · '+progress.current.cycle+'/'+progress.cycles:totalLabel(task.totalMinutes):started&&!task.done?clock(progress.remainingMs):totalLabel(task.totalMinutes);
         row.querySelector('.nd-row-kind').textContent=!fullTimer&&started&&!task.done?phaseLabel(progress):'';
         const play=row.querySelector('.nd-row-play'),running=state.activeId===task.id&&state.startedAt!==null;play.replaceChildren(icon(running?'pause':'play',12));play.setAttribute('aria-label',t(running?'Mettre en pause':'Lancer le Pomodoro')+': '+task.title);play.disabled=task.done;
         for(const fill of row.querySelectorAll('.nd-segment-fill'))fill.style.width=(task.done?100:Math.max(0,Math.min(100,(task.elapsedMs-Number(fill.dataset.start))/Number(fill.dataset.duration)*100)))+'%';
@@ -231,17 +235,20 @@
         }
         if(presentation==='wide')layout.append(button('settings','Modifier les réglages','settings'));
       }else{
-        const timer=node('section','nd-module-timer'),title=button('open-details','Tâches',null,'nd-selected-title');
-        title.append(node('span','nd-dot'),node('span','',task.title));
+        const timer=node('section','nd-module-timer'),heading=node('header','nd-timer-heading'),title=button('open-details','Tâches',null,'nd-selected-title');
+        const chevron=node('span','nd-title-chevron','›');chevron.setAttribute('aria-hidden','true');
+        title.append(node('span','nd-dot'),node('span','nd-selected-name',task.title),chevron);heading.append(title,node('span','nd-session-badge'));
         const dial=moduleRing(presentation),text=node('div','nd-ring-text');text.append(node('div','nd-clock'),node('div','nd-phase'));dial.append(text);
         const controls=node('div','nd-controls');controls.append(button('restart','Recommencer','reset','nd-control'),button('toggle','Lancer le Pomodoro','play','nd-control nd-toggle',18),button('skip','Passer à l’étape suivante','skip','nd-control',16));
-        timer.append(title,dial,controls);layout.append(timer);
+        timer.append(heading,dial,controls);layout.append(timer);
         if(presentation==='side'){
           const next=node('section','nd-module-upnext'),row=button('detail','Focus',null,'nd-upnext-task');row.append(node('span','nd-upnext-title'),node('span','nd-upnext-duration'));
           next.append(node('span','nd-upnext-kicker',t('Ensuite')),row);timer.append(next);
         }else if(presentation!=='tall'){
           const listPanel=node('section','nd-module-tasks'),list=node('div','nd-list nd-focus-list nd-module-list');
-          list.setAttribute('role','list');list.setAttribute('aria-label',t('Tâches'));header(true,listPanel,presentation==='main');listPanel.append(list);layout.append(node('div','nd-divider'),listPanel);
+          list.setAttribute('role','list');list.setAttribute('aria-label',t('Tâches'));header(true,listPanel,presentation==='main',presentation!=='full');listPanel.append(list);
+          if(presentation==='full'){const add=button('add','Nouvelle tâche','plus','nd-module-add');add.append(node('span','',t('Nouvelle tâche')));listPanel.append(add);}
+          layout.append(node('div','nd-divider'),listPanel);
         }
       }
       updateRows(state);updateTimer(state);
@@ -265,13 +272,14 @@
     function updateTimer(state) {
       if(!['timer','pomodoro'].includes(view)&&surface.dataset?.canonicalView!=='true')return;const task=selected(state);if(!task)return;const p=Core.phase(task),running=state.activeId===task.id&&state.startedAt!==null;
       const holding=boundary&&boundary.kind!=='task'&&boundary.stage==='message';
-      surface.style.setProperty('--nd-phase',holding?boundary.from==='focus'?ACCENT:'#86b7ff':p.current.kind==='focus'?ACCENT:'#86b7ff');
+      surface.style.setProperty('--nd-phase',holding?boundary.from==='focus'?ACCENT:'#86b7ff':p.finished?'#4fd88a':p.current.kind==='focus'?ACCENT:'#86b7ff');
       surface.dataset.phase=p.finished?'complete':p.current.kind;
       for(const clockElement of screen.querySelectorAll('.nd-clock,.nd-mini-clock'))updateClock(clockElement,clock(holding?0:p.remainingMs),{motion:motionEnabled()});
-      for(const title of screen.querySelectorAll('.nd-mini-title,.nd-selected-title span:last-child')){title.textContent=task.title;title.title=task.title;}
+      for(const title of screen.querySelectorAll('.nd-mini-title,.nd-selected-name,.nd-selected-title span:last-child:not(.nd-title-chevron)')){title.textContent=task.title;title.title=task.title;}
       const smallTitle=$('.nd-module-small-title');if(smallTitle){smallTitle.textContent=holding?t(boundary.title):task.title+' · '+p.current.cycle+'/'+p.cycles;smallTitle.title=holding?boundary.detail:task.title;}
       const upcomingTask=$('.nd-upnext-task');if(upcomingTask){const nextTask=state.tasks.find(item=>!item.done&&item.id!==task.id);upcomingTask.disabled=!nextTask;upcomingTask.dataset.id=nextTask?.id||'';upcomingTask.querySelector('.nd-upnext-title').textContent=nextTask?.title||t('Tout est fait');upcomingTask.querySelector('.nd-upnext-duration').textContent=nextTask?totalLabel(nextTask.totalMinutes):'';upcomingTask.setAttribute('aria-label',nextTask?t('Focus')+': '+nextTask.title:t('Tout est fait'));}
       const phase=$('.nd-phase');if(phase)phase.textContent=holding?t(boundary.title):phaseLabel(p)+' · '+p.current.cycle+'/'+p.cycles;
+      const badge=$('.nd-session-badge');if(badge){badge.textContent=phaseLabel(p)+' · '+p.current.cycle+'/'+p.cycles;badge.dataset.complete=String(p.finished);}
       const miniPhase=$('.nd-mini-phase-text');if(miniPhase)miniPhase.textContent=phaseLabel(p)+(size==='details'||size==='quarter'?' '+p.current.cycle+'/'+p.cycles:'');
       for(const circle of screen.querySelectorAll('.nd-ring-progress')){const r=circle.closest('.nd-ring');circle.style.strokeDashoffset=Number(r.dataset.circumference)*(holding?1:p.fraction);}
       const play=$('[data-command=toggle]');if(play){play.setAttribute('aria-label',t(running?'Mettre en pause':'Lancer le Pomodoro'));const old=play.querySelector(':scope > svg');if(old)old.replaceWith(icon(running?'pause':'play',18));else play.replaceChildren(icon(running?'pause':'play',16));play.disabled=task.done;}

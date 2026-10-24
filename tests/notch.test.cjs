@@ -209,7 +209,7 @@ function interactionFixture() {
   function runDue() {
     for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
   }
-  return {api: scope.api, changes, island:scope.notch, focus: element => {focused = element;}, documentFocus:value=>{documentFocused=value;},transfer: value => {transfer = value;},
+  return {api: scope.api, scope, changes, island:scope.notch, focus: element => {focused = element;}, documentFocus:value=>{documentFocused=value;},transfer: value => {transfer = value;},
     advance: milliseconds => {now += milliseconds; runDue();},
     flush: () => {if (timers.size) now = Math.max(now, ...[...timers.values()].map(timer => timer.at)); runDue();}};
 }
@@ -415,6 +415,16 @@ test('native deactivation during QuickLook startup preserves the preview and sea
   assert.equal(f.api.state,'open');assert.equal(f.api.view,'search');
   f.api.previewing=false;f.api.deactivate({reason:'blur',quickLook:false});f.advance(280);
   assert.equal(f.api.state,'rest','normal deactivation still collapses after the preview closes');
+});
+
+test('Escape closing an Office preview retains the keyboard route after native focus returns', () => {
+  const f=interactionFixture(); f.api.state='open'; f.api.view='search'; f.api.previewing=true;
+  f.documentFocus(false); f.api.deactivate({reason:'blur',quickLook:true}); f.advance(1000);
+  f.documentFocus(true); f.focus({closest:selector=>selector==='#notch-toggle,#notch-panel,#notch-menu,#island-footer'?{}:null});
+  f.api.keyboardInteraction({key:'Escape'}); f.api.previewing=false;
+  f.api.scheduleCollapse(); f.advance(1000);
+  assert.equal(f.api.state,'open'); assert.equal(f.api.view,'search');
+  f.api.nativePointer({inside:false,moved:true}); f.advance(280); assert.equal(f.api.state,'rest');
 });
 
 test('settings close on departure and pointer reentry only previews without opening the route', () => {

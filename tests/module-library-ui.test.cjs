@@ -26,15 +26,69 @@ function fixture(options={}) {
     querySelectorAll(selector){return this.children.flatMap(child=>[...(child.matches(selector)?[child]:[]),...child.querySelectorAll(selector)]);}
     querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
   }
-  document.createElement=tag=>new Element(tag);document.createElementNS=(_,tag)=>new Element(tag);document.body=new Element('body');document.querySelector=selector=>selector==='meta[name="application-version"]'?{content:'0.3.9'}:document.body.querySelector(selector);
+  document.createElement=tag=>new Element(tag);document.createElementNS=(_,tag)=>new Element(tag);document.body=new Element('body');document.querySelector=selector=>selector==='meta[name="application-version"]'?{content:'0.3.9'}:document.body.querySelector(selector);if(options.galet)document.defaultView={NotchyGalet:options.galet,MutationObserver:options.MutationObserver};
   const host=new Element('section'),toolbar=new Element('div');document.body.append(host,toolbar);
-  const scope={window:{NotchyModules:runtime}};vm.runInNewContext(source,scope);const store=options.store||runtime.createStore(),placed=[],opened=[],dialogs=[],installed=[],removed=[];let language='fr',closed=0;
+  const scope={window:{NotchyModules:runtime,NotchyLayout:require('../module-contracts.js')},setTimeout,clearTimeout};vm.runInNewContext(source,scope);const store=options.store||runtime.createStore(),placed=[],opened=[],dialogs=[],installed=[],removed=[];let language='fr',closed=0;
   const builtins=[{id:'focus',bundled:true,installed:options.focusInstalled!==false,name:{fr:'Tâches & Focus',en:'Tasks & Focus'},description:{fr:'Tes tâches et leur minuteur.',en:'Your tasks and their timer.'},category:'productivity',accent:'#ff7a45',features:[{title:{fr:'Minuteur',en:'Timer'},detail:{fr:'Progression conservée.',en:'Progress is preserved.'}}],permissions:{fr:'Données locales.',en:'Local data.'}},{id:'music',bundled:true,installed:true,name:{fr:'Musique',en:'Music'},description:{fr:'Le lecteur média.',en:'The media player.'},category:'media'}];
-  const library=scope.window.NotchyModuleLibrary.create({host,store,toolbarHost:toolbar,language:()=>language,getBuiltins:()=>builtins,getPlacements:options.getPlacements||(()=>[{index:0,id:'music',label:'Musique'},{index:1,id:null,label:''},{index:2,id:'weather',label:'Météo'}]),onPlace:(...args)=>{placed.push(args);return options.onPlace?.(...args);},onBuiltinOpen:id=>opened.push(id),onBuiltinInstall:async id=>{installed.push(id);await options.onBuiltinInstall?.(id);builtins.find(entry=>entry.id===id).installed=true;},onBuiltinRemove:async id=>{removed.push(id);await options.onBuiltinRemove?.(id);builtins.find(entry=>entry.id===id).installed=false;},onClose:()=>{closed++;},onDialog:file=>dialogs.push(file)});
+  if(options.quickLook)builtins.push({id:'quicklook',name:'QuickLook',utility:true,bundled:false,installed:false,version:'4.5.0',category:'system',description:{fr:'Un moteur portable pour les aperçus.',en:'A portable preview engine.'},permissions:{fr:'Réseau pour installer et lecture des fichiers demandés.',en:'Network to install and read requested files.'},...options.quickLook});
+  const library=scope.window.NotchyModuleLibrary.create({host,store,toolbarHost:toolbar,language:()=>language,getBuiltins:()=>builtins,getPlacements:options.getPlacements||(()=>[{index:0,id:'music',label:'Musique'},{index:1,id:null,label:''},{index:2,id:'weather',label:'Météo'}]),onPlace:(...args)=>{placed.push(args);return options.onPlace?.(...args);},onBuiltinOpen:id=>opened.push(id),onBuiltinStatus:options.onBuiltinStatus,onBuiltinSource:options.onBuiltinSource,onBuiltinInstall:async id=>{installed.push(id);const result=await options.onBuiltinInstall?.(id);if(id==='quicklook')return result;builtins.find(entry=>entry.id===id).installed=true;},onBuiltinRemove:async id=>{removed.push(id);const result=await options.onBuiltinRemove?.(id);if(id==='quicklook')return result;builtins.find(entry=>entry.id===id).installed=false;},onClose:()=>{closed++;},onDialog:file=>dialogs.push(file)});
   const all=()=>document.body.querySelectorAll('button'),find=selector=>document.body.querySelector(selector),click=selector=>{const node=find(selector);assert(node,'Missing '+selector);node.emit('click');return node;};
   library.show();return{document,host,toolbar,store,library,placed,opened,dialogs,installed,removed,find,click,scrollRequests,buttons:all,closed:()=>closed,language(value){language=value;library.refresh();},input(selector,value){const node=find(selector);assert(node);node.value=value;node.emit('input');return node;},key(value='Escape',external=false){return(external?toolbar.querySelector('header'):host).emit('keydown',{key:value});}};
 }
 const flush=()=>new Promise(setImmediate);
+const quickLookStatus=(phase='idle',extra={})=>({supported:true,installed:phase==='installed',officeInstalled:phase==='installed',officeVersion:phase==='installed'?'6':null,phase,version:'4.5.0',downloaded:0,total:155569762,error:null,...extra});
+
+test('downloadable QuickLook reviews permissions and credits, then installs and removes without a Nook slot',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let status=quickLookStatus(),statusCalls=0;
+  const f=fixture({quickLook:{nativeAvailable:true},onBuiltinStatus:async id=>{assert.equal(id,'quicklook');statusCalls++;return status;},onBuiltinInstall:async()=>status=quickLookStatus('downloading',{downloaded:35000000}),onBuiltinRemove:async()=>status=quickLookStatus()});
+  try{
+    await flush();assert(f.library.openDetail('quicklook'));assert.equal(f.find('.module-library-sizes'),null);assert.equal(f.find('[data-market-place]'),null);assert.equal(f.find('[data-module-confirm]'),null);assert(!f.host.textContent.includes('Inclus dans Notchy'));assert(!f.host.textContent.includes('formats adaptatifs'));assert(f.host.textContent.includes('Paddy Xu / QL-Win'));assert(f.host.textContent.includes('GPL-3.0'));assert(f.host.textContent.includes('OfficeViewer 6'));assert(f.host.textContent.includes('Syncfusion'));assert.equal(f.host.querySelectorAll('a').find(link=>link.href==='https://github.com/QL-Win/QuickLook.Plugin.OfficeViewer/releases/tag/6')?.target,'_blank');assert(f.host.textContent.includes('155 Mo'));assert(f.host.textContent.includes('350 Mo'));
+    f.click('[data-market-builtin-install="quicklook"]');await flush();assert.deepEqual(f.installed,['quicklook']);assert.equal(f.document.activeElement,f.find('.module-library-back'));assert.equal(f.find('[data-market-builtin-install]').disabled,true);assert(f.find('[data-market-utility-status]').textContent.includes('22 %'));assert.equal(f.store.list().length,0);assert.deepEqual(f.placed,[]);
+    const body=f.find('.module-library-body'),progress=f.find('[data-market-utility-progress]'),statusNode=f.find('[data-market-utility-status]'),sourceLink=f.find('a');sourceLink.focus();body.scrollTop=111;
+    status=quickLookStatus('downloading',{downloaded:70000000});t.mock.timers.tick(500);await flush();assert.equal(f.find('[data-market-utility-progress]'),progress);assert.equal(f.find('[data-market-utility-status]'),statusNode);assert.equal(f.document.activeElement,sourceLink);assert.equal(body.scrollTop,111);assert(statusNode.textContent.includes('44 %'));
+    status=quickLookStatus('error',{error:'Download failed'});t.mock.timers.tick(500);await flush();assert(f.find('[data-market-utility-status]').textContent.includes('Download failed'));assert.equal(f.find('[data-market-builtin-install]').textContent,'Réessayer');assert.equal(f.document.activeElement,f.find('a'));assert.equal(body.scrollTop,111);
+    f.click('[data-market-builtin-install]');await flush();status=quickLookStatus('installed',{downloaded:140000000});t.mock.timers.tick(500);await flush();assert.equal(f.find('[data-market-builtin-install]').textContent,'Installé');assert(f.find('[data-market-remove="quicklook"]'));assert.equal(body.scrollTop,111);const count=statusCalls;t.mock.timers.tick(5000);await flush();assert.equal(statusCalls,count,'terminal phases stop polling');
+    f.click('[data-market-remove="quicklook"]');assert(f.host.textContent.includes('installation externe'));assert(!f.host.textContent.includes('retiré de Nook'));f.library.back();assert.equal(f.document.activeElement,f.find('[data-market-remove]'));f.click('[data-market-remove="quicklook"]');f.click('[data-module-remove-confirm]');await flush();assert.deepEqual(f.removed,['quicklook']);assert.equal(f.document.activeElement,f.find('.module-library-back'));assert.equal(f.find('[data-market-builtin-install]').textContent,'Obtenir');assert.equal(f.find('[data-market-remove]'),null);assert.equal(f.store.list().length,0);assert.deepEqual(f.placed,[]);
+  }finally{f.library.dispose();}
+});
+
+for(const officeInstalled of [false,undefined])test('an installed QuickLook engine can complete Office when its addon status is '+officeInstalled,async()=>{
+  let status=quickLookStatus('installed',{officeInstalled,officeVersion:null});
+  if(officeInstalled===undefined){delete status.officeInstalled;delete status.officeVersion;}
+  const f=fixture({quickLook:{nativeAvailable:true},onBuiltinStatus:async()=>status,onBuiltinInstall:async()=>status=quickLookStatus('installed')});
+  try{await flush();f.library.openDetail('quicklook');const launch=f.find('[data-market-builtin-install]');assert.equal(launch.disabled,false);assert.equal(launch.textContent,'Compléter Office');assert(f.find('[data-market-utility-status]').textContent.includes('Moteur installé'));assert(!f.find('[data-market-utility-status]').textContent.includes('Prêt'));assert(f.find('[data-market-remove]'));f.language('en');assert.equal(f.find('[data-market-builtin-install]').textContent,'Enable Office preview');f.click('[data-market-builtin-install]');await flush();assert.deepEqual(f.installed,['quicklook']);assert.equal(f.find('[data-market-builtin-install]').textContent,'Installed');assert.equal(f.find('[data-market-builtin-install]').disabled,true);assert(f.find('[data-market-utility-status]').textContent.includes('Ready'));assert.equal(f.store.list().length,0);assert.deepEqual(f.placed,[]);}
+  finally{f.library.dispose();}
+});
+
+test('adding Office to an installed engine disables its action only while the addon is being installed',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let status=quickLookStatus('installed',{officeInstalled:false,officeVersion:null});
+  const f=fixture({quickLook:{nativeAvailable:true},onBuiltinStatus:async()=>status,onBuiltinInstall:async()=>status=quickLookStatus('downloading',{installed:true,officeInstalled:false,downloaded:7657492,total:15314985})});
+  try{await flush();f.library.openDetail('quicklook');f.click('[data-market-builtin-install]');await flush();assert.equal(f.find('[data-market-builtin-install]').disabled,true);assert.equal(f.find('[data-market-builtin-install]').textContent,'Installation…');assert(f.find('[data-market-utility-status]').textContent.includes('49 %'));status=quickLookStatus('installed');t.mock.timers.tick(500);await flush();assert.equal(f.find('[data-market-builtin-install]').textContent,'Installé');assert.equal(f.find('[data-market-builtin-install]').disabled,true);}
+  finally{f.library.dispose();}
+});
+
+test('QuickLook utility is disabled in a web preview and never pretends to be bundled',async()=>{
+  let reads=0;const f=fixture({quickLook:{nativeAvailable:false},onBuiltinStatus:()=>{reads++;}});f.library.openDetail('quicklook');await flush();assert.equal(reads,0);assert.equal(f.find('[data-market-builtin-install]').disabled,true);assert(f.host.textContent.includes('version Windows native'));f.click('[data-market-builtin-install]');assert.deepEqual(f.installed,[]);assert.equal(f.find('.module-library-sizes'),null);f.library.dispose();
+});
+
+test('native QuickLook credits request the fixed source operation using only a module ID',async()=>{
+  const calls=[],f=fixture({quickLook:{nativeAvailable:true},onBuiltinSource:async(...args)=>calls.push(args)});f.library.openDetail('quicklook');assert.equal(f.find('a').emit('click').prevented,true);await flush();assert.deepEqual(calls,[['quicklook']]);assert.equal(f.store.list().length,0);f.library.dispose();
+  const web=fixture({quickLook:{nativeAvailable:false},onBuiltinSource:()=>{throw Error('Native source must not run in web preview');}});web.library.openDetail('quicklook');const link=web.find('a');assert.equal(link.href,'https://github.com/QL-Win/QuickLook/tree/4.5.0');assert.equal(link.emit('click').prevented,undefined);web.library.dispose();
+});
+
+test('an owned incomplete QuickLook module is removable before a fresh installation is offered',async()=>{
+  let status=quickLookStatus('error',{removable:true,error:'Module incomplet'});
+  const f=fixture({quickLook:{nativeAvailable:true},onBuiltinStatus:async()=>status,onBuiltinRemove:async()=>status=quickLookStatus(),onBuiltinInstall:async()=>quickLookStatus('downloading')});
+  await flush();f.library.openDetail('quicklook');assert.equal(f.find('[data-market-builtin-install]').disabled,true);assert.equal(f.find('[data-market-builtin-install]').textContent,'Installation incomplète');assert(f.find('[data-market-utility-status]').textContent.includes('Retire le module puis réessaie.'));f.click('[data-market-builtin-install]');assert.equal(f.installed.length,0);
+  f.click('[data-market-remove="quicklook"]');f.click('[data-module-remove-confirm]');await flush();assert.deepEqual(f.removed,['quicklook']);assert.equal(f.find('[data-market-builtin-install]').disabled,false);assert.equal(f.find('[data-market-builtin-install]').textContent,'Obtenir');f.library.dispose();
+});
+
+test('utility polling ignores old replies after hide, resumes on show and does not rebuild Studio drafts',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let resolve,reads=0,status=quickLookStatus('downloading');const first=new Promise(done=>resolve=done);
+  const f=fixture({quickLook:{nativeAvailable:true},onBuiltinStatus:async()=>++reads===1?first:status});
+  f.library.openDetail('quicklook');f.library.hide();resolve(quickLookStatus('installed'));await flush();assert.equal(f.host.hidden,true);t.mock.timers.tick(1000);assert.equal(reads,1);
+  f.library.show();await flush();assert(f.find('[data-market-utility-status]').textContent.includes('Téléchargement'));f.library.back();f.click('[data-module-library-tab="studio"]');const editor=f.input('.module-library-json','Draft kept while downloading');editor.focus();const body=f.find('.module-library-body');body.scrollTop=91;status=quickLookStatus('installed');t.mock.timers.tick(500);await flush();assert.equal(f.find('.module-library-json'),editor);assert.equal(f.document.activeElement,editor);assert.equal(body.scrollTop,91);assert.equal(editor.value,'Draft kept while downloading');f.library.dispose();const count=reads;t.mock.timers.tick(5000);await flush();assert.equal(reads,count);
+});
 
 test('Market uses actual built-ins and local manifests, search and categories never invent unavailable modules',()=>{
   const f=fixture();assert.equal(f.host.querySelectorAll('[data-library-module]').length,4);assert(f.find('.module-library-featured').textContent.includes('Lecture'));
@@ -43,6 +97,23 @@ test('Market uses actual built-ins and local manifests, search and categories ne
   f.click('[data-market-category="media"]');assert.equal(f.host.querySelectorAll('[data-library-module]').length,1);assert(f.host.textContent.includes('Musique'));
   f.click('[data-market-category="all"]');const search=f.input('[data-market-search]','taches');assert.equal(f.host.querySelectorAll('[data-library-module]').length,1);assert(f.host.textContent.includes('Tâches & Focus'));assert.equal(search.value,'taches');
   f.language('en');assert.equal(search.value,'taches');assert(f.find('.module-library-empty'));f.input('[data-market-search]','tasks');assert(f.host.textContent.includes('Tasks & Focus'));f.library.dispose();
+});
+
+test('Market empty results use Galet and release its renderer before replacement, hide and disposal',()=>{
+ const created=[],f=fixture({galet:{create(host,options){const item={host,options,disposed:0,dispose(){assert(f.find('.module-library-body').contains(host),'cleanup precedes DOM replacement');this.disposed++;}};created.push(item);return item;}}});
+ assert.equal(created.length,0);f.click('[data-market-category="finance"]');assert.equal(created.length,1);assert.equal(created[0].host,f.find('.module-library-empty-mimo'));assert.equal(created[0].options.active,true);assert.equal(created[0].options.scope,f.document);assert.equal(f.find('.module-library-empty').children[1].textContent,'Aucun module dans cette sélection.');
+ f.click('[data-market-category="media"]');assert.equal(created[0].disposed,1);assert.equal(f.find('.module-library-empty-mimo'),null);
+ f.input('[data-market-search]','does-not-exist');assert.equal(created.length,2);assert.equal(f.find('.module-library-empty').children[1].textContent,'Aucun module trouvé.');
+ f.library.hide();assert.equal(created[1].disposed,1);f.library.show();assert.equal(created.length,3);f.library.dispose();assert.equal(created[2].disposed,1);f.library.dispose();assert(created.every(item=>item.disposed===1));
+});
+
+test('Market mascot follows the app motion preference and disconnects its observer when hidden',()=>{
+ let changed,observed,disconnected=0;const motions=[];
+ class Observer{constructor(callback){changed=callback;}observe(target,options){observed={target,options};}disconnect(){disconnected++;}}
+ const f=fixture({MutationObserver:Observer,galet:{create(_host,options){motions.push(options.motion());return{dispose(){},setMotion(read){motions.push(read());}};}}});
+ f.click('[data-market-category="finance"]');assert.equal(observed.target,f.document.body);assert.deepEqual(Array.from(observed.options.attributeFilter),['data-motion']);assert.deepEqual(motions,[true]);
+ f.document.body.dataset.motion='false';changed();f.document.body.dataset.motion='true';changed();assert.deepEqual(motions,[true,false,true]);
+ f.library.hide();assert.equal(disconnected,1);changed();assert.deepEqual(motions,[true,false,true]);f.library.dispose();assert.equal(disconnected,1);
 });
 
 test('typing multiword searches one character at a time preserves spaces and matches the complete module name',()=>{
@@ -58,6 +129,7 @@ test('typing multiword searches one character at a time preserves spaces and mat
 test('module detail uses real metadata, permissions and four canonical preview sizes without installing on discovery',()=>{
   const f=fixture();f.click('[data-market-open="community.reading"]');assert.equal(f.store.list().length,0);assert.equal(f.host.dataset.marketDetail,'true');assert(f.find('.module-library-detail-main'));assert(f.find('.module-library-detail-info'));assert(f.host.textContent.includes('1.0.0'));assert(f.host.textContent.includes('aucun accès au système ou au réseau'));
   const sizes=f.find('.module-library-sizes').querySelectorAll('button');assert.equal(sizes.length,4);sizes[0].emit('click');assert.equal(f.find('.module-library-preview').dataset.size,'full');f.find('[data-module-presentation-option="side"]').emit('click');assert.equal(f.find('.module-library-preview').dataset.size,'side');f.find('[data-module-presentation-option="small"]').emit('click');assert.equal(f.find('.module-library-preview').dataset.size,'small');
+  for(const control of sizes){const mark=control.querySelector('svg'),format=require('../module-contracts.js').getFormat(control.dataset.modulePresentationOption);assert.equal(mark.children.length,9);assert.equal(mark.children.filter(cell=>cell.attributes.fill==='currentColor').length,format.cols*format.rows);}
   f.library.back();assert.equal(f.host.dataset.marketDetail,'false');assert.equal(f.store.list().length,0);assert.equal(f.closed(),0);f.library.back();assert.equal(f.closed(),1);f.library.dispose();
 });
 

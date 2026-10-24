@@ -220,6 +220,9 @@
         for(const presentation of layout.supportedFormats(contractFor(placement.id))) {
           const format=layout.getFormat(presentation),available=!!candidateAt(placement.id,presentation,placement.column,placement.row);
           const control=menuControl(`${presentation} · ${format.cols} × ${format.rows} · ${format.width} × ${format.height}`,'resize',placement.id,!available);
+          control.setAttribute('aria-label',control.textContent);
+          const copy=element('span','experience-grid-size-copy'),name=element('strong','',presentation),dimensions=element('span','',`${format.cols} × ${format.rows} · ${format.width} × ${format.height}`);
+          copy.append(name,dimensions);control.replaceChildren(layout.createFormatIcon(document,presentation),copy);
           control.dataset.gridPresentation=presentation; control.setAttribute('aria-checked',String(placement.presentation===presentation));control.setAttribute('role','menuitemradio');
           if(!available)control.title=say('Les cellules nécessaires ne sont pas libres.');gridMenu.append(control);
         }

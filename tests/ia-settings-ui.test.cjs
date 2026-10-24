@@ -1,12 +1,13 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
 const ia=require('../ia.js'),{fixture}=require('./helpers/experience-dom.cjs');
-function settingsFixture(withLab=true,{mimo=false}={}){
+function settingsFixture(withLab=true){
   const f=fixture(),{document}=f;document.defaultView={};
   document.getElementById=id=>document.body.querySelector('#'+id);
   document.querySelector=selector=>selector==='meta[name="application-version"]'?{content:'0.3.9'}:document.body.querySelector(selector);
   const make=(id,tag='div',parent=document.body)=>{const node=document.createElement(tag);node.id=id;parent.append(node);return node;};
   const settings=make('settings-player','section'),menu=make('notch-menu','nav'),notch=make('notch'),nook=make('nook-layout');
+  notch.dataset.state='open';
   for(const view of ia.PRIMARY){const control=document.createElement('button');control.dataset.view=view;menu.append(control);}
   const language=make('settings-language','select',settings),startup=make('startup-control','label',settings),startupInput=make('startup-windows','input',startup),startupStatus=make('startup-status','p',settings),replay=make('welcome-replay','button',settings),format=make('appearance-segment','div',settings),formatSelect=make('appearance-format','select',settings),radius=make('appearance-radius','input',settings),radiusValue=make('appearance-radius-value','output',settings),motion=make('appearance-motion','input',settings),essentials=make('essentials','section',settings),links=make('settings-links','div',settings);
   format.className='settings-format-segment';essentials.className='settings-essentials';links.className='settings-experience-links';
@@ -16,11 +17,12 @@ function settingsFixture(withLab=true,{mimo=false}={}){
   for(const name of ['modules','scenarios','health'])make(name+'-player','section');
   const lab=withLab?make('fixture-lab','button',links):null;let launches=0;if(lab){lab.dataset.moduleLabOpen='';lab.addEventListener('click',()=>launches++);}
   language.value='en';startupInput.checked=true;motion.checked=false;radius.value='20';formatSelect.value='compact';formatSelect.hidden=true;startup.hidden=true;startupStatus.hidden=true;
-  const mimoCalls={attached:[],active:[],disposed:0};if(mimo){const mark=make('fixture-mimo');mark.className='welcome-mimo';document.defaultView.NotchyWelcome={attachMimo(node,options){mimoCalls.attached.push({node,options});return{setActive:value=>mimoCalls.active.push(value),dispose:()=>mimoCalls.disposed++};}};}
+  const galetCalls={created:[],active:[],motion:[],disposed:0};
+  document.defaultView.NotchyGalet={create(node,options){galetCalls.created.push({node,options});return{setMotion:value=>galetCalls.motion.push(value),setActive:value=>galetCalls.active.push(value),dispose:()=>galetCalls.disposed++};}};
   const tabs=[],ui=ia.create({document,t:value=>value,onTab:id=>tabs.push(id),onRoute(){},motion:()=>false});
   const clickTab=id=>{const control=document.getElementById('ia-tab-'+id),tablist=control.parentElement;tablist.listeners.click({target:control});ui.render('settings',false);};
   ui.render('settings',false);
-  return{...f,settings,menu,notch,nook,ui,lab,mimoCalls,scenariosButton,launches:()=>launches,tabs,clickTab,controls:{language,startupInput,startupStatus,replay,format,formatSelect,radius,radiusValue,motion,focus,close}};
+  return{...f,settings,menu,notch,nook,ui,lab,galetCalls,scenariosButton,launches:()=>launches,tabs,clickTab,controls:{language,startupInput,startupStatus,replay,format,formatSelect,radius,radiusValue,motion,focus,close}};
 }
 
 test('Module Lab is moved into About as the original working button instead of being detached with the old links',()=>{
@@ -64,9 +66,12 @@ test('Scenarios controls leave settings while the internal scenario panel and ex
   assert.equal(f.settings.contains(panel),false);f.clickTab('about');assert.equal(panel.fixtureEngine,engine);assert.equal(panel.isConnected,true);assert.equal(f.settings.querySelectorAll('[role="tab"]').length,6);f.ui.dispose();
 });
 
-test('About retains identity, version, tagline and both real tools while owning one shared Mimo controller',()=>{
-  const f=settingsFixture(true,{mimo:true});f.clickTab('about');const about=f.document.getElementById('ia-about');
+test('About retains identity, version, tagline and both real tools while owning one Galet controller',()=>{
+  const f=settingsFixture();f.clickTab('about');const about=f.document.getElementById('ia-about');
   assert(about.textContent.includes('Notchy'));assert(about.textContent.includes('VERSION 0.3.9'));assert(about.textContent.includes('Musique, focus et fichiers. Juste quand tu en as besoin.'));assert(about.querySelector('[data-settings-command="health"]'));assert(about.contains(f.lab));
-  assert.equal(f.mimoCalls.attached.length,1);assert.notEqual(f.mimoCalls.attached[0].node,f.document.getElementById('fixture-mimo'));assert.equal(f.mimoCalls.attached[0].options.scope,f.document);
-  assert.equal(f.mimoCalls.active.at(-1),true);f.clickTab('general');assert.equal(f.mimoCalls.active.at(-1),false);f.clickTab('about');assert.equal(f.mimoCalls.attached.length,1);f.ui.dispose();f.ui.dispose();assert.equal(f.mimoCalls.disposed,1);
+  assert.equal(f.galetCalls.created.length,1);assert.equal(f.galetCalls.created[0].node,about.querySelector('.ia-about-logo'));assert.equal(f.galetCalls.created[0].options.scope,f.document);
+  assert.equal(f.galetCalls.active.at(-1),true);f.clickTab('general');assert.equal(f.galetCalls.active.at(-1),false);f.clickTab('about');assert.equal(f.galetCalls.created.length,1);
+  f.notch.dataset.state='compact';f.ui.render('settings',false);assert.equal(f.galetCalls.active.at(-1),false,'a hidden About panel does not keep a mascot loop alive');
+  f.notch.dataset.state='open';f.ui.render('settings',false);assert.equal(f.galetCalls.active.at(-1),true);
+  f.ui.dispose();f.ui.dispose();assert.equal(f.galetCalls.disposed,1);
 });

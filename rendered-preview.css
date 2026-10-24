@@ -1,0 +1,32 @@
+.rendered-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: var(--space-12);
+  overflow: hidden;
+  border-radius: var(--r-card);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font: var(--body-weight) var(--body-size)/var(--body-lh) var(--font);
+  text-align: start;
+  pointer-events: auto;
+  isolation: isolate;
+}
+.rendered-preview[hidden], .rendered-preview [hidden] { display: none !important; }
+.rendered-preview-toolbar { display: flex; flex: none; align-items: center; gap: var(--space-8); min-inline-size: 0; min-block-size: var(--space-32); }
+.rendered-preview-title { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--callout-size); font-weight: var(--title-weight); }
+.rendered-preview-controls { display: flex; flex: none; gap: var(--space-4); }
+.rendered-preview .rendered-preview-button { display: grid; flex: none; place-items: center; inline-size: var(--space-32); min-inline-size: var(--space-32); block-size: var(--space-32); min-block-size: var(--space-32); padding: var(--space-4); border: 0; border-radius: var(--r-control); background: var(--surface-control); color: var(--text-secondary); cursor: pointer; }
+.rendered-preview-button svg { display: block; inline-size: var(--space-20); block-size: var(--space-20); fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.rendered-preview-button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text-primary); }
+#notch .rendered-preview .rendered-preview-button:is(:focus,:focus-visible) { outline: none; box-shadow: none; background: var(--surface-raised); color: var(--text-primary); }
+.rendered-preview-button:disabled { color: var(--text-disabled); cursor: default; }
+.rendered-preview-body { position: relative; flex: 1; min-inline-size: 0; min-block-size: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: var(--r-chip); background: var(--surface-card); }
+.rendered-preview-frame { display: block; inline-size: 100%; block-size: 100%; border: 0; background: var(--surface-card); }
+.rendered-preview-status { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; margin: 0; padding: var(--space-16); background: var(--surface-card); color: var(--text-tertiary); font-size: var(--callout-size); text-align: center; pointer-events: none; }
+.rendered-preview[data-status="error"] .rendered-preview-status { color: var(--status-negative); }

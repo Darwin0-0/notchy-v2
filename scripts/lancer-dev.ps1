@@ -52,6 +52,8 @@ try {
     & $taskNode 'scripts/build-frontend.cjs'
     if ($LASTEXITCODE -ne 0) { throw "La preparation de l'interface a echoue." }
     if ($BuildHost) {
+        & $taskNode 'scripts/check-storage.cjs' '--guard' '--target' $taskTarget
+        if ($LASTEXITCODE -ne 0) { throw 'Le controle stockage doit etre resolu avant une nouvelle compilation. Aucun fichier ne sera supprime sans nouvel accord.' }
         $env:CARGO_TARGET_DIR = $taskTarget
         $taskCargoArguments = @('build', '--manifest-path', 'src-tauri/Cargo.toml', '--locked', '--bin', 'notchy-v2')
         if ($Offline) { $taskCargoArguments += '--offline' }
@@ -61,6 +63,8 @@ try {
         New-Item -ItemType Directory -Path $taskDevelopment -Force | Out-Null
         Set-Content -LiteralPath $taskTargetNote -Value $taskTarget -Encoding UTF8
         Set-Content -LiteralPath $taskHostNote -Value (Get-TrialHash $taskExecutable) -Encoding UTF8
+        & $taskNode 'scripts/check-storage.cjs' '--target' $taskTarget
+        if ($LASTEXITCODE -ne 0) { throw 'La compilation est conservee, mais le bilan de stockage doit etre verifie.' }
     }
     if (-not (Test-Path -LiteralPath $taskExecutable -PathType Leaf) -or -not (Test-Path -LiteralPath $taskHostNote -PathType Leaf)) {
         throw "Le noyau natif d'essai doit etre prepare une premiere fois : .\Lancer-Notchy-Essai.cmd -BuildHost. Rust et les outils Windows sont requis uniquement pour cette preparation."

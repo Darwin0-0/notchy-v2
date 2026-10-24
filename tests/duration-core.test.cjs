@@ -1,6 +1,16 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),Core=require('../duration-core.js');
 function setup(options={}){let time=1000,id=0,saved=null;const store=Core.createStore({now:()=>time,makeId:()=>`test-${++id}`,save:encoded=>{saved=encoded;},...options});return{store,advance:ms=>{time+=ms;},saved:()=>saved};}
+
+test('explicit agent start and pause stay idempotent and never toggle another running task',async()=>{
+  const x=setup();await x.store.ready;await x.store.add('First',25);await x.store.add('Second',25);
+  await x.store.setTimer('test-1',true);x.advance(3000);await x.store.setTimer('test-1',true);
+  assert.equal(x.store.snapshot().startedAt,4000);assert.equal(x.store.snapshot().tasks[0].elapsedMs,3000);
+  await x.store.setTimer('test-2',false);assert.notEqual(x.store.snapshot().startedAt,null);
+  await x.store.setTimer('test-1',false);await x.store.setTimer('test-1',false);assert.equal(x.store.snapshot().startedAt,null);
+  await assert.rejects(x.store.setTimer('missing',true));await assert.rejects(x.store.setTimer('test-1','true'));
+  await x.store.complete('test-1');await assert.rejects(x.store.setTimer('test-1',true));x.store.dispose();
+});
 test('task duration is a complete wall-clock plan including clipped pauses from the reference',()=>{
   assert.deepEqual(Core.plan(90).map(s=>[s.kind,s.minutes]),[['focus',25],['short',5],['focus',25],['short',5],['focus',25],['short',5]]);
   assert.deepEqual(Core.plan(150).slice(6).map(s=>[s.kind,s.minutes]),[['focus',25],['long',15],['focus',20]]);

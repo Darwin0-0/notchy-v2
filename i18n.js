@@ -81,6 +81,7 @@
     '{count} modules visibles':'{count} visible modules', '{count} module visible':'{count} visible module', '{count} en réserve':'{count} in reserve', 'active au moins un module':'enable a module to begin',
     'Rien à faire pour l’instant':'Nothing to do just yet', 'Ajoute une tâche pour la lier à ton prochain focus.':'Add a task to link to your next focus session.',
     'Dépose un fichier ici':'Drop a file here', 'Dépose ici':'Drop here', 'Garde tes PDF et images à portée de main, prêts à envoyer.':'Keep PDFs and images close by, ready to share.',
+    'Garde tes fichiers à portée de main, prêts à envoyer.':'Keep your files close by, ready to share.', 'Tous tes fichiers à portée de main':'All your files close by',
     'Aucun appareil à proximité':'No devices nearby', 'Même réseau Wi‑Fi requis, internet n’est pas nécessaire.':'Use the same Wi-Fi network. No internet needed.',
     'Même réseau Wi‑Fi requis.':'Use the same Wi-Fi network.', 'Sans internet : même Wi‑Fi':'Offline: same Wi-Fi', 'Ajouter une IP':'Add an IP', 'Adresse réseau locale':'Local network address',
     'Entre une adresse IPv4 valide (ex. 192.168.1.20).':'Enter a valid IPv4 address (e.g. 192.168.1.20).',

@@ -36,6 +36,8 @@
       "../native/bin/NAudio.dll": "native/NAudio.dll",
       "../native/bin/NAudio-LICENSE.txt": "native/NAudio-LICENSE.txt",
       "../native/bin/CoverReader.dll": "native/CoverReader.dll",
+      "../native/bin/QuickLookPdfCompatibility.zip": "native/QuickLookPdfCompatibility.zip",
+      "../native/bin/NotchyOfficePreview.zip": "native/NotchyOfficePreview.zip",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../assets/manrope-OFL.txt": "licenses/manrope-OFL.txt",
       "../native/bin/OcrBridge.exe": "native/OcrBridge.exe",

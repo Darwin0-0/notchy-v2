@@ -15,11 +15,9 @@
 #welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"] .welcome-brand {top:32px}
 #welcome-player[data-welcome-design="mimo-head"] .welcome-mascot {display:block;flex:0 0 64px;width:64px;height:64px;transform-origin:center}
 #welcome-player[data-welcome-design="mimo-head"] .welcome-mimo {display:block;width:64px;height:64px;overflow:visible}
+#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo>svg {display:block;width:100%;height:100%;overflow:visible}
 #welcome-player[data-welcome-design="mimo-head"] .welcome-wordmark {display:block;margin:0;font:800 46px/1.2 var(--font-ui);letter-spacing:-.02em}
 #welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"]:is([data-mimo-beat="wake"],[data-mimo-beat="awake"],[data-mimo-beat="curious"]) .welcome-wordmark {opacity:0}
-#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-features {transform-box:view-box;transform-origin:0 0}
-#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-eyelids {transform-box:view-box;transform-origin:32px 32px}
-#welcome-player[data-welcome-design="mimo-head"][data-welcome-stage="logo"][data-mimo-beat="wake"] .welcome-mimo-eyelids {transform:scaleY(.12)}
 #welcome-player[data-welcome-design="mimo-head"] .welcome-title {position:absolute;top:134px;left:24px;right:24px;margin:0;display:flex;flex-wrap:wrap;justify-content:center;gap:0 .28em;color:#fff;font:700 26px/1.2 var(--font-ui);letter-spacing:-.01em}
 #welcome-player[data-welcome-design="mimo-head"] .welcome-word {display:inline-block}
 #welcome-player[data-welcome-design="mimo-head"] .welcome-description {position:absolute;top:178px;left:50%;width:min(440px,calc(100% - 48px));max-width:none;margin:0;translate:-50% 0;text-align:center;color:#c9c9ce;font:400 18px/1.4 var(--font-ui)}
@@ -44,12 +42,6 @@
 #welcome-player[data-welcome-design="mimo-head"] .welcome-step-text {position:absolute;top:210px;left:50%;width:min(480px,calc(100% - 64px));min-height:0;max-width:none;margin:0;translate:-50% 0;color:#b9b9bf;font:400 17px/1.4 var(--font-ui);text-align:center}
 #welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions {top:276px}
 #welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions button {width:168px;height:54px;min-width:0;min-height:0;padding:0 16px;border-radius:14px;font:700 18px/1.2 var(--font-ui)}
-#welcome-player[data-welcome-design="mimo-head"] .welcome-mimo-eye {transform-box:fill-box;transform-origin:center;animation:none}
-#welcome-player[data-welcome-design="mimo-head"][data-welcome-motion="true"]:is([data-welcome-stage="logo"],[data-welcome-stage="welcome"]) .welcome-mimo-eye {animation:mimo-head-blink 5s ease-in-out infinite}
-/* The same head is mounted in About; gaze, perspective and blinking stay independent. */
-.welcome-mimo[data-mimo-active] {transform-origin:50% 50%;overflow:visible}
-.welcome-mimo[data-mimo-active] .welcome-mimo-eye {transform-box:fill-box;transform-origin:center;animation:none}
-.welcome-mimo[data-mimo-active="true"] .welcome-mimo-eye {animation:mimo-head-blink 5s ease-in-out infinite}
 #welcome-player[data-welcome-design="mimo-head"] :is(.welcome-line,.welcome-check) {stroke-dasharray:1 1;stroke-dashoffset:0;animation:none}
 #welcome-player[data-welcome-design="mimo-head"] :is(.welcome-ripple,.welcome-arrow-nudge,.welcome-file-nudge,.welcome-drop-arrow,.welcome-timer-hand) {animation:none}
 #welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-line {animation:welcome-intro-draw 1s cubic-bezier(.2,.8,.2,1) both}
@@ -62,7 +54,6 @@
 #welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-timer-hand {transform-origin:44px 39px;animation:welcome-intro-tick 6s linear infinite}
 #welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-file-nudge {animation:welcome-intro-file 900ms cubic-bezier(.2,.8,.2,1) 600ms both}
 #welcome-player[data-welcome-motion="true"] .welcome-slide[data-active="true"] .welcome-drop-arrow {animation:welcome-intro-bob-down 1.4s ease-in-out infinite}
-@keyframes mimo-head-blink {0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
 @keyframes welcome-intro-draw {from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
 @keyframes welcome-intro-ping {from{transform:scale(1);opacity:.7}to{transform:scale(2.1);opacity:0}}
 @keyframes welcome-intro-bob {0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
@@ -86,9 +77,10 @@
  #welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions {top:272px}
  #welcome-player[data-welcome-design="mimo-head"] .welcome-tutorial .welcome-actions button {font-size:16px}
 }
-@media(prefers-reduced-motion:reduce) {#welcome-player[data-welcome-design="mimo-head"] *,.welcome-mimo[data-mimo-active] .welcome-mimo-eye {animation:none!important;transition:none!important}}
 @media(forced-colors:active) {
  #welcome-player[data-welcome-design="mimo-head"] {background:Canvas;color:CanvasText}
  #welcome-player[data-welcome-design="mimo-head"] :is(.welcome-title,.welcome-step-title,.welcome-description,.welcome-step-text,.welcome-counter,.welcome-skip,.welcome-illustration) {color:CanvasText}
  #welcome-player[data-welcome-design="mimo-head"] .welcome-primary {background:Highlight;color:HighlightText;forced-color-adjust:none}
 }
+
+@media(prefers-reduced-motion:reduce) {#welcome-player[data-welcome-design="mimo-head"] *{animation:none!important;transition:none!important}}

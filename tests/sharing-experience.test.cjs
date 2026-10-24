@@ -52,12 +52,76 @@ function fixture() {
   const click=node=>host.listeners.click?.({target:node});
   return {document,host,all,find,command,click};
 }
+function characterFixture() {
+  const f=fixture(),characters=[];
+  f.document.defaultView={NotchyGalet:{states:['idle','searching','finished','error','question','working','share-request','approval','receiving','received'],variants:{default:{},shelf:{},sharing:{}},create(host,options){
+    const character={host,variant:options.variant,changes:[],disposed:false,setVariant(value){this.variant=value;},setState(value){this.state=value;this.changes.push(value);host.dataset.galetState=value;},dispose(){this.disposed=true;}};
+    characters.push(character); return character;
+  }}};
+  return {...f,characters};
+}
 const file = (id,extra={}) => ({id,name:id+'.png',canOcr:true,canConvert:true,canSend:true,canOpen:true,canDownload:true,canRemove:true,...extra});
 const settle = () => new Promise(resolve => setImmediate(resolve));
 function shelfKey(f, target, key, extra={}) {
   const event={target,key,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;},...extra};
   f.host.listeners.keydown(event); return event;
 }
+
+for(const extension of ['html','htm'])test('Shelf integrated '+extension+' preview stays in its source through navigation and close without QuickLook',async()=>{
+  const f=fixture(),calls=[],actions=[];let market=0;
+  const component=create({...f,onGetQuickLook:()=>{market++;},onAction:(command,payload)=>actions.push({command,payload}),invoke:async(command,args)=>{calls.push([command,args]);return command==='search_status'?{quickLook:{supported:true,available:false,previewVisible:false},renderedPreview:{supported:true,visible:true}}:{};}});
+  try{
+    component.render({files:[file('first',{name:'first.'+extension,canPreview:true}),file('second',{name:'second.'+extension.toUpperCase(),canPreview:true})],selectedIds:['first']});const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
+    assert.equal(shelfKey(f,row('first'),' ').defaultPrevented,true);await settle();assert.equal(component.previewTarget(),'first');assert.deepEqual(calls.filter(call=>call[0]==='shelf_preview'),[['shelf_preview',{id:'first'}]]);assert.equal(market,0);
+    const previewControl=f.document.createElement('button');f.document.body.append(previewControl);previewControl.focus();
+    assert.equal(component.navigatePreview(1),true);assert.equal(f.document.activeElement===previewControl,true,'Navigation keeps the reader focused while the next preview loads');await settle();assert.equal(component.previewTarget(),'second');assert.equal(f.document.activeElement===previewControl,true);assert.equal(row('second').attributes['aria-pressed'],'true');assert.deepEqual(actions.at(-1),{command:'select',payload:{id:'second',selected:true,selectedIds:['second']}});
+    const sent=calls.filter(call=>call[0]==='shelf_preview').length;assert.equal(component.navigatePreview(1),true);await settle();assert.equal(f.document.activeElement===previewControl,true,'The final document cannot move focus behind the reader');assert.equal(calls.filter(call=>call[0]==='shelf_preview').length,sent);
+    assert.equal(component.navigatePreview(-1),true);await settle();assert.equal(component.previewTarget(),'first');assert.equal(f.document.activeElement===previewControl,true);assert.equal(component.navigatePreview(-1),true);assert.equal(f.document.activeElement===previewControl,true);assert.equal(component.navigatePreview(5),false);
+    component.stopPreview();await settle();assert.equal(component.previewTarget(),null);assert.equal(component.navigatePreview(1),false);assert.equal(row('first').attributes['aria-pressed'],'true');assert.deepEqual(calls.at(-1),['shelf_preview_close',{}]);assert.equal(market,0);assert.equal(f.command('get-quicklook').hidden,true);assert.equal(calls.some(call=>['search_quicklook_install','shelf_open'].includes(call[0])),false);
+  }finally{component.dispose();}
+});
+
+test('Shelf integrated preview failures expose neutral feedback without a QuickLook Market action',async()=>{
+  const f=fixture();let market=0;
+  const component=create({...f,onGetQuickLook:()=>{market++;},invoke:async command=>{if(command==='search_status')return {quickLook:{available:false},renderedPreview:{supported:true}};throw Error('COM absent C:\\private\\secret '+ 'x'.repeat(1000));}});
+  component.render({files:[file('one',{name:'document.html',canPreview:true})],selectedIds:['one']});shelfKey(f,f.command('select'),' ');await settle();assert.equal(component.previewTarget(),null);assert.equal(f.find(node=>node.className==='sharing-file-status').textContent,'Aperçu indisponible.');assert.equal(f.command('get-quicklook').hidden,true);f.click(f.command('get-quicklook'));assert.equal(market,0);assert(!f.host.textContent.includes('secret'));component.dispose();
+});
+
+test('Shelf tracks integrated viewer visibility independently of an absent QuickLook viewer',async t=>{
+  t.mock.timers.enable({apis:['setInterval']});const f=fixture();let visible=true;
+  const component=create({...f,onGetQuickLook:()=>{throw Error('Integrated formats must not open Market');},invoke:async command=>command==='search_status'?{quickLook:{available:false,previewVisible:false},renderedPreview:{supported:true,visible}}:{}});
+  component.render({files:[file('one',{name:'document.html',canPreview:true})],selectedIds:['one']});shelfKey(f,f.command('select'),' ');await settle();t.mock.timers.tick(1000);await settle();assert.equal(component.previewTarget(),'one');visible=false;t.mock.timers.tick(1000);await settle();assert.equal(component.previewTarget(),null);assert.equal(f.command('select').attributes['aria-pressed'],'true');component.dispose();
+});
+
+for(const extension of ['docx','pptx','xlsx']){
+  test('Shelf Office '+extension+' opens Market when QuickLook is absent despite the HTML reader being available',async()=>{
+    const f=fixture(),calls=[];let market=0;
+    const component=create({...f,onGetQuickLook:()=>{market++;},invoke:async(command,args)=>{calls.push([command,args]);return {quickLook:{supported:true,available:false},renderedPreview:{supported:true,visible:true}};}});
+    try{component.render({files:[file('office',{name:'report.'+extension,canPreview:true})],selectedIds:['office']});assert.equal(shelfKey(f,f.command('select'),' ').defaultPrevented,true);await settle();assert.equal(market,1);assert.equal(component.isPreviewing(),false);assert.equal(f.command('select').attributes['aria-pressed'],'true');assert.deepEqual(calls,[['search_status',{}]]);}
+    finally{component.dispose();}
+  });
+  test('Shelf Office '+extension+' follows QuickLook visibility and preserves keyboard navigation and selection',async t=>{
+    t.mock.timers.enable({apis:['setInterval']});const f=fixture(),calls=[],actions=[];let visible=true;
+    const component=create({...f,onGetQuickLook:()=>{throw Error('Installed QuickLook must not open Market');},onAction:(command,payload)=>actions.push({command,payload}),invoke:async(command,args)=>{calls.push([command,args]);return command==='search_status'?{quickLook:{supported:true,available:true,previewVisible:visible},renderedPreview:{supported:true,visible:false}}:{};}});
+    const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
+    try{component.render({files:[file('first',{name:'first.'+extension,canPreview:true}),file('second',{name:'second.'+extension.toUpperCase(),canPreview:true})],selectedIds:['first']});row('first').focus();assert.equal(shelfKey(f,row('first'),' ').defaultPrevented,true);await settle();assert.equal(component.previewTarget(),'first');t.mock.timers.tick(1000);await settle();assert.equal(component.isPreviewing(),true,'The HTML reader visibility cannot close an Office preview');shelfKey(f,row('first'),'ArrowRight');await settle();assert.equal(component.previewTarget(),'second');assert.equal(f.document.activeElement,row('second'));assert.deepEqual(actions.at(-1).payload.selectedIds,['second']);assert.deepEqual(calls.filter(call=>call[0]==='shelf_preview'),[['shelf_preview',{id:'first'}],['shelf_preview',{id:'second'}]]);assert.equal(shelfKey(f,row('second'),'Escape').stopped,true);await settle();assert.equal(component.isPreviewing(),false);assert.equal(row('second').attributes['aria-pressed'],'true');shelfKey(f,row('second'),' ');await settle();visible=false;t.mock.timers.tick(1000);await settle();assert.equal(component.isPreviewing(),false,'Closing QuickLook externally ends the Office preview');assert.equal(row('second').attributes['aria-pressed'],'true');}
+    finally{component.dispose();}
+  });
+}
+
+test('Shelf missing QuickLook opens the Market module without opening a document or external setup',async()=>{
+  const f=fixture(),calls=[];let market=0;
+  const component=create({...f,onGetQuickLook:()=>{market++;},invoke:async(command,args)=>{calls.push([command,args]);return {quickLook:{supported:true,available:false}};}});
+  component.render({files:[file('a',{canPreview:true})],selectedIds:['a']});const row=f.command('select');shelfKey(f,row,' ');await settle();assert.equal(market,1);assert.equal(component.isPreviewing(),false);assert.deepEqual(calls,[['search_status',{}]]);component.dispose();
+});
+
+test('Shelf preview failure exposes a Market action and never routes an expired status after disposal',async()=>{
+  const f=fixture();let market=0;
+  const component=create({...f,onGetQuickLook:()=>{market++;},invoke:async command=>{if(command==='search_status')return {quickLook:{available:true}};throw Error('Preview failed');}});
+  component.render({files:[file('a',{canPreview:true})],selectedIds:['a']});shelfKey(f,f.command('select'),' ');await settle();const get=f.command('get-quicklook');assert.equal(get.hidden,false);f.click(get);assert.equal(market,1);component.dispose();
+  const other=fixture();let finish;
+  const delayed=create({...other,onGetQuickLook:()=>{market++;},invoke:()=>new Promise(resolve=>finish=resolve)});delayed.render({files:[file('a',{canPreview:true})],selectedIds:['a']});shelfKey(other,other.command('select'),' ');delayed.dispose();finish({quickLook:{available:false}});await settle();assert.equal(market,1);
+});
 
 test('Shelf Space previews the selected file, arrows change the actual preview and Escape closes only the viewer first', async () => {
   const f=fixture(),calls=[],actions=[],component=create({...f,onAction:(command,payload)=>actions.push({command,payload}),invoke:async (...args)=>{calls.push(args);return {};}});
@@ -87,11 +151,47 @@ test('rapid Shelf navigation and leaving during Invoke serialize the newest file
   component.render({files:[file('a',{canPreview:true}),file('b',{canPreview:true}),file('c',{canPreview:true})],selectedIds:['a']});
   const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
   shelfKey(f,row('a'),' '); shelfKey(f,row('a'),'ArrowRight'); shelfKey(f,row('b'),'ArrowRight');
-  assert.equal(calls.length,1); finish({}); await settle();
-  assert.deepEqual(calls,[['shelf_preview',{id:'a'}],['shelf_preview',{id:'c'}]],'intermediate requests do not queue old previews');
+  assert.deepEqual(calls,[['shelf_preview',{id:'a'}],['shelf_preview_close',{}]],'cancellation reaches the native worker before the pending preview returns'); finish({}); await settle();
+  assert.deepEqual(calls,[['shelf_preview',{id:'a'}],['shelf_preview_close',{}],['shelf_preview',{id:'c'}]],'intermediate requests do not queue old previews');
   component.stopPreview(); await settle(); assert.deepEqual(calls.at(-1),['shelf_preview_close',{}]);
   shelfKey(f,row('c'),' '); await settle(); assert.equal(component.isPreviewing(),true);
   component.dispose(); await settle(); assert.deepEqual(calls.at(-1),['shelf_preview_close',{}]);
+});
+
+test('Shelf Escape sends cancellation immediately and ignores the rejected workbook after leaving',async()=>{
+  const f=fixture(),calls=[];let reject;
+  const component=create({...f,invoke:(command,args)=>{calls.push([command,args]);return command==='shelf_preview'?new Promise((_,fail)=>reject=fail):Promise.resolve({});}});
+  try {
+    component.render({files:[file('large',{name:'large.xlsx',canPreview:true})],selectedIds:['large']});const row=f.command('select');
+    shelfKey(f,row,' ');shelfKey(f,row,'Escape');
+    assert.deepEqual(calls,[['shelf_preview',{id:'large'}],['shelf_preview_close',{}]],'Escape is delivered before workbook preparation completes');
+    reject(Error('Cancelled obsolete workbook'));await settle();assert.equal(component.isPreviewing(),false);assert.equal(f.find(node=>node.className==='sharing-file-status').textContent,'');
+    assert.equal(calls.filter(call=>call[0]==='shelf_preview_close').length,1);
+  } finally {component.dispose();}
+});
+
+test('Shelf cancels obsolete failures, coalesces navigation and retries returning to the same file',async()=>{
+  const f=fixture(),calls=[];let reject,close,count=0;
+  const component=create({...f,invoke:(command,args)=>{calls.push([command,args]);if(command==='shelf_preview'&&++count===1)return new Promise((_,fail)=>reject=fail);if(command==='shelf_preview_close')return new Promise(resolve=>close=resolve);return Promise.resolve({});}});
+  try {
+    component.render({files:[file('a',{canPreview:true}),file('b',{canPreview:true})],selectedIds:['a']});const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
+    shelfKey(f,row('a'),' ');shelfKey(f,row('a'),'ArrowRight');shelfKey(f,row('b'),'ArrowLeft');
+    assert.deepEqual(calls,[['shelf_preview',{id:'a'}],['shelf_preview_close',{}]]);
+    reject(Error('Cancelled old preview'));await settle();assert.equal(calls.length,2,'The next Open awaits the outstanding native Close');close({});await settle();
+    assert.deepEqual(calls.at(-1),['shelf_preview',{id:'a'}]);assert.equal(component.isPreviewing(),true);assert.equal(f.find(node=>node.className==='sharing-file-status').textContent,'');
+  } finally {component.dispose();close?.({});}
+});
+
+test('Shelf checks engine availability once per preview session and refreshes it after closing',async()=>{
+  const f=fixture(),calls=[];let available=true,market=0;
+  const component=create({...f,onGetQuickLook:()=>{market++;},invoke:async(command,args)=>{calls.push([command,args]);return command==='search_status'?{quickLook:{available}}:{};}});
+  try {
+    component.render({files:[file('a',{canPreview:true}),file('b',{canPreview:true})],selectedIds:['a']});const row=id=>f.command('select',node=>node.dataset.sharingFile===id);
+    shelfKey(f,row('a'),' ');await settle();shelfKey(f,row('a'),'ArrowRight');await settle();shelfKey(f,row('b'),'ArrowLeft');await settle();
+    assert.equal(calls.filter(call=>call[0]==='search_status').length,1);assert.equal(calls.filter(call=>call[0]==='shelf_preview').length,3);
+    component.stopPreview();await settle();available=false;shelfKey(f,row('a'),' ');await settle();
+    assert.equal(calls.filter(call=>call[0]==='search_status').length,2);assert.equal(calls.filter(call=>call[0]==='shelf_preview').length,3);assert.equal(market,1);assert.equal(component.isPreviewing(),false);
+  } finally {component.dispose();}
 });
 
 test('Shelf preview failures are announced, removal closes an active preview, and inputs or unsupported files keep native Space behavior', async () => {
@@ -159,8 +259,8 @@ test('stable identities reconnect to a new live ID without duplicating or losing
 
 test('manual IP validation, error retry and Escape use the real form without inventing a connected peer', () => {
   const f=fixture(), actions=[], component=create({...f,onAction:(command,payload)=>actions.push({command,payload})}); component.render({files:[],peers:[],favorites:[],available:true});
-  f.click(f.command('manual-ip')); const form=f.find(node=>node.tagName==='form'), input=f.find(node=>node.tagName==='input'); assert.equal(form.hidden,false); assert.equal(f.document.activeElement,input);
-  const event={preventDefault(){},stopPropagation(){}}; input.value='https://example.com'; form.listeners.submit(event); assert.equal(actions.length,0); assert.equal(input.attributes['aria-invalid'],'true');
+  f.click(f.command('manual-ip')); const form=f.find(node=>node.tagName==='form'), input=f.find(node=>node.tagName==='input'); assert.equal(form.hidden,false); assert.equal(f.document.activeElement,f.command('close-ip'),'Opening the form never focuses the input.');
+  const event={preventDefault(){},stopPropagation(){}}; input.value='https://example.com'; form.listeners.submit(event); assert.equal(actions.length,0); assert.equal(input.attributes['aria-invalid'],'true'); assert.equal(f.document.activeElement,f.command('close-ip'),'An invalid submission cannot autofocus the input either.');
   for(const invalid of ['8.8.8.8','127.0.0.1','192.168.1.20:65536']) {input.value=invalid;form.listeners.submit(event);assert.equal(actions.length,0);assert.equal(input.attributes['aria-invalid'],'true');}
   assert.equal(input.maxLength,21);assert(f.host.textContent.includes('Entre une adresse IP locale valide'));
   input.value='192.168.1.20'; form.listeners.submit(event); assert.deepEqual(actions[0],{command:'connect',payload:{address:'192.168.1.20'}});
@@ -228,22 +328,61 @@ test('reference file rows retain real names, measured sizes and explicit selecti
   component.dispose();
 });
 
-test('discovery uses the supplied anonymous radar and ends its visual scan without stopping the listener', t => {
+test('balanced Tray keeps truthful header counts, a common body structure and footer actions', () => {
+  const f=fixture(),component=create(f);
+  try {
+    component.render({files:[file('one'),file('two')],selectedIds:['one'],peers:[],available:false});
+    const cards=f.host.children,headings=cards.map(card=>card.children[0]);
+    assert.equal(headings[0].tagName,'header'); assert.equal(headings[1].tagName,'header');
+    assert.equal(headings[0].children[0].textContent,'TRAY'); assert.equal(headings[1].children[0].textContent,'LOCALSEND');
+    assert.equal(f.find(node=>node.className==='sharing-file-count').textContent,'2 fichiers gardés');
+    assert.equal(f.find(node=>node.className==='sharing-file-summary').textContent,'1 sélectionné(s)');
+    assert.equal(f.find(node=>node.className==='sharing-readiness').textContent,'Indisponible');
+    assert.equal(cards[0].children[1].className,'sharing-card-body'); assert.equal(cards[1].children[1].className,'sharing-card-body');
+    assert.equal(cards[0].children.at(-1).tagName,'footer'); assert.equal(cards[1].children.at(-2).tagName,'footer');
+    assert(f.command('remove')); assert(f.command('select-all')); assert(f.command('manual-ip')); assert(f.command('discover'));
+    component.render({files:[],selectedIds:[],available:true});
+    assert.equal(f.find(node=>node.className==='sharing-file-count').textContent,'0 fichiers gardés');
+    assert(!f.host.textContent.includes('PDF et images'),'The layout must not misrepresent the accepted file formats');
+  } finally {component.dispose();}
+});
+
+test('Tray empty characters use the shared Galet renderer and retain distinct module variants', () => {
+  const f=fixture(),characters=[];
+  f.document.defaultView={NotchyGalet:{states:['idle'],variants:{default:{},shelf:{},sharing:{}},create(host,options){
+    const instance={host,variant:options.variant,state:null,disposed:false,setVariant(value){this.variant=value;},setState(value){this.state=value;},dispose(){this.disposed=true;}};
+    characters.push(instance); return instance;
+  }}};
+  const component=create(f);
+  component.render({files:[],peers:[],available:true}); component.render({files:[],peers:[],available:true,busy:true});
+  assert.equal(characters.length,2,'Polling does not create additional character renderers');
+  assert.deepEqual(characters.map(character=>[character.variant,character.state]),[['shelf','idle'],['sharing','idle']]);
+  assert.equal(characters[0].host.children.length,0);
+  assert.equal(characters[1].host.children.length,3);
+  assert(characters[1].host.children.every(node=>node.className==='sharing-mimo-ring'&&node.attributes['aria-hidden']==='true'),'Only the three reference radar rings accompany the shared renderer');
+  assert.equal(f.find(node=>node.dataset.sharingCommand==='add'&&node.className.includes('notch-empty-action')).disabled,true);
+  component.dispose(); assert(characters.every(character=>character.disposed));
+});
+
+test('discovery uses the same Mimo and three signal rings, without inventing discovered devices', t => {
   t.mock.timers.enable({apis:['setTimeout']});
-  const f=fixture(),actions=[],component=create({...f,onAction:(command,payload)=>actions.push({command,payload})});
+  const f=characterFixture(),actions=[],component=create({...f,onAction:(command,payload)=>actions.push({command,payload})});
   component.render({files:[file('a')],peers:[],available:true});
+  const mimo=f.characters[1],initialParent=mimo.host.parentElement;
   f.click(f.command('discover'));
-  const nearby=f.find(node=>node.className==='sharing-nearby'),radar=f.find(node=>node.attributes.class==='sharing-search-radar');
-  assert.equal(nearby.dataset.state,'searching'); assert.equal(radar.attributes.viewBox,'0 0 330 200');
-  for(const timing of ['dur="3s"','dur="4s"','dur="6s"','begin="0s"','begin="1s"','begin="2s"']) assert(radar.innerHTML.includes(timing));
-  assert(!/Pixel|MacBook|<text/.test(radar.innerHTML),'discovery cannot fabricate found device aliases');
+  const nearby=f.find(node=>node.className==='sharing-nearby');
+  assert.equal(nearby.dataset.state,'searching'); assert.equal(mimo.state,'searching'); assert.equal(mimo.host.parentElement.className,'sharing-search'); assert.equal(mimo.host.dataset.sharingPlacement,'hero');
+  assert.deepEqual(component.inspect(),{searching:true,disposed:false,network:{state:'searching',placement:'hero',online:0}});
+  assert.equal(mimo.host.children.filter(node=>node.className==='sharing-mimo-ring').length,3);
+  assert.equal(f.all(f.host,node=>node.className==='sharing-search-radar'||node.className.includes('sharing-device-row')).length,0);
+  component.render({peers:[]}); assert.equal(mimo.changes.filter(state=>state==='searching').length,1,'An unchanged network poll cannot restart the expression.');
   assert.deepEqual(actions,[{command:'discover',payload:{}}]);
   t.mock.timers.tick(6000);
-  assert.equal(nearby.dataset.state,'idle'); assert.equal(actions.length,1,'visual timeout never emits a network stop');
+  assert.equal(nearby.dataset.state,'idle'); assert.equal(mimo.state,'idle'); assert.equal(mimo.host.parentElement,initialParent); assert.equal(f.characters.length,2,'No character is recreated between placements.'); assert.equal(actions.length,1,'visual timeout never emits a network stop');
   component.dispose();
 });
 
-test('discovery cancellation and a real peer result replace the radar with truthful actions and counts', () => {
+test('discovery cancellation and a real peer result preserve truthful actions and counts', () => {
   const f=fixture(),actions=[],component=create({...f,onAction:(command,payload)=>actions.push({command,payload})});
   component.render({files:[file('a'),file('b')],peers:[],available:true}); f.click(f.command('discover')); f.click(f.command('stop'));
   assert.deepEqual(actions.map(action=>action.command),['discover','stop']);
@@ -257,25 +396,56 @@ test('discovery cancellation and a real peer result replace the radar with truth
   component.dispose();
 });
 
-test('a discovery failure ends the radar and remains visible without creating a device', () => {
-  const f=fixture(),component=create(f); component.render({files:[],peers:[],available:true}); f.click(f.command('discover'));
+test('a discovery failure ends the scan and Mimo reacts without creating a device', () => {
+  const f=characterFixture(),component=create(f); component.render({files:[],peers:[],available:true}); f.click(f.command('discover'));
   component.render({status:{message:'Actual network failure',error:true}});
   assert.equal(f.find(node=>node.className==='sharing-nearby').dataset.state,'idle');
+  assert.equal(f.characters[1].state,'error');
   assert.equal(f.find(node=>node.className==='sharing-status').textContent,'Actual network failure');
   assert.equal(f.all(f.host,node=>node.className.includes('sharing-device-row')).length,0);
   f.click(f.command('discover')); assert.equal(f.find(node=>node.className==='sharing-nearby').dataset.state,'searching','retry clears only the previous displayed failure');
+  assert.equal(f.characters[1].state,'searching');
   component.dispose();
 });
 
-test('reduced motion pauses the SVG timeline and switching the preference resumes only an active scan', () => {
-  const f=fixture(); let listener=null,paused=0,resumed=0,time=null;
+test('reduced motion and hidden Tray pause its signal rings, and disposal releases the listener', () => {
+  const f=fixture(); let listener=null;
   const preference={matches:true,addEventListener(name,callback){listener=callback;},removeEventListener(){listener=null;}};
   f.document.defaultView={matchMedia:()=>preference};
-  const component=create(f),radar=f.find(node=>node.attributes.class==='sharing-search-radar');
-  radar.pauseAnimations=()=>paused++; radar.unpauseAnimations=()=>resumed++; radar.setCurrentTime=value=>{time=value;};
+  const component=create(f),rings=f.all(f.host,node=>node.className==='sharing-mimo-ring');
   component.render({files:[],peers:[],available:true}); f.click(f.command('discover'));
-  assert(paused>0); assert.equal(resumed,0); assert.equal(time,0);
-  preference.matches=false; listener(); assert.equal(resumed,1);
-  f.document.body.dataset.motion='false'; listener(); assert(paused>1); assert.equal(resumed,1);
+  assert(rings.every(ring=>ring.style.animationPlayState==='paused'));
+  preference.matches=false; listener(); assert(rings.every(ring=>ring.style.animationPlayState==='running'));
+  f.host.hidden=true; listener(); assert(rings.every(ring=>ring.style.animationPlayState==='paused'));
+  f.host.hidden=false; f.document.body.dataset.motion='false'; listener(); assert(rings.every(ring=>ring.style.animationPlayState==='paused'));
   component.dispose(); assert.equal(listener,null);
+});
+
+test('real peer arrival celebrates once, then preserves its Mimo in the header without replaying on polls', t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=characterFixture(),component=create(f),mimo=f.characters[1];
+  component.render({files:[],peers:[],available:true}); f.click(f.command('discover'));
+  const peers=[{id:'session-1',identity:'phone-fingerprint',alias:'Real phone'}];
+  component.render({peers}); assert.equal(mimo.state,'finished'); assert.equal(mimo.host.parentElement.tagName,'h2'); assert.equal(mimo.host.dataset.sharingPlacement,'inline');
+  assert.deepEqual(component.inspect().network,{state:'finished',placement:'inline',online:1});
+  component.render({peers}); assert.equal(mimo.changes.filter(value=>value==='finished').length,1);
+  t.mock.timers.tick(2000); assert.equal(mimo.state,'idle');
+  component.render({peers:[{...peers[0],id:'session-2'}]}); assert.equal(mimo.state,'idle','Reconnection with the same identity does not pretend a new device was found.');
+  component.dispose(); t.mock.timers.tick(6000); assert(f.characters.every(character=>character.disposed));
+});
+
+test('Mimo follows real consent, transfer, completion and IP validation without fabricated success', t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=characterFixture(),component=create(f),mimo=f.characters[1];
+  component.render({files:[],peers:[],available:true});
+  component.render({incoming:{id:'actual-request'}}); assert.equal(mimo.state,'share-request');
+  component.render({incoming:null,transfer:{id:'actual-transfer',status:'waiting'}}); assert.equal(mimo.state,'approval');
+  component.render({transfer:{id:'actual-transfer',status:'receiving'}}); assert.equal(mimo.state,'receiving');
+  component.render({transfer:{id:'actual-transfer',status:'complete',direction:'receive'}}); assert.equal(mimo.state,'received');
+  t.mock.timers.tick(2000); assert.equal(mimo.state,'idle');
+  component.render({transfer:{id:'failed-transfer',status:'error'}}); assert.equal(mimo.state,'error');
+  component.render({transfer:null}); f.click(f.command('manual-ip')); assert.equal(mimo.state,'question'); assert.equal(mimo.host.parentElement.parentElement.tagName,'form');
+  const form=f.find(node=>node.tagName==='form'),input=f.find(node=>node.tagName==='input'); input.value='invalid'; form.listeners.submit({preventDefault(){},stopPropagation(){}}); assert.equal(mimo.state,'error');
+  f.click(f.command('close-ip')); assert.equal(mimo.state,'idle'); assert.equal(mimo.host.parentElement.className.includes('sharing-device-empty'),true);
+  component.dispose();
 });

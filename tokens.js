@@ -23,6 +23,8 @@
     completion: Object.freeze({surfaceVelocity: 120}),
     rest: Object.freeze({marker: 4, handleWidth: 28, handleHeight: 2, progressLeft: 14, progressWidth: 70, equalizerBars: 4, equalizerWidth: 2, equalizerHeight: 6, equalizerGap: 2, equalizerInset: 18}),
     welcome: Object.freeze({introWidth: 460, introHeight: 128, introRadius: 38, width: 570, height: 350, radius: 38}),
+    tray: Object.freeze({radius: 28}),
+    fileCatch: Object.freeze({return: 420, file: 360}),
     compact: Object.freeze({coverSize: 20, coverRadius: 6, equalizerBars: 4, equalizerWidth: 3, equalizerHeight: 14,
       equalizerMinScale: .28, equalizerDuration: 900, equalizerDelays: Object.freeze([0, -150, -300, -600])}),
     expanded: Object.freeze({playSize: 40, navigationSize: 6, navigationActiveWidth: 18}),

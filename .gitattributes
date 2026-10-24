@@ -1,0 +1,6 @@
+# Preserve the bytes of the reproducible QuickLook compatibility package.
+native/quicklook-compat/* text eol=lf
+native/quicklook-compat/LICENSE-GPL.txt -text -whitespace
+# Context lines in the reproducible upstream patch intentionally contain a space.
+native/quicklook-compat/*.patch -whitespace
+native/office-preview/* text eol=lf

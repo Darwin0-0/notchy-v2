@@ -104,6 +104,12 @@
       return operation;
     }
     const taskAt = (state, id) => {const task = state.tasks.find(t => t.id === id); if (!task) throw Error('Task does not exist'); return task;};
+    function timer(next,id,running) {
+      const task=taskAt(next,id);if(running&&task.done)throw Error('Reopen the task before starting it');
+      if(!running){if(next.activeId===id)next.startedAt=null;return;}
+      if(next.activeId===id&&next.startedAt!==null)return;
+      next.activeId=id;if(task.elapsedMs>=task.totalMinutes*60000){task.elapsedMs=0;delete task.earnedCycles;}next.startedAt=now();
+    }
     return Object.freeze({ready, snapshot, subscribe(listener) {listeners.add(listener); return () => listeners.delete(listener);},
       add(title, totalMinutes) {
         const clean = typeof title === 'string' ? title.trim() : '';
@@ -128,11 +134,8 @@
         task.title = clean;
       });},
       select(id) {return commit(next => {taskAt(next, id); if (next.activeId !== id) {next.activeId = id; next.startedAt = null;}});},
-      toggleTimer(id) {return commit(next => {
-        const task = taskAt(next, id); if (task.done) throw Error('Reopen the task before starting it');
-        if (next.activeId === id && next.startedAt !== null) next.startedAt = null;
-        else {next.activeId = id; if (task.elapsedMs >= task.totalMinutes * 60000) {task.elapsedMs = 0; delete task.earnedCycles;} next.startedAt = now();}
-      });},
+      toggleTimer(id) {return commit(next => {timer(next,id,!(next.activeId===id&&next.startedAt!==null));});},
+      setTimer(id,running) {if(typeof running!=='boolean')return Promise.reject(Error('Invalid timer state'));return commit(next=>timer(next,id,running));},
       complete(id) {return commit(next => {const task = taskAt(next, id); task.done = !task.done; if (task.done && next.activeId === id) next.startedAt = null;});},
       restart(id) {return commit(next => {const task=taskAt(next,id); task.elapsedMs=0; delete task.earnedCycles; if (next.activeId === id) next.startedAt = null;});},
       skip(id) {return commit(next => {const task = taskAt(next, id), value = phase(task); task.elapsedMs = value.current.startMs + value.current.durationMs; if (phase(task).finished && next.activeId === id) next.startedAt = null;});},

@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  if (window !== window.top) return;
   const config = __NOTCHY_CONFIG__;
   const invoke = (command, args) => window.__TAURI__.core.invoke(command, args);
   const request = (command, value) => invoke('desktop_command', {value: {command, value}})
@@ -85,6 +86,12 @@
     copyText: value => request('copy-text', value),
     openShelfItem: value => request('shelf-open', value), revealShelfItem: value => request('shelf-reveal', value),
     exportShelfItems: value => request('shelf-export', value),
+    quickLookModule: async operation => {
+      if (!['status', 'install', 'remove', 'source'].includes(operation)) throw new TypeError('Unknown QuickLook module operation');
+      const value = await request('quicklook-module-' + operation, {});
+      if (value?.ok === false) throw new Error(value.error || 'QuickLook module unavailable');
+      return value;
+    },
     saveModuleRegistry: async value => {
       if (typeof value !== 'string' || value.length > 196608) throw new TypeError('Invalid module library');
       const reply = await request('preference', {key:'notchy-community-modules-v1',value});

@@ -38,7 +38,7 @@ function fixture() {
     motion: {setTarget(target, option) {targets.push(target); options.push(option);}, step: () => context.sample || targets.at(-1), isActive: () => false},
     frame: 0, geometry: null, desktopPointer() {},
     surface: {setAttribute() {}}, contour: {setAttribute() {}}, bandCut: {setAttribute() {}}, panelCut: {setAttribute() {}},
-    paint() {}, renderLocalSend() {}, renderCollapsedActivities() {}, recheckCollapse() {},
+    paint() {}, renderLocalSend() {}, renderCollapsedActivities() {}, renderGalet() {}, recheckCollapse() {},
   };
   const core = functionSection('  function islandCoreView() {', '  function animateIslandLayer(');
   const update = functionSection('  function update() {', '  function setState(');
@@ -51,10 +51,10 @@ function fixture() {
   };
 }
 
-function assertOpenSize(value, label, width = ISLAND_CONFIG.formats.balanced, height = 464) {
+function assertOpenSize(value, label, width = ISLAND_CONFIG.formats.balanced, height = 464, radius = 40) {
   assert.equal(value.width, width, label + ' width');
   assert.equal(value.height, height, label + ' height');
-  assert.equal(value.radius, 40, label + ' bottom corners');
+  assert.equal(value.radius, radius, label + ' bottom corners');
 }
 
 test('native clipping follows all three display scales throughout the surface spring without double conversion',()=>{
@@ -89,7 +89,7 @@ test('every open route uses the same bounded island instead of retaining the pre
   for (const view of ['nook', 'music', 'focus', 'tasks', 'weather', 'tray', 'settings', 'scenarios', 'files', 'localsend']) {
     f.context.view = view;
     const height=['focus','tasks'].includes(view)?496:464;
-    assertOpenSize(f.run(), view,ISLAND_CONFIG.formats.balanced,height);
+    assertOpenSize(f.run(), view,ISLAND_CONFIG.formats.balanced,height,view==='tray'?28:40);
     assert.equal(f.context.expandedLayer.style.width, ISLAND_CONFIG.formats.balanced+'px', view + ' content width');
     assert.equal(f.context.expandedLayer.style.height, height+'px', view + ' content height');
   }
@@ -112,7 +112,7 @@ test('all formats preserve installer layout coordinates inside the uniformly red
     for (const view of ['nook','focus','tasks','settings','weather','tray','localsend']) {
       const detail=['focus','tasks'].includes(view),height=detail?496:464;
       const expectedWidth=width;
-      f.context.view=view; assertOpenSize(f.run(),format + ' ' + view,expectedWidth,height);
+      f.context.view=view; assertOpenSize(f.run(),format + ' ' + view,expectedWidth,height,view==='tray'?28:40);
       assert.equal(f.context.expandedLayer.style.width,expectedWidth + 'px');
       assert.equal(f.context.expandedLayer.style.height,height+'px');
     }
@@ -197,9 +197,10 @@ test('stored corner preferences map to restrained radii shared by the painted an
     f.context.appearance = normalizeAppearance({radius: preference});
     for (const view of ['nook','music','focus','tasks','weather','tray','settings','scenarios','files','localsend']) {
       f.context.view = view;
-      assert.equal(f.run().radius, radius, view + ' selected corner style');
-      assert.equal(Number.parseFloat(f.properties['--radius']), radius, view + ' CSS follows the painted contour');
-      assert.equal(sent.at(-1).radius, radius*.7, view + ' native hit region follows the scaled painted contour');
+      const routeRadius=view==='tray'?radius-12:radius;
+      assert.equal(f.run().radius, routeRadius, view + ' selected corner style');
+      assert.equal(Number.parseFloat(f.properties['--radius']), routeRadius, view + ' CSS follows the painted contour');
+      assert.equal(sent.at(-1).radius, routeRadius*.7, view + ' native hit region follows the scaled painted contour');
       assert.equal(sent.at(-1).shoulder, 0, view + ' open surface keeps its top corners square');
       assert.equal(f.context.appearance.radius, preference, 'rendering does not rewrite the stored preference');
     }
@@ -243,7 +244,7 @@ test('welcome, LocalSend and a file drop share the island without an unrelated h
   assertOpenSize(localSend,'LocalSend'); assert.equal(localSend.band,0);
   assert.equal(f.properties['--panel-height'],'448px');
   f.context.view = 'tray'; f.context.editorActive = true; f.context.fileDragging = true;
-  const drop = f.run(); assertOpenSize(drop, 'file drop'); assert.equal(drop.band, 0);
+  const drop = f.run(); assertOpenSize(drop, 'file drop',844,464,28); assert.equal(drop.band, 0);
   assert.equal(f.properties['--panel-height'], '448px');
   assert.equal(f.context.menu.hidden, true); assert.equal(f.context.menu.inert, true);
   f.context.fileDragging = false; f.context.editorActive = false; f.context.view = 'settings';
@@ -257,7 +258,7 @@ test('long auxiliary content scrolls inside its fixed body instead of growing th
   f.context.getHomeSlots = () => getModuleDefinitions().map(item => item.id);
   for (const view of ['settings', 'scenarios', 'files', 'tray', 'weather', 'localsend']) {
     f.context.view = view;
-    assertOpenSize(f.run(), view);
+    assertOpenSize(f.run(), view,844,464,view==='tray'?28:40);
     assert(parseFloat(f.properties['--panel-height']) <= 448);
   }
   f.context.editorActive = true;

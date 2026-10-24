@@ -226,12 +226,107 @@ struct DesktopState {
     search_error: Option<String>,
     search_shortcut: Mutex<Option<Arc<Mutex<notchy::search_hotkey::ShortcutStatus>>>>,
     quicklook_active: AtomicBool,
+    quicklook_start_requested: AtomicBool,
+    quicklook_autostart: bool,
+    rendered_ready: AtomicBool,
+    quicklook_module: Arc<notchy::quicklook_module::Module>,
     quicklook_command: tokio::sync::Mutex<Option<PreviewSource>>,
+    preview_request: AtomicU64,
+    office_preview: tokio::sync::Mutex<Option<Arc<notchy::office_preview::Broker>>>,
+    office_preview_error: Mutex<Option<String>>,
+    office_preview_starting: AtomicBool,
+    native: PathBuf,
     quicklook_shelf_copies: Mutex<BTreeMap<String, notchy::shelf::ShelfPreview>>,
     quicklook_shelf_cleanup: Mutex<Vec<notchy::shelf::ShelfPreview>>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PreviewSource { Search, Shelf }
+fn preview_source_code(source: PreviewSource) -> u64 { match source { PreviewSource::Search => 1, PreviewSource::Shelf => 2 } }
+fn begin_preview_request(state: &AtomicU64, source: PreviewSource) -> u64 {
+    let code = preview_source_code(source);
+    let previous = state.try_update(Ordering::AcqRel, Ordering::Acquire, |value| Some((value.wrapping_add(4) & !3) | code)).unwrap();
+    (previous.wrapping_add(4) & !3) | code
+}
+fn cancel_preview_request(state: &AtomicU64, source: PreviewSource) -> bool {
+    state.try_update(Ordering::AcqRel, Ordering::Acquire, |value| (value & 3 == preview_source_code(source)).then_some(value.wrapping_add(4) & !3)).is_ok()
+}
+
+const OFFICE_RESTART_REQUIRED: &str = "Quitte QuickLook puis relance Notchy pour activer les aperçus Office protégés.";
+fn reload_managed_office_proxy(changed: bool, running: bool, allowed: bool) -> bool { changed && running && allowed }
+fn office_preview_gate(path: &std::path::Path, failure: Option<&str>) -> Result<(), String> {
+    match failure.filter(|_| notchy::office_preview::supports(path)) { Some(error) => Err(error.into()), None => Ok(()) }
+}
+fn office_worker_window(status: &Value) -> Option<(u32, usize)> {
+    let preview = status.get("preview")?;
+    if preview.get("phase")?.as_str()? != "ready" { return None; }
+    let pid = u32::try_from(preview.get("pid")?.as_u64()?).ok().filter(|pid| *pid != 0)?;
+    let hwnd = preview.get("hwnd")?.as_str()?.parse::<usize>().ok().filter(|hwnd| *hwnd != 0)?;
+    Some((pid, hwnd))
+}
+fn office_worker_is_foreground(status: &Value) -> bool {
+    let Some((expected, hwnd)) = office_worker_window(status) else { return false; };
+    #[cfg(windows)] unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId, IsWindow};
+        let mut owner = 0; let mut foreground = 0;
+        IsWindow(hwnd as _) != 0 && GetWindowThreadProcessId(hwnd as _, &mut owner) != 0 && owner == expected
+            && GetWindowThreadProcessId(GetForegroundWindow(), &mut foreground) != 0 && foreground == expected
+    }
+    #[cfg(not(windows))] { let _ = (expected, hwnd); false }
+}
+
+fn request_office_preview_start(state: &Arc<DesktopState>, native: PathBuf) {
+    if state.checking { return; }
+    let Some(quicklook) = notchy::quicklook::installation() else { request_quicklook_start(state); return; };
+    if state.office_preview_starting.swap(true, Ordering::AcqRel) { return; }
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let data = state.data.clone(); let installation = quicklook.clone();
+        let managed = state.quicklook_module.directory().to_path_buf(); let reload_allowed = state.quicklook_autostart;
+        let files = tokio::task::spawn_blocking(move || {
+            if notchy::office_preview_install::restart_pending(&data)? {
+                if notchy::quicklook::listener_running() { return Err(OFFICE_RESTART_REQUIRED.into()); }
+                notchy::office_preview_install::set_restart_pending(&data, false)?;
+            }
+            let (worker, office, proxy, changed) = notchy::office_preview_install::prepare(&data, &native, &installation)?;
+            let running = notchy::quicklook::listener_running();
+            let stopped = if reload_managed_office_proxy(changed, running, reload_allowed) { notchy::quicklook::stop_managed(&managed)? } else { false };
+            if changed && running && notchy::quicklook::listener_running() {
+                notchy::office_preview_install::set_restart_pending(&data, true)?;
+                return Err(OFFICE_RESTART_REQUIRED.into());
+            }
+            Ok::<_, String>((worker, office, proxy, stopped))
+        }).await;
+        let result = match files {
+            Ok(Ok((worker, office, proxy, stopped))) => {
+                if stopped { state.quicklook_start_requested.store(false, Ordering::Release); }
+                notchy::office_preview::Broker::start(&state.data, worker, quicklook, office, proxy).await
+            }
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err("La passerelle Office ne peut pas démarrer.".into()),
+        };
+        match result {
+            Ok(broker) => { if state.quitting.load(Ordering::Acquire) { broker.stop().await; } else { *state.office_preview_error.lock().unwrap() = None; *state.office_preview.lock().await = Some(broker); } }
+            Err(error) => { state.office_preview_starting.store(error == OFFICE_RESTART_REQUIRED, Ordering::Release); *state.office_preview_error.lock().unwrap() = Some(error); }
+        }
+        // QuickLook scans plug-ins at launch; publish the broker before starting its listener.
+        request_quicklook_start(&state);
+    });
+}
+fn request_quicklook_start(state: &Arc<DesktopState>) {
+    if !state.quicklook_autostart || state.quitting.load(Ordering::Relaxed)
+        || state.quicklook_start_requested.swap(true, Ordering::Relaxed) { return; }
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let _command = state.quicklook_command.lock().await;
+        if state.quitting.load(Ordering::Relaxed) { return; }
+        if !matches!(tokio::task::spawn_blocking(notchy::quicklook::ensure_running).await, Ok(Ok(()))) {
+            state.quicklook_start_requested.store(false, Ordering::Relaxed);
+        }
+    });
+}
+fn preview_keeps_notch_below(owned_preview: bool, viewer_visible: Option<bool>) -> bool {
+    owned_preview || viewer_visible == Some(true)
+}
 fn quicklook_shelf_directory(data: &std::path::Path) -> PathBuf {
     data.join(".desktop-profile").join("quicklook-shelf")
 }
@@ -241,6 +336,52 @@ fn preview_close_matches(owner: Option<PreviewSource>, source: PreviewSource) ->
 #[cfg(test)]
 mod preview_ownership_tests {
     use super::{preview_close_matches, PreviewSource::{Search, Shelf}};
+    #[test]
+    fn office_setup_errors_block_office_launches_without_blocking_other_preview_formats() {
+        let error = super::OFFICE_RESTART_REQUIRED;
+        for path in ["book.xlsx", "report.docx", "slides.PPTX", "legacy.xls"] {
+            assert_eq!(super::office_preview_gate(std::path::Path::new(path), Some(error)).unwrap_err(), error);
+            assert!(super::office_preview_gate(std::path::Path::new(path), None).is_ok());
+        }
+        for path in ["photo.png", "document.pdf", "page.html", "movie.mp4"] {
+            assert!(super::office_preview_gate(std::path::Path::new(path), Some(error)).is_ok());
+        }
+    }
+    #[test]
+    fn only_a_ready_live_worker_snapshot_can_qualify_for_focus_reclamation() {
+        let mut status = serde_json::json!({"preview":{"phase":"ready","pid":42,"hwnd":"123"}});
+        assert_eq!(super::office_worker_window(&status), Some((42, 123)));
+        status["preview"]["phase"] = serde_json::json!("closed"); assert!(super::office_worker_window(&status).is_none());
+        status["preview"]["phase"] = serde_json::json!("ready"); status["preview"]["pid"] = serde_json::json!(0); assert!(super::office_worker_window(&status).is_none());
+        status["preview"]["pid"] = serde_json::json!(42); status["preview"]["hwnd"] = serde_json::json!("0"); assert!(super::office_worker_window(&status).is_none());
+        status["preview"]["hwnd"] = serde_json::json!("not-a-window"); assert!(super::office_worker_window(&status).is_none());
+        assert!(super::office_worker_window(&serde_json::json!({"preview":{"phase":"loading","pid":42,"hwnd":"123"}})).is_none());
+    }
+    #[test]
+    fn native_requests_are_invalidated_before_the_command_lock_and_scoped_to_the_source() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let requests = AtomicU64::new(0);
+        let first = super::begin_preview_request(&requests, Search);
+        assert!(!super::cancel_preview_request(&requests, Shelf));
+        assert_eq!(requests.load(Ordering::Acquire), first);
+        assert!(super::cancel_preview_request(&requests, Search));
+        assert_ne!(requests.load(Ordering::Acquire), first);
+        let second = super::begin_preview_request(&requests, Shelf);
+        assert_ne!(first, second);
+        assert!(!super::cancel_preview_request(&requests, Search));
+        assert_eq!(requests.load(Ordering::Acquire), second);
+    }
+    #[test]
+    fn global_previews_lower_the_notch_without_becoming_notchy_owned() {
+        assert!(super::preview_keeps_notch_below(false, Some(true)));
+        for visible in [None, Some(false), Some(true)] {
+            assert!(super::preview_keeps_notch_below(true, visible));
+        }
+        assert!(!super::preview_keeps_notch_below(false, Some(false)));
+        assert!(!super::preview_keeps_notch_below(false, None));
+        assert!(!preview_close_matches(None, Search));
+        assert!(!preview_close_matches(None, Shelf));
+    }
     #[test]
     fn a_delayed_shelf_close_cannot_close_the_new_search_owner_and_vice_versa() {
         for (previous, current) in [(Shelf, Search), (Search, Shelf)] {
@@ -285,11 +426,7 @@ fn initial_geometry() -> Geometry {
 fn trusted(window: &WebviewWindow, state: &DesktopState) -> bool {
     window.label() == "main"
         && window.url().ok().is_some_and(|url| {
-            url.origin().ascii_serialization() == state.origin
-                && url.path() == "/"
-                && url
-                    .query_pairs()
-                    .any(|(key, value)| key == "desktop" && value == "1")
+            notchy::rendered_navigation::is_main_navigation(&state.origin, &url)
         })
 }
 fn show(window: &WebviewWindow, state: &DesktopState, reason: &str) {
@@ -306,7 +443,8 @@ fn resume(window: &WebviewWindow, state: &DesktopState, reason: &str) {
         dimensions["reason"] = json!(reason);
         let _ = window.show();
         if let Ok(_command) = state.quicklook_command.try_lock() {
-            let _ = window.set_always_on_top(!state.quicklook_active.load(Ordering::Relaxed));
+            let _ = window.set_always_on_top(!preview_keeps_notch_below(
+                state.quicklook_active.load(Ordering::Relaxed), notchy::quicklook::preview_visible()));
         }
         let _ = window.emit("notchy:resume", dimensions);
     }
@@ -351,6 +489,8 @@ fn search_status_value(state: &DesktopState) -> Value {
         .map(|shortcut| json!(*shortcut.lock().unwrap()))
         .unwrap_or_else(|| json!({"shortcut":"Ctrl+Space","available":false}));
     value["quickLook"] = json!(notchy::quicklook::status());
+    value["quickLookModule"] = json!(state.quicklook_module.status());
+    value["renderedPreview"] = json!({"supported":state.rendered_ready.load(Ordering::Relaxed),"visible":state.server.rendered_visible()});
     value
 }
 #[derive(serde::Deserialize)]
@@ -715,24 +855,72 @@ async fn desktop_command(
             }
             "search-preview" | "shelf-preview" => {
                 let id = search_result_id(argument)?;
-                let mut owner = state.quicklook_command.lock().await;
                 let source = if command == "shelf-preview" { PreviewSource::Shelf } else { PreviewSource::Search };
+                let request = begin_preview_request(&state.preview_request, source);
+                let generation = notchy::quicklook::generation();
+                let mut owner = state.quicklook_command.lock().await;
+                if state.preview_request.load(Ordering::Acquire) != request { return Ok(json!({"ok":true,"cancelled":true})); }
                 let search = if command == "search-preview" { Some(search_service(&state)?) } else { None };
+                let document = if let Some(search) = search.clone() {
+                    let id = id.clone();
+                    tokio::task::spawn_blocking(move || search.rendered_preview(&id)).await
+                        .map_err(|_| ApiError::new(503, "Aperçu interrompu."))?
+                        .map_err(|message| ApiError::new(409, message))?
+                } else {
+                    let file = state.services.shelf.open(&id, false).await?;
+                    let name = file.item.get("name").and_then(Value::as_str).ok_or_else(||ApiError::new(409,"Nom de fichier indisponible."))?.to_owned();
+                    let size = file.item.get("size").and_then(Value::as_u64).ok_or_else(||ApiError::new(409,"Taille de fichier indisponible."))?;
+                    if notchy::rendered_preview::supports(&name) {
+                        let reader = file.file.into_std().await;
+                        tokio::task::spawn_blocking(move || notchy::rendered_preview::read(name, reader, size)).await
+                            .map_err(|_| ApiError::new(503, "Aperçu interrompu."))??
+                    } else { None }
+                };
+                if state.preview_request.load(Ordering::Acquire) != request { return Ok(json!({"ok":true,"cancelled":true})); }
+                if let Some(document) = document {
+                    if !state.rendered_ready.load(Ordering::Relaxed) { return Err(ApiError::new(503, "La protection de l’aperçu est indisponible.")); }
+                    if state.quicklook_active.load(Ordering::Relaxed) { let _ = tokio::task::spawn_blocking(notchy::quicklook::close).await; }
+                    state.quicklook_active.store(false, Ordering::Relaxed); *owner = Some(source);
+                    clear_quicklook_shelf_copies(&state).await;
+                    let name = document.name.clone(); let url = state.server.publish_rendered(document)?;
+                    let _ = window.set_always_on_top(true);
+                    return Ok(json!({"ok":true,"rendered":{"name":name,"url":url}}));
+                }
+                let office_ready = state.office_preview.lock().await.is_some();
+                let office_failure = if office_ready { None } else {
+                    let error = state.office_preview_error.lock().unwrap().clone();
+                    if error.is_none() && state.office_preview_starting.load(Ordering::Acquire) {
+                        return Err(ApiError::new(503, "Les aperçus se préparent. Réessaie dans un instant."));
+                    }
+                    Some(error.unwrap_or_else(|| "Le moteur Office protégé est indisponible. Complète le module QuickLook depuis le Market.".into()))
+                };
+                state.server.clear_rendered();
                 let shelf_path = if command == "shelf-preview" {
                     // Revalidate the opaque ID even when its immutable session
                     // copy is already cached: a removed Shelf item is not valid.
-                    drop(state.services.shelf.open(&id, false).await?);
+                    let authoritative = state.services.shelf.open(&id, false).await?.path;
                     let existing = state.quicklook_shelf_copies.lock().unwrap().get(&id).map(|copy| copy.checked_path()).transpose()?;
-                    if let Some(path) = existing { Some(path) } else {
+                    let path = if let Some(path) = existing { path } else {
                         if state.quicklook_shelf_copies.lock().unwrap().len() + state.quicklook_shelf_cleanup.lock().unwrap().len() >= notchy::shelf::MAX_FILES {
                             return Err(ApiError::new(409, "Ferme les aperçus avant de prévisualiser davantage de fichiers."));
                         }
                         let prepared = state.services.shelf.prepare_preview(&id, &quicklook_shelf_directory(&state.data)).await?;
                         let path = prepared.path.clone();
                         state.quicklook_shelf_copies.lock().unwrap().insert(id.clone(), prepared);
-                        Some(path)
+                        path
+                    };
+                    if notchy::office_preview::supports(&path) {
+                        let broker = state.office_preview.lock().await.clone();
+                        if let Some(broker) = broker {
+                            let copy = path.clone();
+                            tokio::task::spawn_blocking(move || broker.register_shelf_source(&copy, &authoritative)).await
+                                .map_err(|_| ApiError::new(503, "Le cache de l’aperçu est indisponible."))?
+                                .map_err(|message| ApiError::new(409, message))?;
+                        }
                     }
+                    Some(path)
                 } else { None };
+                if state.preview_request.load(Ordering::Acquire) != request { return Ok(json!({"ok":true,"cancelled":true})); }
                 state.quicklook_active.store(true, Ordering::Relaxed);
                 *owner = Some(source);
                 if window.set_always_on_top(false).is_err() {
@@ -743,9 +931,10 @@ async fn desktop_command(
                 }
                 // Relinquish Notchy's layer before QuickLook creates/activates its
                 // viewer. The normal recovery loop must not raise Notchy over it.
+                let failure_for_launch = office_failure.clone();
                 let result = tokio::task::spawn_blocking(move || match (search, shelf_path) {
-                    (Some(search), _) => search.preview(&id),
-                    (_, Some(path)) => notchy::quicklook::preview(&path),
+                    (Some(search), _) => search.preview_with(&id, |path| { office_preview_gate(path, failure_for_launch.as_deref())?; notchy::quicklook::preview_in_generation(path, generation) }),
+                    (_, Some(path)) => { office_preview_gate(&path, failure_for_launch.as_deref())?; notchy::quicklook::preview_in_generation(&path, generation) },
                     _ => Err("Invalid preview source.".into()),
                 }).await;
                 if !matches!(&result, Ok(Ok(()))) {
@@ -757,30 +946,84 @@ async fn desktop_command(
                 }
                 result
                     .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
-                    .map_err(|_| ApiError::new(409, "L’aperçu QuickLook est indisponible. Actualise les résultats et vérifie que QuickLook est installé."))?;
+                    .map_err(|message| ApiError::new(409, if office_failure.as_deref() == Some(message.as_str()) { message } else { "L’aperçu QuickLook est indisponible. Actualise les résultats et vérifie que QuickLook est installé.".into() }))?;
                 Ok(json!({"ok":true}))
             }
-            "search-quicklook-install" => {
+            "quicklook-module-source" => {
                 if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Commande invalide.")); }
-                desktop::open_uri("https://github.com/QL-Win/QuickLook/releases/latest")?;
+                desktop::open_uri("https://github.com/QL-Win/QuickLook/tree/b13df028f3cce1f84792f7043b57bf5cea3a3e4c")?;
                 Ok(json!({"ok":true}))
+            }
+            "quicklook-module-status" | "quicklook-module-install" | "search-quicklook-install" | "quicklook-module-remove" => {
+                if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Commande invalide.")); }
+                let status = match command {
+                    "quicklook-module-status" => state.quicklook_module.status(),
+                    "quicklook-module-install" | "search-quicklook-install" => {
+                        let accepted = state.quicklook_module.begin_install()
+                            .map_err(|_| ApiError::new(409, "Le module QuickLook est déjà occupé. Réessaie après l’opération en cours."))?;
+                        if matches!(accepted.phase.as_str(), "downloading" | "verifying" | "extracting") {
+                            state.quicklook_start_requested.store(false, Ordering::Relaxed);
+                        }
+                        accepted
+                    }
+                    _ => {
+                        let mut owner = state.quicklook_command.lock().await;
+                        if let Some(broker) = state.office_preview.lock().await.take() { broker.stop().await; }
+                        state.office_preview_starting.store(false, Ordering::Release);
+                        if state.quicklook_active.load(Ordering::Relaxed) {
+                            let _ = tokio::task::spawn_blocking(notchy::quicklook::close).await;
+                        }
+                        state.quicklook_active.store(false, Ordering::Relaxed);
+                        *owner = None;
+                        state.server.clear_rendered();
+                        let _ = window.set_always_on_top(true);
+                        clear_quicklook_shelf_copies(&state).await;
+                        let removed = state.quicklook_module.remove().await
+                            .map_err(|_| ApiError::new(409, "Le module QuickLook n’a pas pu être retiré. Ferme son aperçu puis réessaie."))?;
+                        state.quicklook_start_requested.store(false, Ordering::Relaxed);
+                        removed
+                    }
+                };
+                if status.installed && matches!(status.phase.as_str(), "installed" | "idle" | "error") {
+                    request_office_preview_start(&state, state.native.clone());
+                }
+                Ok(json!(status))
             }
             "search-preview-close" | "shelf-preview-close" => {
                 if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Commande invalide.")); }
-                let mut owner = state.quicklook_command.lock().await;
                 let source = if command == "shelf-preview-close" { PreviewSource::Shelf } else { PreviewSource::Search };
+                if cancel_preview_request(&state.preview_request, source) { notchy::quicklook::cancel_pending(); }
+                let mut owner = state.quicklook_command.lock().await;
                 // A controller's delayed Close must not dismiss the other
                 // controller's newer Invoke once it has acquired this mutex.
                 if !preview_close_matches(*owner, source) { return Ok(json!({"ok":true,"closed":false})); }
-                let result = tokio::task::spawn_blocking(notchy::quicklook::close).await;
+                // Some Office controls activate QuickLook after loading. Return
+                // to its Notchy owner before closing, without stealing focus
+                // from an unrelated application the user has switched to.
+                let viewer_foreground = notchy::quicklook::is_foreground() || if let Some(broker) = state.office_preview.lock().await.as_ref() { office_worker_is_foreground(&broker.snapshot().await) } else { false };
+                if state.quicklook_active.load(Ordering::Relaxed) && viewer_foreground {
+                    state.blur.fetch_add(1, Ordering::Relaxed);
+                    let _ = window.set_focus();
+                }
+                state.server.clear_rendered();
+                let result = if state.quicklook_active.load(Ordering::Relaxed) {
+                    tokio::task::spawn_blocking(notchy::quicklook::close).await
+                        .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
+                } else { Ok(()) };
                 state.quicklook_active.store(false, Ordering::Relaxed);
                 *owner = None;
                 let _ = window.set_always_on_top(true);
                 clear_quicklook_shelf_copies(&state).await;
                 result
-                    .map_err(|_| ApiError::new(503, "Aperçu indisponible."))?
                     .map_err(|_| ApiError::new(503, "Fermeture de l’aperçu indisponible."))?;
                 Ok(json!({"ok":true}))
+            }
+            "office-preview-status" => {
+                if !argument.is_null() && argument != json!({}) { return Err(ApiError::new(400, "Commande invalide.")); }
+                match state.office_preview.lock().await.as_ref() {
+                    Some(broker) => Ok(broker.snapshot().await),
+                    None => Ok(json!({"available":false,"error":state.office_preview_error.lock().unwrap().clone()})),
+                }
             }
             "search-stage" => search_stage_file(&state, search_result_id(argument)?).await,
             "preference" => preference(&state, argument).await,
@@ -917,6 +1160,8 @@ pub fn run() {
       .setup(move|app|{
         let data=data_override.clone().unwrap_or_else(||if checking{std::env::temp_dir().join(format!("notchy-tauri-check-{}",std::process::id()))}else if cfg!(debug_assertions){development_profile(PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap())}else{app.path().app_data_dir().unwrap()});
         std::fs::create_dir_all(data.join(".desktop-profile"))?;
+        let quicklook_module = Arc::new(notchy::quicklook_module::Module::new(&data).map_err(std::io::Error::other)?);
+        notchy::quicklook::set_managed_directory(quicklook_module.directory()).map_err(std::io::Error::other)?;
         let packaged=app.path().resource_dir()?.join("native");
         let native=packaged;
         let preferences_file=data.join(".desktop-profile/tauri-preferences.json");
@@ -940,16 +1185,17 @@ pub fn run() {
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
         let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"development":cfg!(debug_assertions),"localSendActive":nearby_active,"startup":startup_status});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
-        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None),quicklook_active:AtomicBool::new(false),quicklook_command:tokio::sync::Mutex::new(None),quicklook_shelf_copies:Mutex::new(BTreeMap::new()),quicklook_shelf_cleanup:Mutex::new(Vec::new())});
+        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None),quicklook_active:AtomicBool::new(false),quicklook_start_requested:AtomicBool::new(false),quicklook_autostart:!checking&&data_override.is_none(),rendered_ready:AtomicBool::new(false),quicklook_module,quicklook_command:tokio::sync::Mutex::new(None),preview_request:AtomicU64::new(0),office_preview:tokio::sync::Mutex::new(None),office_preview_error:Mutex::new(None),office_preview_starting:AtomicBool::new(false),native:native.clone(),quicklook_shelf_copies:Mutex::new(BTreeMap::new()),quicklook_shelf_cleanup:Mutex::new(Vec::new())});
         app.manage(state.clone());
+        request_office_preview_start(&state, native.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();
-        let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}/?desktop=1").parse()?))
+        let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("{origin}{}?desktop=1",notchy::rendered_navigation::MAIN_PATH).parse()?))
           .title(if cfg!(debug_assertions){"Notchy V2 — Essai"}else{"Notchy V2"}).inner_size(960.,312.).decorations(false).transparent(true).shadow(false)
           .resizable(false).always_on_top(true).skip_taskbar(true).visible(false).background_color(tauri::window::Color(0,0,0,0))
           .disable_drag_drop_handler()
           .additional_browser_args("--disable-features=CalculateNativeWinOcclusion --disable-renderer-backgrounding --disable-backgrounding-occluded-windows")
           .data_directory(data.join(".tauri-webview")).initialization_script(&bridge)
-          .on_navigation(move|url|url.origin().ascii_serialization()==navigation_origin&&url.path()=="/"&&url.query_pairs().any(|(key,value)|key=="desktop"&&value=="1"))
+          .on_navigation(move|url|notchy::rendered_navigation::is_main_navigation(&navigation_origin,url))
           .on_new_window(|_,_|tauri::webview::NewWindowResponse::Deny)
           .on_permission_request(|_,_|tauri::webview::PermissionResponse::Deny)
           .on_download(move|_,event|{
@@ -957,6 +1203,9 @@ pub fn run() {
               match event{DownloadEvent::Requested{url,..}=>{let valid=url.origin().ascii_serialization()==download_state.origin&&url.path().strip_prefix("/api/shelf/").is_some_and(notchy::shelf::valid_id);if valid{download_state.downloads.fetch_add(1,Ordering::Relaxed);}valid},DownloadEvent::Finished{..}=>{download_state.downloads.try_update(Ordering::Relaxed,Ordering::Relaxed,|value|Some(value.saturating_sub(1))).ok();true},_=>false}
           })
           .build()?;
+        if notchy::rendered_navigation::install(&window, origin.clone()).is_ok() {
+            state.rendered_ready.store(true, Ordering::Relaxed);
+        }
         desktop::layout(&window,initial_geometry())?;
         if search_shortcut_enabled(checking, data_override.as_deref()) {
             let search_window=window.clone(); let search_state=state.clone();
@@ -1013,11 +1262,13 @@ pub fn run() {
                 let changed=previous_screen.is_some()&&screen!=previous_screen;previous_screen=screen;
                 if resumed||changed||!recovery_window.is_visible().unwrap_or(true){resume(&recovery_window,&recovery_state,"resume");}
                 if let Ok(mut owner)=recovery_state.quicklook_command.try_lock(){
+                    let viewer_visible=notchy::quicklook::preview_visible();
                     if recovery_state.quicklook_active.load(Ordering::Relaxed)
-                        && notchy::quicklook::status().preview_visible==Some(false)
+                        && viewer_visible==Some(false)
                     {recovery_state.quicklook_active.store(false,Ordering::Relaxed);*owner=None;}
                     if !recovery_state.quicklook_active.load(Ordering::Relaxed){clear_quicklook_shelf_copies(&recovery_state).await;}
-                    if !recovery_state.quicklook_active.load(Ordering::Relaxed)&&!recovery_window.is_always_on_top().unwrap_or(true){let _=recovery_window.set_always_on_top(true);}
+                    let topmost=!preview_keeps_notch_below(recovery_state.quicklook_active.load(Ordering::Relaxed),viewer_visible);
+                    if recovery_window.is_always_on_top().ok()!=Some(topmost){let _=recovery_window.set_always_on_top(topmost);}
                 }
             }
         });
@@ -1040,6 +1291,9 @@ pub fn run() {
                             }
                             clear_quicklook_shelf_copies(&state).await;
                             *owner=None;
+                            if let Some(broker)=state.office_preview.lock().await.take(){broker.stop().await;}
+                            let managed_directory=state.quicklook_module.directory().to_path_buf();
+                            let _=tokio::task::spawn_blocking(move||notchy::quicklook::stop_managed(&managed_directory)).await;
                             if let Some(search)=&state.search { search.stop(); }
                             state.server.dispose().await;
                             state.services.dispose().await;

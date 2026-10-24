@@ -1,7 +1,12 @@
-//! Optional QuickLook integration. The external application owns its viewers and updates.
+//! QuickLook integration. Prefer the bundled portable viewer and reuse existing IPC sessions.
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+static MANAGED_DIRECTORY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static VIEWER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static START_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static PREVIEW_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+// Upstream discards lines without a separator before touching pending previews.
+const SESSION_PROBE: &[u8] = b"NotchyQuickLookProbe\n";
 
 #[derive(Serialize)]
 pub struct Status {
@@ -16,7 +21,7 @@ pub fn status() -> Status {
 }
 
 #[cfg(windows)]
-fn preview_visible() -> Option<bool> {
+pub fn preview_visible() -> Option<bool> {
     let pid = VIEWER_PID.load(std::sync::atomic::Ordering::Relaxed);
     if pid == 0 { return None; }
     Some(viewer_window(pid).is_some())
@@ -47,7 +52,7 @@ fn preview_window_candidate(title_length: i32, width: i32, height: i32) -> bool 
 }
 
 #[cfg(not(windows))]
-fn preview_visible() -> Option<bool> { None }
+pub fn preview_visible() -> Option<bool> { None }
 
 pub fn is_foreground() -> bool {
     #[cfg(windows)] {
@@ -69,18 +74,64 @@ fn checked_executable(path: PathBuf) -> Option<PathBuf> {
     std::fs::canonicalize(path).ok()
 }
 
+pub fn set_managed_directory(directory: &Path) -> Result<(), String> {
+    if !directory.is_absolute() || directory.components().any(|part| matches!(part, std::path::Component::ParentDir | std::path::Component::CurDir))
+        || directory.file_name() != Some(std::ffi::OsStr::new("quicklook"))
+        || directory.parent().and_then(Path::file_name) != Some(std::ffi::OsStr::new("modules"))
+        || directory.parent().and_then(Path::parent).and_then(Path::file_name) != Some(std::ffi::OsStr::new(".desktop-profile"))
+    { return Err("Invalid managed QuickLook directory.".into()); }
+    checked_managed_ancestors(directory)?;
+    if let Some(current) = MANAGED_DIRECTORY.get() {
+        return if same_path(current, directory) { Ok(()) } else { Err("Managed QuickLook directory already configured.".into()) };
+    }
+    MANAGED_DIRECTORY.set(directory.to_path_buf()).map_err(|_| "Managed QuickLook directory already configured.".into())
+}
+fn same_path(left: &Path, right: &Path) -> bool {
+    #[cfg(windows)] { return left.to_string_lossy().trim_start_matches(r"\\?\").eq_ignore_ascii_case(right.to_string_lossy().trim_start_matches(r"\\?\")); }
+    #[cfg(not(windows))] { left == right }
+}
+fn checked_managed_ancestors(path: &Path) -> Result<(), String> {
+    for ancestor in path.ancestors() {
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(meta) => {
+                let mut linked = meta.file_type().is_symlink();
+                #[cfg(windows)] { use std::os::windows::fs::MetadataExt; linked |= meta.file_attributes() & 0x400 != 0; }
+                if linked || !meta.is_dir() || !same_path(&std::fs::canonicalize(ancestor).map_err(|_| "Managed QuickLook directory unavailable.")?, ancestor) { return Err("Managed QuickLook directory was redirected.".into()); }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(_) => return Err("Managed QuickLook directory unavailable.".into()),
+        }
+    }
+    Ok(())
+}
+#[cfg(windows)]
+fn managed_executable() -> Option<PathBuf> {
+    let directory = MANAGED_DIRECTORY.get()?;
+    checked_managed_ancestors(directory).ok()?;
+    if !crate::quicklook_module::installed(directory) { return None; }
+    let path = directory.join("QuickLook.exe");
+    let meta = std::fs::symlink_metadata(&path).ok()?;
+    use std::os::windows::fs::MetadataExt;
+    if meta.file_type().is_symlink() || meta.file_attributes() & 0x400 != 0 { return None; }
+    checked_executable(path)
+}
+
+#[cfg(any(windows, test))]
+fn preferred_executable(app: Option<&Path>, configured: Option<PathBuf>) -> Option<PathBuf> {
+    app.and_then(Path::parent)
+        .and_then(|directory| checked_executable(directory.join("quicklook").join("QuickLook.exe")))
+        .or_else(|| configured.and_then(checked_executable))
+}
+
 #[cfg(windows)]
 fn executable() -> Option<PathBuf> {
     // No PATH/current-directory lookup: a search result must never become the viewer.
+    if let Some(found) = managed_executable() { return Some(found); }
+    let app = std::env::current_exe().ok();
+    if let Some(found) = preferred_executable(app.as_deref(), std::env::var_os("NOTCHY_QUICKLOOK_PATH").map(PathBuf::from)) {
+        return Some(found);
+    }
     let mut candidates = Vec::new();
-    if let Some(path) = std::env::var_os("NOTCHY_QUICKLOOK_PATH") {
-        candidates.push(PathBuf::from(path));
-    }
-    if let Ok(app) = std::env::current_exe() {
-        if let Some(directory) = app.parent() {
-            candidates.push(directory.join("quicklook/QuickLook.exe"));
-        }
-    }
     for (variable, suffix) in [
         ("LOCALAPPDATA", "Programs/QuickLook/QuickLook.exe"),
         ("ProgramFiles", "QuickLook/QuickLook.exe"),
@@ -149,32 +200,85 @@ fn windows_registration() -> Option<PathBuf> {
 }
 
 pub fn preview(path: &Path) -> Result<(), String> {
+    let generation = PREVIEW_GENERATION.load(std::sync::atomic::Ordering::Acquire);
+    preview_generation(path, generation)
+}
+
+/// Cancellation is independent of the command mutex and never waits for Office.
+pub fn cancel_pending() { PREVIEW_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel); }
+pub fn generation() -> u64 { PREVIEW_GENERATION.load(std::sync::atomic::Ordering::Acquire) }
+pub fn preview_in_generation(path: &Path, generation: u64) -> Result<(), String> { preview_generation(path, generation) }
+
+pub fn installation() -> Option<PathBuf> { executable() }
+pub fn listener_running() -> bool { session_starting() }
+
+fn preview_generation(path: &Path, generation: u64) -> Result<(), String> {
+    let current = || PREVIEW_GENERATION.load(std::sync::atomic::Ordering::Acquire) == generation;
+    if !current() { return Err("Aperçu annulé.".into()); }
     let message = message("Invoke", path.to_str().ok_or("Invalid preview path.")?)?;
     let pipe = pipe_name()?;
-    let missing = match write_pipe(&pipe, &message) {
-        Ok(()) => return show_preview_above_client(),
-        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
-    };
-    if missing {
-        let viewer = executable().ok_or("QuickLook is not installed.")?;
-        // Start once; IPC selection changes must never toggle the same preview closed.
-        start(&viewer)?;
+    match write_pipe(&pipe, &message) {
+        Ok(()) => return show_preview_above_client(generation),
+        Err(_) => ensure_running()?,
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
-        if write_pipe(&pipe, &message).is_ok() { return show_preview_above_client(); }
+        if !current() { return Err("Aperçu annulé.".into()); }
+        if write_pipe(&pipe, &message).is_ok() { return show_preview_above_client(generation); }
         if std::time::Instant::now() >= deadline { return Err("QuickLook did not become ready.".into()); }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
 
+/// Start the existing system preview listener without selecting or closing a file.
+pub fn ensure_running() -> Result<(), String> {
+    let _startup = START_LOCK.lock().map_err(|_| "QuickLook startup unavailable.")?;
+    let pipe = pipe_name()?;
+    let mut started = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    loop {
+        match write_pipe(&pipe, SESSION_PROBE) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                // The upstream mutex precedes pipe initialization. Starting a
+                // second copy during that interval displays a duplicate dialog.
+                if should_start_viewer(error.kind(), started, session_starting()) {
+                    let viewer = executable().ok_or("QuickLook is not installed.")?;
+                    start(&viewer)?;
+                    started = true;
+                }
+            }
+        }
+        if std::time::Instant::now() >= deadline { return Err("QuickLook did not become ready.".into()); }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+fn should_start_viewer(error: std::io::ErrorKind, started: bool, session_starting: bool) -> bool {
+    error == std::io::ErrorKind::NotFound && !started && !session_starting
+}
+
 #[cfg(windows)]
-fn show_preview_above_client() -> Result<(), String> {
+fn session_starting() -> bool {
+    use windows_sys::Win32::{Foundation::{CloseHandle, GetLastError, ERROR_FILE_NOT_FOUND}, System::Threading::OpenMutexW};
+    let name: Vec<_> = "QuickLook.App.Mutex".encode_utf16().chain(Some(0)).collect();
+    let handle = unsafe { OpenMutexW(0x00100000, 0, name.as_ptr()) };
+    if handle.is_null() { return unsafe { GetLastError() } != ERROR_FILE_NOT_FOUND; }
+    unsafe { CloseHandle(handle); }
+    true
+}
+
+#[cfg(not(windows))]
+fn session_starting() -> bool { false }
+
+#[cfg(windows)]
+fn show_preview_above_client(generation: u64) -> Result<(), String> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SW_SHOWNOACTIVATE};
     // QuickLook creates its viewer asynchronously after consuming Invoke.
     // This runs on the command's blocking worker, never the WebView/UI thread.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
     loop {
+        if PREVIEW_GENERATION.load(std::sync::atomic::Ordering::Acquire) != generation { return Err("Aperçu annulé.".into()); }
         let pid = VIEWER_PID.load(std::sync::atomic::Ordering::Relaxed);
         if let Some(window) = (pid != 0).then(|| viewer_window(pid)).flatten() {
             unsafe {
@@ -194,7 +298,7 @@ fn show_preview_above_client() -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn show_preview_above_client() -> Result<(), String> { Err("QuickLook requires Windows.".into()) }
+fn show_preview_above_client(_: u64) -> Result<(), String> { Err("QuickLook requires Windows.".into()) }
 
 pub fn close() -> Result<(), String> {
     let pipe = pipe_name()?;
@@ -258,12 +362,55 @@ fn write_pipe(pipe: &str, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(not(windows))]
 fn write_pipe(_: &str, _: &[u8]) -> std::io::Result<()> { Err(std::io::ErrorKind::Unsupported.into()) }
 
+#[cfg(any(windows, test))]
+fn start_command(viewer: &Path) -> Result<std::process::Command, String> {
+    let mut command = std::process::Command::new(viewer);
+    // /autorun is silent; upstream only registers startup when passed /first.
+    command.arg("/autorun").current_dir(viewer.parent().ok_or("QuickLook is unavailable.")?);
+    #[cfg(windows)] {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    Ok(command)
+}
+
+/// Removal alone enumerates processes. An opened process handle and the exact
+/// managed executable path, never a process name or remembered PID, prove ownership.
+pub fn stop_managed(directory: &Path) -> Result<bool, String> {
+    let Some(configured) = MANAGED_DIRECTORY.get() else { return Ok(false); };
+    if !same_path(configured, directory) { return Err("Managed QuickLook directory differs.".into()); }
+    checked_managed_ancestors(directory)?;
+    #[cfg(windows)] {
+        use windows_sys::Win32::{Foundation::{CloseHandle, WAIT_OBJECT_0}, System::{ProcessStatus::K32EnumProcesses, Threading::{OpenProcess, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, PROCESS_SYNCHRONIZE}}};
+        let expected = match checked_executable(directory.join("QuickLook.exe")) { Some(path) => path, None => return Ok(false) };
+        let mut processes = vec![0u32; 16384]; let mut bytes = 0;
+        if unsafe { K32EnumProcesses(processes.as_mut_ptr(), (processes.len()*4) as u32, &mut bytes) } == 0 || bytes as usize >= processes.len()*4 { return Err("La liste des processus QuickLook est indisponible.".into()); }
+        let mut stopped = false;
+        for pid in processes.into_iter().take(bytes as usize/4).filter(|pid| *pid != 0) {
+            unsafe {
+                let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, 0, pid);
+                if handle.is_null() { continue; }
+                let result: Result<bool, String> = (|| {
+                    let mut text = vec![0u16; 32768]; let mut length = text.len() as u32;
+                    if QueryFullProcessImageNameW(handle, 0, text.as_mut_ptr(), &mut length) == 0 { return Ok(false); }
+                    let Some(actual) = String::from_utf16(&text[..length as usize]).ok().and_then(|text| std::fs::canonicalize(PathBuf::from(text)).ok()) else { return Ok(false); };
+                    if !same_path(&actual, &expected) { return Ok(false); }
+                    // Upstream Quit only ends its pipe reader, not the application.
+                    if TerminateProcess(handle, 0) == 0 || WaitForSingleObject(handle, 5000) != WAIT_OBJECT_0 { return Err("Ferme QuickLook avant de retirer le module.".into()); }
+                    let _ = VIEWER_PID.compare_exchange(pid, 0, std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed);
+                    Ok(true)
+                })();
+                CloseHandle(handle); stopped |= result?;
+            }
+        }
+        Ok(stopped)
+    }
+    #[cfg(not(windows))] { Ok(false) }
+}
+
 #[cfg(windows)]
 fn start(viewer: &Path) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    std::process::Command::new(viewer).arg("/autorun")
-        .current_dir(viewer.parent().ok_or("QuickLook is unavailable.")?)
-        .creation_flags(0x08000000).spawn()
+    start_command(viewer)?.spawn()
         .map(|_| ()).map_err(|_| "QuickLook could not be started.".into())
 }
 
@@ -283,6 +430,25 @@ mod tests {
     }
 
     #[test]
+    fn listener_probe_is_discarded_before_upstream_can_cancel_or_dispatch_a_preview() {
+        let probe = std::str::from_utf8(SESSION_PROBE).unwrap();
+        assert!(probe.ends_with('\n'));
+        assert_eq!(probe.trim_end().split('|').count(), 1);
+        assert!(!probe.trim_end().is_empty());
+    }
+
+    #[test]
+    fn startup_never_duplicates_a_live_initializing_or_busy_session() {
+        use std::io::ErrorKind;
+        assert!(should_start_viewer(ErrorKind::NotFound, false, false));
+        assert!(!should_start_viewer(ErrorKind::NotFound, true, false));
+        assert!(!should_start_viewer(ErrorKind::NotFound, false, true));
+        for error in [ErrorKind::PermissionDenied, ErrorKind::WouldBlock, ErrorKind::Other] {
+            assert!(!should_start_viewer(error, false, false));
+        }
+    }
+
+    #[test]
     fn tray_and_message_windows_are_not_reported_as_visible_previews() {
         assert!(preview_window_candidate(18, 600, 400));
         for (title, width, height) in [(0, 600, 400), (18, 0, 400), (18, 600, 0), (18, -1, 400)] {
@@ -294,17 +460,59 @@ mod tests {
     #[tokio::test]
     async fn preview_messages_reach_an_isolated_real_windows_pipe() {
         use tokio::{io::AsyncReadExt, net::windows::named_pipe::ServerOptions};
-        let name = format!(r"\\.\pipe\Notchy.QuickLook.Test.{}", uuid::Uuid::new_v4());
-        let mut server = ServerOptions::new().create(&name).unwrap();
-        let expected = message("Invoke", r"C:\Documents\two words & résumé.pdf").unwrap();
-        let bytes = expected.clone();
-        let sender = tokio::task::spawn_blocking(move || write_pipe(&name, &bytes));
-        tokio::time::timeout(std::time::Duration::from_secs(3), server.connect()).await.unwrap().unwrap();
-        let mut received = vec![0; expected.len()];
-        tokio::time::timeout(std::time::Duration::from_secs(3), server.read_exact(&mut received)).await.unwrap().unwrap();
-        sender.await.unwrap().unwrap(); assert_eq!(received, expected);
+        for expected in [message("Invoke", r"C:\Documents\two words & résumé.pdf").unwrap(), SESSION_PROBE.to_vec()] {
+            let name = format!(r"\\.\pipe\Notchy.QuickLook.Test.{}", uuid::Uuid::new_v4());
+            let mut server = ServerOptions::new().create(&name).unwrap();
+            let bytes = expected.clone();
+            let sender = tokio::task::spawn_blocking(move || write_pipe(&name, &bytes));
+            tokio::time::timeout(std::time::Duration::from_secs(3), server.connect()).await.unwrap().unwrap();
+            let mut received = vec![0; expected.len()];
+            tokio::time::timeout(std::time::Duration::from_secs(3), server.read_exact(&mut received)).await.unwrap().unwrap();
+            sender.await.unwrap().unwrap(); assert_eq!(received, expected);
+            assert_eq!(VIEWER_PID.load(std::sync::atomic::Ordering::Relaxed), std::process::id());
+        }
         assert!(pipe_name().unwrap().starts_with(r"\\.\pipe\QuickLook.App.Pipe.S-1-"));
     }
+    #[test]
+    fn bundled_portable_is_preferred_without_an_external_installation_or_environment_override() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("Notchy été avec espaces");
+        let portable = directory.join("quicklook").join("QuickLook.exe");
+        std::fs::create_dir_all(portable.parent().unwrap()).unwrap();
+        std::fs::write(&portable, b"fixture, never executed").unwrap();
+        let app = directory.join("notchy-v2.exe");
+        let expected = Some(std::fs::canonicalize(&portable).unwrap());
+        assert_eq!(preferred_executable(Some(&app), None), expected);
+        let external = root.path().join("QuickLook.exe");
+        std::fs::write(&external, b"external fixture, never executed").unwrap();
+        assert_eq!(preferred_executable(Some(&app), Some(external)), expected);
+    }
+
+    #[test]
+    fn missing_or_invalid_bundle_keeps_the_explicit_external_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("notchy-v2.exe");
+        let external = root.path().join("QuickLook.exe");
+        std::fs::write(&external, b"fixture, never executed").unwrap();
+        let expected = Some(std::fs::canonicalize(&external).unwrap());
+        assert_eq!(preferred_executable(Some(&app), Some(external.clone())), expected);
+        std::fs::create_dir_all(root.path().join("quicklook").join("QuickLook.exe")).unwrap();
+        assert_eq!(preferred_executable(Some(&app), Some(external.clone())), expected);
+        assert_eq!(preferred_executable(None, Some(external)), expected);
+        assert!(preferred_executable(Some(&app), None).is_none());
+        assert!(preferred_executable(Some(Path::new("notchy-v2.exe")), None).is_none());
+    }
+
+    #[test]
+    fn viewer_start_is_silent_without_first_run_registration_or_a_document_argument() {
+        let root = tempfile::tempdir().unwrap();
+        let viewer = root.path().join("QuickLook.exe");
+        let command = start_command(&viewer).unwrap();
+        assert_eq!(command.get_program(), viewer.as_os_str());
+        assert_eq!(command.get_current_dir(), viewer.parent());
+        assert_eq!(command.get_args().collect::<Vec<_>>(), [std::ffi::OsStr::new("/autorun")]);
+    }
+
     #[test]
     fn only_an_absolute_existing_quicklook_executable_is_accepted() {
         let root = tempfile::tempdir().unwrap();

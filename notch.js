@@ -655,6 +655,10 @@
   };
   let state = 'rest', view = 'nook', frame = 0, disposed = false, geometry, collapseTimer = 0, collapseDeferred = false, fileDialogOpen = false;
   let islandPage = 'music', scenarioReturnPage = null, closingTo = null, contentExitTimer = 0, hoverTimer = 0, welcomeStage = 'idle';
+  let galet = null, galetPlacement = null, galetBandParent = null, galetNotice = null, galetNoticeTimer = 0;
+  let galetAppliedState = '', galetAppliedMotion = null, galetAppliedVariant = '', galetSearchPending = 0;
+  let galetCatchAnimations = [], galetCatchGhost = null;
+  const supportingGalets = [];
   const contentAnimations = new Map();
   const compactContent = document.getElementById('island-compact-content');
   const restContent = document.getElementById('island-rest-live');
@@ -702,6 +706,8 @@
   const byId = id => document.getElementById(id);
   const desktop = window.notchyDesktop?.isDesktop ? window.notchyDesktop : null;
   let search = null, searchReturnView = 'nook', searchReturnState = 'rest', searchShortcut = 'Ctrl+K';
+  let renderedPreview = null;
+  const renderedEpoch = {search:0,shelf:0};
   let moduleLibrary = null, libraryReturnOrigin = null;
   const communityStore = window.NotchyModules.createStore({storage: window.localStorage, key: 'notchy-community-modules-v1', persist: desktop?.saveModuleRegistry ? encoded=>desktop.saveModuleRegistry(encoded) : undefined});
   const communityCards = new Map(), communityDisposers = new Map(), communitySignatures = new Map();
@@ -727,6 +733,15 @@
   function closeModuleLibrary() {
     const origin=libraryReturnOrigin;libraryReturnOrigin=null;
     moduleLibrary?.hide();restoreFocusRoute(origin || {view:'nook',page:'music'});
+    if(origin?.view==='search'){const previousView=searchReturnView,previousState=searchReturnState;search?.open();searchReturnView=previousView;searchReturnState=previousState;}
+  }
+  function showQuickLookModule() {
+    if(!showModuleLibrary())return false;
+    return moduleLibrary?.openDetail('quicklook')===true;
+  }
+  function quickLookModule(operation) {
+    if(typeof desktop?.quickLookModule!=='function')return Promise.reject(new Error(t('Ouvre la version Windows native de Notchy pour obtenir cette extension.')));
+    return desktop.quickLookModule(operation);
   }
   function placeCommunityModule(id, destination) {
     if (!communityStore.get(id) || !Number.isInteger(destination) || destination < 0 || destination > 2) throw Error('Choose a valid module position');
@@ -766,9 +781,32 @@
     byId('search-toggle').setAttribute('aria-expanded', String(active));
     byId('search-toggle').title = t('Rechercher') + ' · ' + searchShortcut;
   }
+  function renderedPreviewClosed(owner) {
+    renderGalet();
+    (owner==='search'?search:sharingExperience)?.stopPreview();
+  }
+  function renderedPreviewNavigate(direction,owner) {
+    (owner==='search'?search:sharingExperience)?.navigatePreview(direction);
+  }
   async function invokeSearch(operation, args = {}) {
     if (!desktop?.search) throw new Error('Desktop search unavailable');
-    const value = await desktop.search(operation, args);
+    const owner=operation.startsWith('shelf_')?'shelf':'search',opening=['search_preview','shelf_preview'].includes(operation),closing=['search_preview_close','shelf_preview_close'].includes(operation);
+    const ticket=opening||closing?++renderedEpoch[owner]:renderedEpoch[owner];
+    const searching=operation==='search_query';if(searching){galetSearchPending++;renderGalet();}
+    let value;
+    try{value=await desktop.search(operation,args);}
+    finally{if(searching){galetSearchPending--;renderGalet();}}
+    if(!disposed&&ticket===renderedEpoch[owner]){
+      if(closing)renderedPreview?.hide(owner);
+      if(opening){
+        const controller=owner==='search'?search:sharingExperience;
+        if(controller?.isPreviewing()&&controller.previewTarget()===args.id){
+          if(value?.rendered){if(!renderedPreview)throw new Error('Aperçu indisponible.');renderedPreview.show(value.rendered,owner);}
+          else renderedPreview?.hide();
+        }
+      }
+      if(opening||closing)renderGalet();
+    }
     if (value?.shortcut) {
       searchShortcut = value.shortcut.available && typeof value.shortcut.shortcut === 'string' ? value.shortcut.shortcut : 'Ctrl+K';
       byId('search-toggle').setAttribute('aria-keyshortcuts', searchShortcut.replace('Ctrl', 'Control'));
@@ -1655,6 +1693,7 @@
   const focusComponent = FocusAPI.create({openDuration(kind) {
     if(focusComponent.inspect().configOpen)focusConfigurationReturn=captureRouteOrigin();
     openActivityDetail(kind === 'tasks' ? 'tasks' : 'focus');
+    if(kind==='focus'&&!focusComponent.inspect().configOpen)focusComponent.command('link-task');
   }, host: focusPlayer, presentation: 'split', motion: motionEnabled, changed: syncFocus, openTasks() {
     openActivityDetail('tasks'); tasksComponent.focusInput();
   }, openConfiguration() {
@@ -1669,7 +1708,7 @@
   focus = focusComponent.getState(); focusSettings = focusComponent.getSettings();
   const tasksPlayer = byId('tasks-player');
   const focusToolBack = document.createElement('button'); focusToolBack.type='button'; focusToolBack.className='focus-tool-back'; focusToolBack.hidden=true; focusPlayer.prepend(focusToolBack);
-  focusToolBack.addEventListener('click', () => {const origin=focusToolReturn; focusToolReturn=null; restoreFocusRoute(origin);});
+  focusToolBack.addEventListener('click', () => {const origin=focusToolReturn; focusToolReturn=null; restoreFocusRoute(origin?.view==='nook'&&!origin.lab?{...origin,page:'music'}:origin);});
   tasksComponent = FocusAPI.createTasks({host: tasksPlayer, focus: focusComponent, prepare(control) {
     focusToolReturn = captureRouteOrigin(control); selectViewButton({dataset:{view:'focus'}}); setState('open'); focusComponent.command('prepare');
   }, expand() {
@@ -1678,7 +1717,7 @@
   moduleActivityStates.set('focus', moduleActivitySnapshot('focus', focus));
   function renderFocusRouteBack() {
     focusToolBack.hidden = view !== 'focus' || !focusToolReturn || focusComponent.inspect().configOpen;
-    focusToolBack.textContent = '← ' + returnLabel(focusToolReturn);
+    focusToolBack.textContent = '← ' + (focusToolReturn?.view==='nook'&&!focusToolReturn.lab?t('Nook'):returnLabel(focusToolReturn));
     focusPlayer.dataset.focusToolReturn = String(!focusToolBack.hidden);
   }
   function focusIsActive() { return !focus.pomodoro?.finished && (focus.sessionActive || !!focus.deadline); }
@@ -1687,6 +1726,12 @@
     if (disposed) return;
     const previousCompletion = focus.sessionSummary?.at;
     focus = value.state; focusSettings = value.settings;
+    const boundary = value.event?.boundary;
+    if (boundary) {
+      if (boundary.kind === 'cycle') notifyGalet('cycle-complete');
+      else if (boundary.kind === 'focus' || boundary.kind === 'task' && !boundary.taskDone) notifyGalet('session-finished');
+      else if (boundary.kind === 'task' && boundary.taskDone) notifyGalet('task-finished');
+    }
     renderFocusRouteBack();
     const completionChanged = focus.sessionSummary && focus.sessionSummary.at !== previousCompletion;
     tasksComponent?.render();
@@ -2491,6 +2536,7 @@
   }
   function renderNearby() {
     if (disposed) return;
+    renderGalet();
     renderExperience();
     const peers = Array.isArray(nearby.peers) ? nearby.peers.filter(peer => peer && typeof peer.id === 'string' && peer.id.length <= 128 && typeof peer.alias === 'string') : [];
     if (!peers.some(peer => peer.id === nearbyPeer)) nearbyPeer = '';
@@ -2523,6 +2569,54 @@
     byId('shelf-share').disabled = shelfBusy || nearbyBusy || !selectedFiles.size;
     renderLocalSend(); renderHomeSummaries();
   }
+  function notifyGalet(id) {
+    if (disposed || !galet) return;
+    window.clearTimeout(galetNoticeTimer);
+    galetNotice = id;
+    galetNoticeTimer = window.setTimeout(() => {galetNoticeTimer = 0; galetNotice = null; renderGalet();}, 4500);
+    renderGalet();
+  }
+  function renderGalet() {
+    if (!galet || disposed) return;
+    const transfer = nearby.transfer;
+    const failure = !!localSendContext?.error || !!nearbyActionError || ['error','pin-required'].includes(transfer?.status);
+    const receiving = transfer?.direction === 'receive' && ['preparing','waiting','receiving'].includes(transfer.status);
+    const base = focusCoreEnabled() && focusIsActive() ? focus.pomodoro?.phase === 'break' ? 'break' : 'focus' : focus.taskPrompt ? 'question' : 'idle';
+    const preview = renderedPreview?.inspect();
+    const documentState = preview?.open ? /\.(?:[cm]?js|jsx|tsx?|css|scss|rs|py|json|ya?ml|toml|xml|sql|sh|ps1)$/i.test(preview.name) ? 'coding' : 'reading' : galetSearchPending ? 'searching' : null;
+    const reaction = failure ? 'error' : nearby.incoming ? 'share-request' : fileDragging ? 'idle' : (shelfBusy || fileBusy) ? 'working' : receiving ? 'receiving' : galetNotice || (base === 'idle' ? documentState || base : base);
+    const moduleVariants = {tasks:'focus',focus:'focus',music:'music',shelf:'shelf',files:'shelf',tray:'shelf',localsend:'sharing',weather:'weather',search:'search','module-library':'market'};
+    const context = fileDragging ? 'shelf' : state === 'compact' ? !byId('localsend-live').hidden ? 'localsend' : moduleFeedback?.id || (base === 'focus' || base === 'break' ? 'focus' : 'music') : view === 'nook' ? getHomeSlots()[0] : view;
+    const variant = moduleVariants[context] || 'default';
+    if (galetAppliedVariant !== variant) {galetAppliedVariant = variant; galet.character.setVariant(variant);}
+    if (galetAppliedMotion !== appearance.motion) {galetAppliedMotion = appearance.motion; galet.character.setMotion(appearance.motion); for (const character of supportingGalets) character.setMotion(appearance.motion);}
+    for (const character of supportingGalets) character.setActive(state === 'open' && !getModuleEditorActive());
+    if (galetAppliedState !== reaction) {galetAppliedState = reaction; galet.character.setState(reaction);}
+    notch.dataset.galetState = reaction;
+    let placement = null, bandParent = compactContent;
+    const menuVisible = state === 'open' && !menu.hidden && !getModuleEditorActive() && !['settings','modules','health','welcome'].includes(view);
+    if (state === 'open' && fileDragging) placement = 'drag';
+    else if (state === 'open' && view === 'nook' && !byId('home-empty').hidden && !getModuleEditorActive()) placement = 'empty';
+    else if (menuVisible) placement = 'header';
+    else if (state === 'compact' && !fileDragging && !(moduleFeedback?.id === 'music' && !byId('module-feedback-live').hidden)) {
+      bandParent = !byId('localsend-live').hidden ? byId('localsend-live').querySelector('.reception-device')
+        : !byId('module-feedback-live').hidden ? byId('module-feedback-icon')
+        : notch.dataset.activityRail === 'true' ? byId('activity-rail').querySelector('[data-activity="focus"] .activity-glyph')
+        : !byId('focus-live').hidden ? byId('focus-live')
+        : byId('music-live').hidden ? compactContent : null;
+      if (bandParent) placement = 'band';
+    }
+    if (galetBandParent && galetBandParent !== compactContent) delete galetBandParent.dataset.galetSlot;
+    if (placement === 'band' && bandParent !== compactContent) bandParent.dataset.galetSlot = 'true';
+    if (galet.slots.band.parentElement !== (bandParent || compactContent)) (bandParent || compactContent).append(galet.slots.band);
+    galetBandParent = bandParent;
+    galet.slots.band.dataset.fallback = String(bandParent === compactContent);
+    for (const [id, slot] of Object.entries(galet.slots)) slot.hidden = placement !== id;
+    if (placement && galet.mount.parentElement !== galet.slots[placement]) galet.slots[placement].append(galet.mount);
+    galetPlacement = placement;
+    galet.character.setActive(!!placement && !document.hidden);
+    if ((!placement || document.hidden || !motionEnabled()) && galetCatchAnimations.length) cancelGaletCatch();
+  }
   async function readNearby() {
     if (disposed || nearbyReading) return;
     nearbyReading = true;
@@ -2547,6 +2641,7 @@
         }
         if (value.transfer?.direction === 'receive' && value.transfer.status === 'complete' && value.transfer.id !== nearbyReceiveCompleted) {
           nearbyReceiveCompleted = value.transfer.id; shelfLoaded = false; if (builtinVisible('shelf') || view === 'nook' && getHomeSlots().includes('shelf')) void loadShelf();
+          notifyGalet('received');
           notifyModuleChange({id: 'shelf', kind: 'received', transferId: value.transfer.id, title: value.transfer.fileCount > 1 ? t('Fichiers reçus') : t('Fichier reçu'), detail: value.transfer.alias || t('Dans l’Étagère')});
         }
         renderLiveActivities(); update();
@@ -2679,9 +2774,10 @@
   }
   async function stageFiles(files) {
     if (disposed || fileBusy || !files.length) return;
-    if (files.length > 20) { fileError = t('20 fichiers maximum à la fois.'); selectViewButton({dataset: {view: 'files'}}); setState('open'); renderFiles(); return; }
-    fileBusy = true; fileError = ''; selectViewButton({dataset: {view: 'files'}}); setState('open'); renderFiles();
+    if (files.length > 20) { fileError = t('20 fichiers maximum à la fois.'); notifyGalet('error'); selectViewButton({dataset: {view: 'files'}}); setState('open'); renderFiles(); return; }
+    fileBusy = true; fileError = ''; notifyGalet('working'); selectViewButton({dataset: {view: 'files'}}); setState('open'); renderFiles();
     const added = [], epoch = ++fileEpoch;
+    let reaction='received';
     try {
       for (const file of files) {
         const value = await fileRequest('/api/files/input?name=' + encodeURIComponent(file.name), {method: 'POST', headers: {'Content-Type': 'application/octet-stream', 'X-Notchy': '1'}, body: file});
@@ -2689,8 +2785,8 @@
         added.push(acceptedFile(value.item));
       }
       fileItems.push(...added); fileIndex = fileItems.length - added.length; fileMode = 'actions'; fileJob = {status: 'idle'};
-    } catch (error) { if (!disposed && epoch === fileEpoch) { fileItems.push(...added); if (added.length) fileIndex = fileItems.length - added.length; fileError = error.message; } }
-    finally { if (!disposed && epoch === fileEpoch) { fileBusy = false; fileInput.value = ''; renderFiles(); } }
+    } catch (error) { if (!disposed && epoch === fileEpoch) { fileItems.push(...added); if (added.length) fileIndex = fileItems.length - added.length; fileError = error.message; reaction='error'; } }
+    finally { if (!disposed && epoch === fileEpoch) { fileBusy = false; fileInput.value = ''; renderFiles(); notifyGalet(reaction); } }
   }
   async function fileCommand(event) {
     const button = event.target.closest('[data-file-command],[data-file-format],[data-file-peer]');
@@ -2860,6 +2956,7 @@
     const minutes = Math.max(0, Math.floor((now - fetched) / 60000));
     return (value.stale ? t('Dernières données') + ' · ' : '') + (minutes < 1 ? t('Mis à jour à l’instant') : t('Mis à jour il y a {minutes} min', {minutes}));
   }
+  const weatherEmptyViews = new Map();
   function renderWeatherDesign(host, presentation, {interactive = false, inline = false, calendarTodayCount = weather.calendarTodayCount} = {}) {
     const detailed = interactive || inline;
     const canonical = ModuleLayout.PRESENTATIONS.includes(presentation) ? presentation : presentation === 'rail' ? 'small' : presentation === 'scene' ? 'side' : 'full';
@@ -2871,6 +2968,7 @@
     const hourIcons = values.hours.map(hour => weather.hours?.find(item => item.time === hour.time)?.icon || weather.icon || 'unknown');
     const signature = JSON.stringify([values,next,condition,freshness,weather.icon,hourIcons,weather.isDay,locale,canonical,interactive,inline,interactive && weatherPickerOpen,failure]);
     if (host.dataset.weatherDesign === signature) return;
+    for (const [previous, emptyView] of weatherEmptyViews) if (previous === host || !previous.isConnected) {emptyView.dispose(); weatherEmptyViews.delete(previous);}
     host.dataset.weatherDesign = signature; host.dataset.size = values.size; host.dataset.state = next.state;
     host.dataset.weatherView = detailed ? 'detail' : 'summary'; host.dataset.weatherInline = String(inline);
     host.dataset.weatherPresentation = canonical;
@@ -2955,7 +3053,8 @@
     if (sharedFailure) {
       empty.classList.add('weather-design-error');
       const since = Number.isFinite(weather.fetchedAt) && weather.fetchedAt > 0 && weather.fetchedAt <= Date.now() ? weather.fetchedAt : null;
-      const view = window.NotchEmpty.show(empty,{icon:glyph('','cloud'),title:t('Météo indisponible'),hint:uiMessage(failure),actionLabel:t('Réessayer'),since,onAction(event) {event.stopPropagation(); weatherCommand(event); (inline ? host.querySelector('[data-weather-command="inline-close"]') : byId('weather-main').querySelector('.weather-tools [data-weather-command="refresh"]'))?.focus({preventScroll:true});}});
+      const view = window.NotchEmpty.show(empty,{icon:glyph('','cloud'),character:'error',variant:'weather',title:t('Météo indisponible'),hint:uiMessage(failure),actionLabel:t('Réessayer'),since,onAction(event) {event.stopPropagation(); weatherCommand(event); (inline ? host.querySelector('[data-weather-command="inline-close"]') : byId('weather-main').querySelector('.weather-tools [data-weather-command="refresh"]'))?.focus({preventScroll:true});}});
+      weatherEmptyViews.set(host,view);
       view.elements.action.dataset.weatherCommand = 'refresh';
     }
     if (revealResult) for (const node of [hero,current,outlook]) if (!node.hidden) node.classList.add('experience-weather-result');
@@ -3169,12 +3268,13 @@
   async function uploadFiles(files) {
     if (disposed || shelfBusy || !files.length) return;
     if (files.length + shelfItems.length > 20) {
-      shelfError = t('20 fichiers maximum dans l’Étagère.'); renderShelf(); return;
+      shelfError = t('20 fichiers maximum dans l’Étagère.'); notifyGalet('error'); renderShelf(); return;
     }
     const epoch = ++shelfEpoch;
-    shelfBusy = true; shelfError = '';
+    shelfBusy = true; shelfError = ''; notifyGalet('working');
     selectViewButton(menuButtons.find(button => button.dataset.view === 'tray')); setState('open');
     renderShelf();
+    let reaction='received';
     try {
       for (let index = 0; index < files.length; index++) {
         const file = files[index];
@@ -3183,8 +3283,8 @@
         if (disposed || epoch !== shelfEpoch) return;
         setShelf(value);
       }
-    } catch (error) { if (!disposed && epoch === shelfEpoch) shelfError = error.message; }
-    finally { if (!disposed && epoch === shelfEpoch) { shelfBusy = false; shelfInput.value = ''; renderShelf(); } }
+    } catch (error) { if (!disposed && epoch === shelfEpoch) {shelfError = error.message; reaction='error';} }
+    finally { if (!disposed && epoch === shelfEpoch) { shelfBusy = false; shelfInput.value = ''; renderShelf(); notifyGalet(reaction); } }
   }
 
   async function shelfCommand(event) {
@@ -3225,6 +3325,34 @@
   function shelfInputChanged() { closeFileChooser(); void uploadFiles([...shelfInput.files]); }
   function hasFiles(event) { return [...(event.dataTransfer?.types || [])].includes('Files'); }
   function nearNotch(event) { return notch.contains(event.target) || event.clientY <= 44 && Math.abs(event.clientX - window.innerWidth / 2) <= 150; }
+  function fileDropBusy() {return state === 'open' && view === 'tray' && builtinVisible('shelf') ? shelfBusy || nearbyBusy : fileBusy;}
+  function cancelGaletCatch() {
+    const animations=galetCatchAnimations;galetCatchAnimations=[];
+    for(const animation of animations)animation.cancel();
+    galetCatchGhost?.remove();galetCatchGhost=null;
+  }
+  function animateGaletCatch(event, origin) {
+    cancelGaletCatch();
+    if(!galet||!origin||!galet.mount.animate||!motionEnabled()||document.hidden||state!=='open'||galetPlacement!=='header')return;
+    const target=galet.mount.getBoundingClientRect(),box=notch.getBoundingClientRect();
+    const scale=target.width/galet.mount.offsetWidth,ghostScale=box.width/notch.offsetWidth;
+    if(!(scale>0)||!(ghostScale>0)||!(origin.width>0)||![event.clientX,event.clientY].every(Number.isFinite))return;
+    const ghost=document.createElement('span');ghost.className='galet-file-catch';ghost.setAttribute('aria-hidden','true');
+    const page=document.createElement('span');page.textContent='↗';ghost.append(page);
+    ghost.style.left=(event.clientX-box.left)/ghostScale+'px';ghost.style.top=(event.clientY-box.top)/ghostScale+'px';notch.append(ghost);galetCatchGhost=ghost;
+    const returning=galet.mount.animate([{transform:`translate(${(origin.left+origin.width/2-target.left-target.width/2)/scale}px,${(origin.top+origin.height/2-target.top-target.height/2)/scale}px) scale(${origin.width/target.width})`},{transform:'none'}],{duration:ISLAND_CONFIG.fileCatch.return,easing:'cubic-bezier(.4,0,.2,1)'});
+    const catching=ghost.animate([{transform:'translate(-50%,-50%) scale(1)',opacity:1},{transform:`translate(calc(-50% + ${(target.left+target.width/2-event.clientX)/ghostScale}px),calc(-50% + ${(target.top+target.height/2-event.clientY)/ghostScale}px)) scale(.15)`,opacity:0}],{duration:ISLAND_CONFIG.fileCatch.file,easing:'cubic-bezier(.5,0,.8,.4)',fill:'forwards'});
+    galetCatchAnimations=[returning,catching];
+    returning.onfinish=returning.oncancel=()=>{if(galetCatchGhost===ghost)cancelGaletCatch();};
+  }
+  function lookAtDraggedFile(event) {
+    galet?.character.lookAt(event);
+    const host=galet?.slots.drag,box=host?.getBoundingClientRect();
+    if(!box||![event.clientX,event.clientY].every(Number.isFinite))return;
+    const x=Math.max(-1,Math.min(1,(event.clientX-box.left-box.width/2)/200));
+    const y=Math.max(-1,Math.min(1,(event.clientY-box.top-box.height/2)/200));
+    host.style.setProperty('--galet-drag-x',x*12+'px');host.style.setProperty('--galet-drag-y',y*8+'px');
+  }
   function clearFileDrag(restore = true) {
     dragDepth = 0;
     if (!fileDragging) return;
@@ -3245,20 +3373,29 @@
     if (!hasFiles(event)) return;
     event.preventDefault();
     if (!nearNotch(event)) { event.dataTransfer.dropEffect = 'none'; clearFileDrag(); return; }
+    event.stopPropagation();
+    if (fileDropBusy()) {event.dataTransfer.dropEffect = 'none'; clearFileDrag(); return;}
     event.dataTransfer.dropEffect = 'copy';
-    if (!fileDragging) fileDragPreviousState = state;
+    const entering=!fileDragging;
+    if (entering) {cancelGaletCatch();fileDragPreviousState = state;}
     fileDragging = true; fileDragCount = dragFileCount(event.dataTransfer); notch.dataset.fileDrag = 'true'; renderFileDropPreview();
     if (getModuleEditorActive()) closeModuleEditor(false);
     if (state !== 'open') setState('open'); else { renderLiveActivities(); update(); }
+    lookAtDraggedFile(event);
+    if(entering)galet?.character.emote('surprised');
   }
-  function fileDragLeave(event) { if (hasFiles(event)) { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) clearFileDrag(); } }
+  function fileDragLeave(event) { if (fileDragging || hasFiles(event)) { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) clearFileDrag(); } }
   function fileDrop(event) {
     if (!hasFiles(event)) return;
     event.preventDefault();
     if (!nearNotch(event)) { clearFileDrag(); return; }
+    event.stopPropagation();
+    if (fileDropBusy()) {event.dataTransfer.dropEffect = 'none'; clearFileDrag(); return;}
     const files = [...event.dataTransfer.files];
     const toShelf = state === 'open' && view === 'tray' && builtinVisible('shelf');
+    const origin=galetPlacement==='drag'?galet?.mount.getBoundingClientRect():null;
     clearFileDrag(false); if (toShelf) void uploadFiles(files); else void stageFiles(files);
+    if(files.length)animateGaletCatch(event,origin);
   }
 
   function text(element, value) { if (element.textContent !== value) element.textContent = value; }
@@ -3710,10 +3847,10 @@
     notch.style.setProperty('--closed-width', closed.width + 'px');
     notch.style.setProperty('--closed-height', closed.band + 'px');
     expandedLayer.style.width = width + 'px'; expandedLayer.style.height = height + 'px';
-    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: receptionSize?28:view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius / scale : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : ISLAND_CONFIG.states.expanded.radius + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
+    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: receptionSize?28:view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius / scale : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : (view === 'tray' ? ISLAND_CONFIG.tray.radius : ISLAND_CONFIG.states.expanded.radius) + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
     protectLayoutResize(target.width, target.height);
     motion.setTarget(target, {snap: !motionEnabled() || document.hidden});
-    paint(); ia?.render(view,false); renderLocalSend(); syncCalendarLayer(); recheckCollapse();
+    paint(); ia?.render(view,false); renderLocalSend(); syncCalendarLayer(); renderGalet(); recheckCollapse();
   }
 
   function setState(next) {
@@ -3864,7 +4001,7 @@
       else recheckCollapse();
     });
   }
-  function keyboardInteraction(event) { if (event.target?.closest?.('input,textarea,select,[contenteditable="true"]') || ['Tab', 'Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {keyboardNavigation = true; dismissMusicTrackFeedback(); focusInteraction();} }
+  function keyboardInteraction(event) { if (event.target?.closest?.('input,textarea,select,[contenteditable="true"]') || ['Tab', 'Enter', 'Escape', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {keyboardNavigation = true; dismissMusicTrackFeedback(); focusInteraction();} }
   function pointerInteraction(event) {
     keyboardNavigation = false;
     if (notch.contains(event.target)) dismissMusicTrackFeedback();
@@ -3883,6 +4020,7 @@
   function outside(event) { if (state === 'open' && !notch.contains(event.target) && !event.composedPath?.().includes(notch)) { if (welcome?.isActive()) { finishWelcome('rest'); return; } if (getModuleEditorActive()) closeModuleEditor(false); setState('rest'); } }
   function key(event) {
     if (event.defaultPrevented) return;
+    if (fileDragging && event.key === 'Escape') {event.preventDefault();clearFileDrag();return;}
     if (calendar?.isOpen() && event.key === 'Escape') {event.preventDefault(); calendar.close(); return;}
     if ((event.ctrlKey || event.metaKey) && !event.altKey && (String(event.key).toLowerCase() === 'k' || !desktop && event.code === 'Space')) {
       event.preventDefault(); showSearch(); return;
@@ -3905,6 +4043,7 @@
   function selectView(event) {
     const button = event.target.closest('[data-view]');
     if (disposed || menu.hidden || !button || !menu.contains(button) || calendar?.isOpen() && calendar.isBusy()) return;
+    if(button.dataset.view==='nook')focusToolReturn=null;
     if (button.dataset.view === 'module-library') {showModuleLibrary(); return;}
     if (button.dataset.view === 'modules') {openModuleEditor(event); return;}
     if (getModuleEditorActive()) closeModuleEditor(false);
@@ -4009,10 +4148,11 @@
   document.addEventListener('visibilitychange', nearbyLifecycle);
   shelfInput.addEventListener('change', shelfInputChanged);
   document.addEventListener('dragenter', fileDragEnter);
-  document.addEventListener('dragover', fileDragOver);
+  // One owner for file drops, before nested Tray handlers can consume them.
+  document.addEventListener('dragover', fileDragOver, true);
   document.addEventListener('dragleave', fileDragLeave);
-  document.addEventListener('drop', fileDrop);
   document.addEventListener('dragend', clearFileDrag);
+  document.addEventListener('drop', fileDrop, true);
   settingsPlayer.addEventListener('input', appearanceInput);
   settingsPlayer.addEventListener('change', startupInput);
   settingsPlayer.addEventListener('click', settingsCommand);
@@ -4042,6 +4182,7 @@
   }
 
   function dispose() {
+    renderedEpoch.search++; renderedEpoch.shelf++; renderedPreview?.dispose();
     calendar?.dispose();
     moduleLibrary?.dispose(); removeCommunityChange?.(); for (const cleanup of communityDisposers.values()) cleanup();
     search?.dispose(); byId('search-toggle').removeEventListener('click', showSearch);
@@ -4068,6 +4209,10 @@
     byId('focus-task-prompt').removeEventListener('click', focusTaskPromptCommand);
     tasksComponent?.dispose(); focusComponent.dispose(); clearModuleFeedback(false);
     welcome?.dispose();
+    cancelGaletCatch();galet?.character.dispose();
+    for (const character of supportingGalets) character.dispose(); supportingGalets.length = 0;
+    for (const emptyView of weatherEmptyViews.values()) emptyView.dispose(); weatherEmptyViews.clear();
+    window.clearTimeout(galetNoticeTimer); galetNoticeTimer = 0;
     window.cancelAnimationFrame(frame);
     window.clearTimeout(collapseTimer); collapseTimer = 0;
     frame = 0;
@@ -4122,10 +4267,10 @@
     document.removeEventListener('visibilitychange', nearbyLifecycle);
     shelfInput.removeEventListener('change', shelfInputChanged);
     document.removeEventListener('dragenter', fileDragEnter);
-    document.removeEventListener('dragover', fileDragOver);
+    document.removeEventListener('dragover', fileDragOver, true);
     document.removeEventListener('dragleave', fileDragLeave);
-    document.removeEventListener('drop', fileDrop);
     document.removeEventListener('dragend', clearFileDrag);
+    document.removeEventListener('drop', fileDrop, true);
     settingsPlayer.removeEventListener('input', appearanceInput);
     settingsPlayer.removeEventListener('change', startupInput);
     settingsPlayer.removeEventListener('click', settingsCommand);
@@ -4182,7 +4327,7 @@
     showModuleLibrary,
     getCommunityModules: () => communityStore.list(),
     dispose,
-    inspect: () => ({state, view, geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, layout:homeLayout?.version?JSON.parse(JSON.stringify(homeLayout)):null, moduleLab:moduleLab?{id:moduleLab.id,presentation:moduleLab.presentation}:null, scenarios: scenarioController?.inspect(), morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
+    inspect: () => ({state, view, drag:{active:fileDragging,returning:galetCatchAnimations.length>0,count:fileDragCount,phase:fileDragging?'hover':shelfBusy||fileBusy?'pending':galetNotice==='received'?'success':galetNotice==='error'?'error':'idle'}, galet:galet ? {...galet.character.inspect(), placement:galetPlacement} : null, renderedPreview:renderedPreview?.inspect(), geometry: {...geometry}, homeLayout: homeLayout ? JSON.parse(JSON.stringify(homeLayout)) : null, layout:homeLayout?.version?JSON.parse(JSON.stringify(homeLayout)):null, moduleLab:moduleLab?{id:moduleLab.id,presentation:moduleLab.presentation}:null, scenarios: scenarioController?.inspect(), morphing: motion.isActive(), band: parseFloat(notch.style.getPropertyValue('--band')), motion: motionEnabled(), appearance: {...appearance}, desktop: !!desktop, moduleEditing: getModuleEditorActive(), musicQueue: {open: queueOpen, status: queueState.status, count: queueState.items.length, busy: queueBusy}, file: currentFile() ? {...currentFile(), mode: fileMode, status: fileJob.status, jobId: fileJob.jobId, busy: fileBusy} : null, music: {...music, position: position()}, streamActive: !!stream, clockActive: !!clock, shelfCount: shelfItems.length, shelfBusy, modules: getModules(), focus: {active: focusIsActive(), running: !!focus.deadline, seconds: FocusModel.remaining(focus), phase: focus.pomodoro ? {...focus.pomodoro} : null, configuration: {...focusSettings}, complete: focus.complete, timerActive: focusComponent.inspect().timerActive},
     }),
   });
   window.addEventListener('pagehide', dispose, {once: true});
@@ -4196,7 +4341,7 @@
     onChange(value) {renderWeather(); syncCalendarLayer(); if(!value.busy) recheckCollapse();}
   });
   void calendar.refresh();
-  search = window.NotchySearch.create({host: byId('search-player'), invoke: invokeSearch, t,
+  search = window.NotchySearch.create({host: byId('search-player'), invoke: invokeSearch, t, onGetQuickLook:showQuickLookModule,
     onOpen: searchOpening, onClose: searchClosed, onSend: searchSend});
   moduleLibrary = window.NotchyModuleLibrary.create({host:byId('module-library-player'), toolbarHost:byId('market-toolbar'), store:communityStore, language:i18n.locale, onClose:closeModuleLibrary, onPlace:placeCommunityModule,
     getBuiltins() {
@@ -4207,10 +4352,12 @@
         weather:[['Conditions locales','Local conditions','Consulte la météo de la ville sélectionnée.','See the weather for your selected city.'],['Prévisions horaires','Hourly forecast','Affiche les prochaines heures avec des données réelles.','See the coming hours using real forecast data.'],['Agenda au clic','Click to open the agenda','La date ouvre ton agenda local et indique les rendez-vous.','The date opens your local agenda and indicates appointments.']],
         shelf:[['Fichiers à portée de main','Files close at hand','Garde des copies de fichiers dans ton étagère.','Keep file copies in your shelf.'],['Partage local','Local sharing','Envoie et reçois des fichiers avec LocalSend.','Send and receive files with LocalSend.'],['Retrouver et exporter','Find and export','Ouvre, retrouve ou enregistre les fichiers gardés.','Open, reveal or save kept files.']]
       };
-      return getModuleDefinitions().filter(item=>!item.community).map(item=>({id:item.id,name:{fr:item.label,en:content[item.id][0]},description:{fr:content[item.id][1],en:content[item.id][2]},category:content[item.id][3],version:document.querySelector('meta[name="application-version"]').content,bundled:true,installed:isModuleEnabled(item.id),features:features[item.id].map(([fr,en,detailFr,detailEn])=>({title:{fr,en},detail:{fr:detailFr,en:detailEn}})),permissions:{fr:'Services intégrés de Notchy ; aucune extension de code à installer.',en:'Built-in Notchy services; no executable extension to install.'}}));
+      return [...getModuleDefinitions().filter(item=>!item.community).map(item=>({id:item.id,name:{fr:item.label,en:content[item.id][0]},description:{fr:content[item.id][1],en:content[item.id][2]},category:content[item.id][3],version:document.querySelector('meta[name="application-version"]').content,bundled:true,installed:isModuleEnabled(item.id),features:features[item.id].map(([fr,en,detailFr,detailEn])=>({title:{fr,en},detail:{fr:detailFr,en:detailEn}})),permissions:{fr:'Services intégrés de Notchy ; aucune extension de code à installer.',en:'Built-in Notchy services; no executable extension to install.'}})),{id:'quicklook',name:'QuickLook',description:{fr:'Prévisualise PDF, images et documents dans l’Explorateur, le Bureau, les boîtes de fichiers, Spotlight et l’étagère. Espace ouvre ou ferme, les flèches changent de fichier et Échap ferme l’aperçu. OfficeViewer 6 conserve images et graphiques dans Word, PowerPoint et Excel. Moteur QuickLook téléchargé à la demande : ≈ 155 Mo, ≈ 350 Mo sur disque.',en:'Preview PDFs, images and documents in File Explorer, the desktop, file dialogs, Spotlight and the shelf. Space opens or closes, arrows change files and Esc closes the preview. OfficeViewer 6 preserves images and charts in Word, PowerPoint and Excel. QuickLook engine downloaded on request: ≈ 155 MB, ≈ 350 MB on disk.'},category:'system',version:'4.5.0',icon:'search',utility:true,bundled:false,installed:false,officeInstalled:false,officeVersion:null,nativeAvailable:typeof desktop?.quickLookModule==='function',permissions:{fr:'Réseau uniquement pour installer QuickLook, OfficeViewer officiel et leurs sources. Lecture des fichiers dont tu demandes l’aperçu.',en:'Network access only to install QuickLook, official OfficeViewer and their source. Read the files you request to preview.'}}];
     },
-    onBuiltinInstall:id=>changeBuiltinAvailability(id,true),
-    onBuiltinRemove:id=>changeBuiltinAvailability(id,false),
+    onBuiltinInstall:id=>id==='quicklook'?quickLookModule('install'):changeBuiltinAvailability(id,true),
+    onBuiltinRemove:id=>id==='quicklook'?quickLookModule('remove'):changeBuiltinAvailability(id,false),
+    onBuiltinStatus:id=>id==='quicklook'?quickLookModule('status'):null,
+    onBuiltinSource:id=>id==='quicklook'?quickLookModule('source'):null,
     onBuiltinOpen(id) {
       const definition=moduleDefinitions[id]; if(!definition||definition.community)return;
       if(!isModuleEnabled(id)){openModuleEditor();modulePicked=id;renderModules();update();return;}
@@ -4231,7 +4378,8 @@
   labButton.addEventListener('click',()=>{const id=getModules().slots.find(id=>isModuleEnabled(id))||getModuleDefinitions().find(item=>isModuleEnabled(item.id))?.id;if(id){const contract=layoutContract(id);beginModuleLab({id,presentation:Object.keys(contract.layout)[0]});}});
   byId('settings-player').querySelector('.settings-experience-links').append(labButton);
   const emptyLibraryButton=document.createElement('button'); emptyLibraryButton.type='button'; emptyLibraryButton.dataset.moduleLibraryEmpty=''; emptyLibraryButton.textContent=t('Bibliothèque de modules'); emptyLibraryButton.addEventListener('click',showModuleLibrary); byId('home-empty').append(emptyLibraryButton);
-  sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction, invoke:desktop?.search ? invokeSearch : null});
+  sharingExperience = window.NotchySharingExperience.create({host:byId('sharing-experience'), t, onAction:sharingAction, invoke:desktop?.search ? invokeSearch : null, onGetQuickLook:showQuickLookModule});
+  renderedPreview = window.NotchyRenderedPreview.create({host:byId('notch-panel'),t,onClose:renderedPreviewClosed,onNavigate:renderedPreviewNavigate});
   ia = window.NotchyIA.create({document,t,
     motion: motionEnabled,
     onTab(tab) {if (getModuleEditorActive() && tab !== 'modules') closeModuleEditor(false); const route=['general','appearance','notch','about'].includes(tab)?'settings':tab; menu.querySelector('[data-view="'+route+'"]').click();},
@@ -4240,6 +4388,14 @@
     async onScan() {const result=await window.NotchyIA.invokeCore('discovery_scan',{}); if (result) await readNearby(); return result;}
   });
   welcome = window.NotchyWelcome.create({host: byId('welcome-player'), start: () => finishWelcome('rest', true), tutorialFinish: () => finishWelcome('rest', true), stageChanged: stage => {welcomeStage = stage; if (view === 'welcome') update();}, motion: motionEnabled});
+  const galetEmpty = document.createElement('span'); galetEmpty.id = 'galet-empty'; galetEmpty.hidden = true; galetEmpty.setAttribute('aria-hidden','true'); byId('home-empty').prepend(galetEmpty);
+  const galetMount = document.createElement('span');
+  byId('galet-header').append(galetMount);
+  galet = {mount:galetMount, slots:{band:byId('galet-band'), header:byId('galet-header'), empty:galetEmpty, drag:byId('galet-drag')}, character:window.NotchyGalet.create(galetMount,{active:false,motion:appearance.motion,scope:document})};
+  for (const [empty,variant] of [[musicEmpty,'music'],[byId('file-empty'),'shelf']]) {
+    const icon = empty.querySelector('svg'), mascot = document.createElement('span'); mascot.className='supporting-galet'; mascot.setAttribute('aria-hidden','true'); empty.insertBefore(mascot,icon); icon?.remove();
+    supportingGalets.push(window.NotchyGalet.create(mascot,{variant,active:false,motion:appearance.motion,scope:document}));
+  }
   document.addEventListener('change', languageChoice);
   removeLanguage = i18n.onChange(renderLanguage);
   for (const choice of document.querySelectorAll('[data-language-choice]')) choice.value = i18n.locale();

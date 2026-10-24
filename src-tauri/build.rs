@@ -19,6 +19,9 @@ fn main() {
     let dist = root.join("dist");
     println!("cargo:rerun-if-changed={}", root.join("scripts/frontend-manifest.json").display());
     println!("cargo:rerun-if-changed={}", root.join("scripts/build-frontend.cjs").display());
+    println!("cargo:rerun-if-changed={}", root.join("scripts/checkpoint-trial.cjs").display());
+    println!("cargo:rerun-if-changed={}", root.join("scripts/check-storage.cjs").display());
+    println!("cargo:rerun-if-changed={}", root.join("scripts/storage-policy.json").display());
     println!("cargo:rerun-if-env-changed=NOTCHY_NODE");
     // Preserve the native reparse-point guard before the shared builder replaces dist.
     if fs::symlink_metadata(&dist).is_ok() {

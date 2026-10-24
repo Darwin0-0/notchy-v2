@@ -162,6 +162,7 @@ function detailFixture(language, value = {}) {
   const i18n = require('../i18n.js').create({getItem:() => language, setItem(){}}), host = node('div');
   const scope = {weather:{...snapshot,mode:'city',city:'Kinshasa',displayName:'Kinshasa',icon:'sun',condition:'Ciel dégagé',feelsLike:18,humidity:72,windSpeed:12.5,uvIndex:4.2,sunrise:'2026-10-15T06:13',sunset:'2026-10-15T18:02',calendarTodayCount:1,...value},weatherBusy:false,weatherError:'',weatherPickerOpen:false,window:{},document:{hidden:false,createElement:node},i18n,t:i18n.t,ModuleLayout:require('../module-contracts.js'),uiMessage:value=>value,weatherDesignValues,weatherConditionPath,weatherGlyphMarkup,localizedWeatherNarrative:weatherNarrative,weatherFreshness:()=>'Updated',byId:()=>template};
   const source = fs.readFileSync(require.resolve('../notch.js'), 'utf8'), start = source.indexOf('  function renderWeatherDesign('), end = source.indexOf('  function renderWeatherSummary(', start);
+  scope.weatherEmptyViews = new Map();
   vm.runInNewContext(source.slice(start, end) + 'this.render = renderWeatherDesign;', scope);
   return {host, scope, node, template};
 }
@@ -225,11 +226,13 @@ test('an hourly condition update redraws its actual icon even when every timesta
 });
 
 test('the balanced error layer retains its real retry command without replacing city or calendar actions',()=>{
-  const {host,scope}=detailFixture('fr',{error:'Offline',fetchedAt:1});let retry,commands=0;
-  scope.uiMessage=value=>value;scope.weatherCommand=()=>commands++;scope.window.NotchEmpty={show(_host,options){retry=options.onAction;return{elements:{action:{dataset:{}}}};}};
+  const {host,scope}=detailFixture('fr',{error:'Offline',fetchedAt:1});let retry,commands=0,mounts=0,disposals=0;
+  scope.uiMessage=value=>value;scope.weatherCommand=()=>commands++;scope.window.NotchEmpty={show(_host,options){assert.equal(options.character,'error');mounts++;retry=options.onAction;return{elements:{action:{dataset:{}}},dispose(){disposals++;}};}};
   scope.render(host,'full',{interactive:true});assert.equal(host.querySelector('.weather-design-empty').hidden,false);
   assert.equal(host.querySelector('.weather-design-city').dataset.weatherCommand,'picker');assert.equal(host.querySelector('.weather-typography-date').dataset.weatherCommand,'calendar');
   retry({stopPropagation(){}});assert.equal(commands,1);
+  scope.render(host,'full',{interactive:true});assert.equal(mounts,1);assert.equal(disposals,0,'unchanged polling must retain the character');
+  scope.weather.error='';scope.render(host,'full',{interactive:true});assert.equal(disposals,1,'recovery disposes the old character before replacing its DOM');
 });
 
 function inlineFixture(){
@@ -237,7 +240,7 @@ function inlineFixture(){
   const calls={routes:[],renders:0,fullRenders:0,selected:[],calendar:[]},modules={enabled:['music','weather'],slots:['music','weather',null]},music=Object.freeze({title:'Keep playing',sourceId:'real-player',playing:true,position:42,duration:180});
   Object.assign(scope,{view:'nook',state:'open',islandPage:'music',disposed:false,weatherInlineDetail:false,weatherInlinePickerReturn:null,detailReturn:null,detailView:'',weatherLocations:[],
     moduleSettings:modules,music,settingsReturn:null,document:{...scope.document,activeElement:null},weatherCityInput:{focus(options){this.focusedWith=options;}},weatherPlayer:{querySelector:selector=>fullHost.querySelector(selector)},
-    byId:id=>id==='nook-layout'?home:template,getModuleEditorActive:()=>false,calendar:null,desktop:null,queueOpen:false,welcome:null,moduleLibrary:null,focusToolReturn:null,settingsRoute:route=>route==='settings',
+    byId:id=>id==='nook-layout'?home:template,getModuleEditorActive:()=>false,calendar:null,desktop:null,queueOpen:false,fileDragging:false,welcome:null,moduleLibrary:null,focusToolReturn:null,settingsRoute:route=>route==='settings',
     activityCards:new Map([['weather',{querySelector:selector=>selector==='.weather-design'?f.host:f.host.querySelector('.weather-design-city')}]]),
     renderActivitySceneValues(){calls.renders++;scope.render(f.host,'scene',{inline:scope.weatherInlineDetail&&scope.view==='nook'&&home.dataset.weatherSplit==='true'});},
     renderWeather(){calls.fullRenders++;scope.render(fullHost,'full',{interactive:true});},

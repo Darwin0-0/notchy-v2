@@ -95,7 +95,7 @@ test('Escape from the replayed introduction restores its open settings origin', 
   const finish=source.slice(source.indexOf('  function finishWelcome('),source.indexOf('  function replayWelcome('));
   const keyboard=source.slice(source.indexOf('  function key(event) {'),source.indexOf('  function selectView(event) {'));
   const calls=[];
-  const scope={welcomeReturnState:'open',welcomeReturnView:'settings',calendar:null,queueOpen:false,
+  const scope={welcomeReturnState:'open',welcomeReturnView:'settings',calendar:null,queueOpen:false,fileDragging:false,
     desktop:null,view:'welcome',welcome:{isActive:()=>true,hide:()=>calls.push('hide')},getModuleEditorActive:()=>false,
     selectViewButton:button=>calls.push(button.dataset.view),setState:state=>calls.push(state)};
   vm.runInNewContext(finish+'\n'+keyboard+'\nthis.escape=key;',scope);

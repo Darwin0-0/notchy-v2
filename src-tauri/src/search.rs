@@ -1035,6 +1035,14 @@ impl SearchService {
         Ok((name, reader, after.len()))
     }
 
+    pub fn rendered_preview(&self, id: &str) -> Result<Option<crate::rendered_preview::Document>, String> {
+        let checked = self.checked_item(id)?;
+        let name = checked.path.file_name().and_then(|name| name.to_str()).ok_or("Nom de fichier indisponible.")?;
+        if !checked._guard.metadata().map_err(|_| "Fichier indisponible.")?.is_file() || !crate::rendered_preview::supports(name) { return Ok(None); }
+        let (name, file, size) = self.share_source(id)?;
+        crate::rendered_preview::read(name, file, size).map_err(|error| error.message)
+    }
+
     pub fn open(&self, id: &str) -> Result<(), String> {
         let checked = self.checked_item(id)?;
         let metadata = checked
@@ -1072,7 +1080,7 @@ impl SearchService {
         self.preview_with(id, crate::quicklook::preview)
     }
 
-    fn preview_with(&self, id: &str, launch: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), String> {
+    pub fn preview_with(&self, id: &str, launch: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), String> {
         let checked = self.checked_item(id)?;
         if checked.path.extension().and_then(|extension| extension.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("qlplugin")) {
             return Err("QuickLook plugins must be installed deliberately from QuickLook.".into());

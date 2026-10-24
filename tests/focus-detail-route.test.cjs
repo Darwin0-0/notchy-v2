@@ -105,7 +105,7 @@ function durationRouteFixture(inLab) {
     editing:new Set(),viewStates:new Map(),routeLeaving:false,focusPlayer:{dataset:{}},motionEnabled:()=>false,syncFocus(){},restoreFocusTaskControl(){},
     selectViewButton(button){scope.moduleLab=null;scope.view=button.dataset.view;calls.push('route-'+scope.view);},setState(state){scope.state=state;},
     beginModuleLab(value){calls.push('lab-'+value.presentation);scope.moduleLab={id:value.id,presentation:value.presentation,origin:null};scope.view='nook';return{ok:true};},
-    FocusAPI:{create(options){scope.options=options;return{inspect:()=>({configOpen:scope.editing.size>0})};}}};
+    FocusAPI:{create(options){scope.options=options;return{inspect:()=>({configOpen:scope.editing.size>0}),command(value){calls.push('command-'+value);}};}}};
   const control={isConnected:true,closest:()=>null,focus(){scope.document.activeElement=control;calls.push('origin-focus');}};
   scope.document={activeElement:control};scope.host=scope.focusPlayer;
   for(const name of ['focusToolBack','detailBack'])scope[name]={hidden:false,closest:()=>null,focus(){scope.document.activeElement=scope[name];}};
@@ -139,4 +139,19 @@ test('a legacy Pomodoro notification cannot add an extra screen or claim an edit
   assert.equal(f.scope.view,'nook');assert.equal(f.scope.focusConfigurationReturn,null);assert.equal(f.scope.editing.size,0);
   assert.equal(f.scope.moduleLab.presentation,'side');assert.equal(f.scope.moduleLab.origin,f.exit);assert.equal(f.scope.focusToolReturn,null);
   const settled=f.calls.length;f.scope.notify('focus','timer');assert.equal(f.calls.length,settled,'leaving a nonediting Pomodoro must not fire a synthetic Save return');
+});
+
+test('the selected Focus title opens its shared task list without starting or reconfiguring the real timer',()=>{
+ const f=durationRouteFixture(false);f.scope.options.openDuration('focus');
+ assert.equal(f.scope.view,'focus');assert.equal(f.scope.focusConfigurationReturn,null);assert.equal(f.scope.editing.size,0);
+ assert.equal(f.calls.filter(call=>call==='command-link-task').length,1);assert.equal(f.calls.some(call=>/command-(?:start|toggle|prepare)/.test(call)),false);
+});
+
+test('an explicit Nook tab returns to the reader and releases its temporary Focus return',()=>{
+ const start=source.indexOf('  function selectView(event) {'),end=source.indexOf('  function selectViewButton(',start),button={dataset:{view:'nook'}};
+ for(const view of ['focus','tasks','nook']){
+  const scope={disposed:false,view,islandPage:'focus',focusToolReturn:{view:'nook',page:'focus'},menu:{hidden:false,contains:()=>true},calendar:null,getModuleEditorActive:()=>false,selectViewButton(value){scope.view=value.dataset.view;}};
+  vm.runInNewContext(source.slice(start,end)+'this.selectView=selectView;',scope);scope.selectView({target:{closest:()=>button}});
+  assert.equal(scope.view,'nook');assert.equal(scope.islandPage,'music');assert.equal(scope.focusToolReturn,null);
+ }
 });

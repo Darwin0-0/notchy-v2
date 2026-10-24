@@ -322,6 +322,59 @@ test('unsupported and active formats are reveal-only including their default key
   } finally {f.controller.dispose();}
 });
 
+for (const extension of ['html', 'htm']) test('integrated '+extension+' preview uses first Space and preserves its source through navigation and close without QuickLook', async () => {
+  let market=0;
+  const f=fixture(name=>name==='search_query'?response([hit('first','first.'+extension),hit('second','second.'+extension.toUpperCase())]):{},'en',
+    {onGetQuickLook:()=>{market++;},status:()=>({files:42,indexing:false,quickLook:{supported:false,available:false},renderedPreview:{supported:true,visible:true}})});
+  try{
+    f.controller.open();await f.type('report');assert.equal(f.controller.elements.preview.hidden,false);assert.equal(f.controller.elements.preview.getAttribute('aria-label'),'Preview');assert.equal(f.key(' ').prevented,true);await delay(0);
+    assert.equal(f.controller.previewTarget(),'first');assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args),[{id:'first'}]);assert.equal(market,0);
+    const previewControl=f.document.createElement('button');previewControl.focus();
+    assert.equal(f.controller.navigatePreview(1),true);assert.equal(f.document.activeElement===previewControl,true,'Navigation keeps the reader focused while the next preview loads');await delay(0);assert.equal(f.controller.previewTarget(),'second');assert.equal(f.document.activeElement===previewControl,true);assert.equal(f.controller.elements.input.value,'report');
+    const sent=f.calls.filter(call=>call.name==='search_preview').length;assert.equal(f.controller.navigatePreview(1),true);await delay(0);assert.equal(f.document.activeElement===previewControl,true,'The final document cannot move focus behind the reader');assert.equal(f.calls.filter(call=>call.name==='search_preview').length,sent);
+    assert.equal(f.controller.navigatePreview(-1),true);await delay(0);assert.equal(f.controller.previewTarget(),'first');assert.equal(f.document.activeElement===previewControl,true);assert.equal(f.controller.navigatePreview(-1),true);assert.equal(f.document.activeElement===previewControl,true);assert.equal(f.controller.navigatePreview(2),false);
+    f.controller.stopPreview();await delay(0);assert.equal(f.controller.previewTarget(),null);assert.equal(f.controller.isOpen(),true);assert.equal(f.controller.elements.input.value,'report');assert.equal(f.controller.navigatePreview(1),false);
+    f.controller.elements.list.children[0].focus();f.key(' ');await delay(0);assert.equal(f.controller.previewTarget(),'first');await f.type('new query');assert.equal(f.controller.previewTarget(),null);assert.equal(f.controller.elements.input.value,'new query');assert(f.calls.filter(call=>call.name==='search_preview_close').length>=2);
+    assert.equal(market,0);assert.equal(f.calls.some(call=>['search_open','search_reveal','search_quicklook_install'].includes(call.name)),false);
+  }finally{f.controller.dispose();}
+});
+
+test('integrated preview errors are bounded neutral feedback and never direct the user to QuickLook Market',async()=>{
+  let market=0;const f=fixture(name=>{if(name==='search_query')return response([hit('one','report.html')]);if(name==='search_preview')throw Error('Reader failed C:\\private\\secret '+ 'x'.repeat(1000));return {};},'en',
+    {onGetQuickLook:()=>{market++;},status:()=>({files:42,indexing:false,quickLook:{supported:true,available:false},renderedPreview:{supported:true,visible:false}})});
+  try{f.controller.open();await f.type('report');f.key(' ');await delay(0);assert.equal(f.controller.elements.information.textContent,'Preview unavailable.');assert.equal(f.controller.previewTarget(),null);assert.equal(f.controller.isPreviewing(),false);assert.equal(f.controller.elements.preview.getAttribute('aria-label'),'Preview');assert(!f.host.textContent.includes('secret'));assert(!f.host.textContent.includes('Market'));assert.equal(market,0);assert.equal(f.controller.elements.list.children.length,1);}
+  finally{f.controller.dispose();}
+});
+
+test('a late integrated failure cannot replace feedback after the source query is changed',async()=>{
+  const pending=deferred(),f=fixture(name=>name==='search_query'?response([hit('one','report.html')]):name==='search_preview'?pending.promise:{},'en',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:false},renderedPreview:{supported:true,visible:true}})});
+  try{f.controller.open();await f.type('report');f.key(' ');await delay(0);await f.type('new query');pending.reject(Error('old conversion failed'));await delay(0);assert.equal(f.controller.previewTarget(),null);assert.equal(f.controller.elements.input.value,'new query');assert.equal(f.controller.elements.information.textContent,'42 indexed items');}
+  finally{f.controller.dispose();}
+});
+
+test('a folder named like an integrated document keeps its existing QuickLook setup route',async()=>{
+  let market=0;const f=fixture(name=>name==='search_query'?response([hit('folder','folder.html','folder')]):{},'en',
+    {onGetQuickLook:()=>{market++;},status:()=>({files:42,indexing:false,quickLook:{supported:true,available:false},renderedPreview:{supported:true,visible:false}})});
+  try{f.controller.open();await f.type('folder');assert.equal(f.controller.elements.preview.getAttribute('aria-label'),'Get QuickLook');f.key(' ');await delay(0);assert.equal(market,1);assert.equal(f.calls.some(call=>call.name==='search_preview'),false);}
+  finally{f.controller.dispose();}
+});
+
+for (const extension of ['docx', 'pptx', 'xlsx']) {
+  test('Office '+extension+' opens Market when QuickLook is absent despite the HTML reader being available', async () => {
+    let market=0;const f=fixture(name=>name==='search_query'?response([hit('office','report.'+extension)]):{},'en',
+      {onGetQuickLook:()=>{market++;},status:()=>({files:42,indexing:false,quickLook:{supported:true,available:false},renderedPreview:{supported:true,visible:true}})});
+    try{f.controller.open();await f.type('report');assert.equal(f.controller.elements.preview.getAttribute('aria-label'),'Get QuickLook');assert.equal(f.key(' ').prevented,true);await delay(0);assert.equal(market,1);assert.equal(f.controller.isPreviewing(),false);assert.equal(f.controller.elements.input.value,'report');assert.equal(f.controller.elements.list.children[0].getAttribute('aria-selected'),'true');assert.equal(f.calls.some(call=>['search_preview','search_open','search_reveal','search_quicklook_install'].includes(call.name)),false);}
+    finally{f.controller.dispose();}
+  });
+  test('Office '+extension+' uses external QuickLook visibility and preserves keyboard navigation and selection', async () => {
+    let visible=true;const f=fixture(name=>name==='search_query'?response([hit('first','first.'+extension),hit('second','second.'+extension.toUpperCase())]):{},'en',
+      {onGetQuickLook:()=>{throw Error('Installed QuickLook must not open Market');},status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true,previewVisible:visible},renderedPreview:{supported:true,visible:false}})});
+    try{f.controller.open();await f.type('report');const {input,list,preview}=f.controller.elements;assert.equal(preview.getAttribute('aria-label'),'QuickLook preview');assert.equal(f.key(' ').prevented,true);await delay(0);assert.equal(f.controller.previewTarget(),'first');assert.equal(f.document.activeElement,list.children[0]);f.host.emit('pointerenter');await delay(0);assert.equal(f.controller.isPreviewing(),true,'The HTML reader visibility cannot close an Office preview');f.key('ArrowRight');await delay(0);assert.equal(f.controller.previewTarget(),'second');assert.equal(f.document.activeElement,list.children[1]);assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args),[{id:'first'},{id:'second'}]);assert.equal(f.key('Escape').prevented,true);await delay(0);assert.equal(f.controller.isPreviewing(),false);assert.equal(f.controller.isOpen(),true);assert.equal(input.value,'report');assert.equal(list.children[1].getAttribute('aria-selected'),'true');f.key(' ');await delay(0);visible=false;f.host.emit('pointerenter');await delay(0);assert.equal(f.controller.isPreviewing(),false,'Closing QuickLook externally ends the Office preview');assert.equal(list.children[1].getAttribute('aria-selected'),'true');}
+    finally{f.controller.dispose();}
+  });
+}
+
 test('QuickLook previews files and folders by opaque ID while preserving search and its query', async () => {
   const f = fixture(name => name === 'search_query' ? response([hit('folder', 'Reports', 'folder'), hit('file')]) : {}, 'en',
     {status: () => ({files:42, indexing:false, quickLook:{supported:true,available:true}})});
@@ -413,11 +466,12 @@ test('Space stays normal query text without eligible loaded results, including p
   finally {unsupported.controller.dispose();}
 });
 
-test('query Space retains the official setup flow when QuickLook is supported but missing', async () => {
+test('query Space opens the Market module detail when QuickLook is supported but missing', async () => {
+  let market=0;
   const f=fixture(name=>name==='search_query'?response([hit('first')]):{},'fr',
-    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:false}})});
+    {onGetQuickLook:()=>{market++;},status:()=>({files:42,indexing:false,quickLook:{supported:true,available:false}})});
   try {f.controller.open();await f.type('rapport');assert.equal(f.key(' ').prevented,true);await delay(0);
-    assert.deepEqual(f.calls.find(call=>call.name==='search_quicklook_install').args,{});assert.equal(f.calls.some(call=>call.name==='search_preview'),false);assert.equal(f.controller.elements.input.value,'rapport');assert.equal(f.controller.isOpen(),true);
+    assert.equal(market,1);assert.equal(f.calls.some(call=>['search_quicklook_install','search_preview','search_open','search_reveal'].includes(call.name)),false);assert.equal(f.controller.elements.input.value,'rapport');assert.equal(f.controller.isOpen(),true);
   } finally {f.controller.dispose();}
 });
 
@@ -448,15 +502,16 @@ test('a pending result refetch never steals focus back after the query input is 
   } finally {f.controller.dispose();pending.resolve(response([]));}
 });
 
-test('missing QuickLook opens only its official setup action and leaves the result available', async () => {
+test('missing QuickLook opens only its Market detail and leaves the result available', async () => {
+  let market=0;
   const f = fixture(name => name === 'search_query' ? response([hit('file')]) : {}, 'en',
-    {status: () => ({files:42, indexing:false, quickLook:{supported:true,available:false}})});
+    {onGetQuickLook:()=>{market++;},status: () => ({files:42, indexing:false, quickLook:{supported:true,available:false}})});
   try {
     f.controller.open(); await f.type('report'); assert.equal(f.controller.elements.preview.getAttribute('aria-label'), 'Get QuickLook');
     f.controller.elements.preview.emit('click'); await delay(0);
-    assert.deepEqual(f.calls.find(call => call.name === 'search_quicklook_install').args, {});
+    assert.equal(market,1);assert.equal(f.calls.some(call=>call.name==='search_quicklook_install'),false);
     assert.equal(f.calls.some(call => call.name === 'search_preview' || call.name === 'search_open'), false);
-    assert.equal(f.controller.isOpen(), true); assert.match(f.controller.elements.information.textContent, /Install it/);
+    assert.equal(f.controller.isOpen(), true); assert.match(f.controller.elements.information.textContent, /Market/);
     assert.equal(f.controller.elements.preview.disabled, false);
   } finally {f.controller.dispose();}
 });
@@ -478,7 +533,7 @@ test('returning after setup redetects QuickLook and clears its setup hint withou
     {animationFrames:true,status: () => ({files:42,indexing:false,quickLook:{supported:true,available}})});
   try {
     f.controller.open(); await f.type('report'); f.controller.elements.preview.emit('click'); await delay(0);
-    assert.match(f.controller.elements.information.textContent,/Install it/);
+    assert.match(f.controller.elements.information.textContent,/Market/);
     available=true;f.document.defaultView.emit('focus');await delay(0);
     assert.equal(f.controller.elements.preview.getAttribute('aria-label'),'QuickLook preview');
     assert.equal(f.controller.elements.information.textContent,'42 indexed items');
@@ -522,6 +577,32 @@ test('rapid preview navigation keeps one request in flight and coalesces to the 
     key('ArrowRight');await delay(0);assert.equal(f.calls.filter(call=>call.name==='search_preview').length,2);
     key('ArrowLeft');await delay(0);assert.equal(f.calls.filter(call=>call.name==='search_preview').at(-1).args.id,'two');
   } finally {f.controller.dispose();}
+});
+
+test('Escape cancels a pending preview before it settles and its late failure cannot replace search feedback', async () => {
+  const pending=deferred(),closing=deferred(),f=fixture(name=>name==='search_query'?response([hit('one','large.xlsx')]):name==='search_preview'?pending.promise:name==='search_preview_close'?closing.promise:{},'en',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('large');f.key(' ');f.key('Escape');
+    assert.equal(f.calls.filter(call=>call.name==='search_preview_close').length,1,'Native cancellation is sent while the heavy Open is still pending');
+    assert.equal(f.controller.isPreviewing(),false);assert.equal(f.controller.isOpen(),true);
+    pending.reject(Error('Cancelled obsolete workbook'));await delay(0);
+    assert.equal(f.controller.elements.information.textContent,'42 indexed items');
+    closing.resolve({});await delay(0);assert.equal(f.calls.filter(call=>call.name==='search_preview_close').length,1);
+  } finally {pending.resolve({});closing.resolve({});f.controller.dispose();}
+});
+
+test('returning to the same result during cancellation retries it only after the old Close settles', async () => {
+  const pending=deferred(),closing=deferred();let count=0;
+  const f=fixture(name=>name==='search_query'?response([hit('one'),hit('two')]):name==='search_preview'&&++count===1?pending.promise:name==='search_preview_close'?closing.promise:{},'fr',
+    {status:()=>({files:42,indexing:false,quickLook:{supported:true,available:true}})});
+  try {
+    f.controller.open();await f.type('rapport');f.key(' ');f.key('ArrowDown');f.key('ArrowUp');
+    assert.equal(f.calls.filter(call=>call.name==='search_preview_close').length,1);
+    pending.resolve({});await delay(0);assert.equal(f.calls.filter(call=>call.name==='search_preview').length,1,'A late Close must not race the next Open');
+    closing.resolve({});await delay(0);
+    assert.deepEqual(f.calls.filter(call=>call.name==='search_preview').map(call=>call.args.id),['one','one']);assert.equal(f.controller.isPreviewing(),true);
+  } finally {pending.resolve({});closing.resolve({});f.controller.dispose();}
 });
 
 test('a late preview response is closed after a query edit or disposal instead of reopening stale content', async () => {

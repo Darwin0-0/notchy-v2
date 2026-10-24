@@ -123,8 +123,17 @@ test('the app manifest declares the real source entry and exactly one runtime Ja
   const root = fs.realpathSync(path.join(__dirname, '..')), manifest = readManifest(root);
   assert.equal(manifest.scripts.at(-1), 'app.js');
   assert.equal(manifest.bundle, 'app.bundle.js');
+  assert(manifest.scripts.indexOf('mimo-renderer.js') >= 0 && manifest.scripts.indexOf('mimo-renderer.js') < manifest.scripts.indexOf('galet.js'),'the exact Mimo renderer must load before its application adapter');
   assert(manifest.scripts.indexOf('tokens.js') < manifest.scripts.indexOf('module-contracts.js'));
   for (const adapter of ['focus-duration.js', 'module-runtime.js', 'notch.js']) assert(manifest.scripts.indexOf('module-contracts.js') < manifest.scripts.indexOf(adapter));
   for (const name of [...manifest.scripts, ...manifest.assets, ...manifest.copies.map(copy => copy.source)]) assert(fs.statSync(path.join(root, name)).isFile(), name);
   assert(!manifest.assets.some(name => name.endsWith('.js')));
+  for (const removed of ['mimo-agent.js','mimo-context.js','mimo-drag.js','mimo-agent.css','mimo-context.css']) {
+    assert(!manifest.scripts.includes(removed)&&!manifest.assets.includes(removed),removed+' is not shipped');
+    assert(!fs.existsSync(path.join(root,removed)),removed+' source is removed');
+  }
+  const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),notch=fs.readFileSync(path.join(root,'notch.js'),'utf8');
+  assert(html.includes('<span id="galet-header" aria-hidden="true" hidden></span>'),'Mimo stays a decorative companion');
+  assert(!html.includes('mimo-player'));
+  assert(!/showMimo|getMimo|NotchyMimoContext|NotchyMimoDrag|mimoDesktop|mimoContext/.test(notch),'no drag, reading or response route remains');
 });

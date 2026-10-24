@@ -1,0 +1,22 @@
+/* Galet owns its geometry; the surrounding Notchy view supplies --galet-size. */
+.notchy-galet {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--galet-size, 48px);
+  height: var(--galet-size, 48px);
+  flex: 0 0 auto;
+  isolation: isolate;
+  vertical-align: middle;
+}
+.notchy-galet-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.notchy-galet[hidden] {display: none;}

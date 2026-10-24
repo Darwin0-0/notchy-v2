@@ -50,8 +50,9 @@ test('The native preference bridge hydrates and stores the same language key wit
   const app = fs.readFileSync(path.join(__dirname, '../src-tauri/src/settings.rs'), 'utf8');
   const keys = [...app.match(/const KEYS:[\s\S]*?= \[([\s\S]*?)\];/)[1].matchAll(/"([^"]+)"/g)].map(match => match[1]);
   const calls = []; class Storage {constructor() {this.values = new Map();} getItem(key) {return this.values.get(key) ?? null;} setItem(key, value) {this.values.set(key, String(value));} removeItem(key) {this.values.delete(key);}}
-  const localStorage = new Storage(), context = {Storage, localStorage, location: new URL('http://127.0.0.1:1234/?desktop=1'), URL, Request, Headers, ArrayBuffer, Uint8Array, DataView, TextDecoder};
+  const localStorage = new Storage(), context = {Storage, localStorage, location: new URL('http://127.0.0.1:1234/notchy-ui?desktop=1'), URL, Request, Headers, ArrayBuffer, Uint8Array, DataView, TextDecoder};
   context.window = {fetch: async () => ({ok: true}), EventSource: class {}, __TAURI__: {core: {invoke: async (command, args) => {calls.push(args.value); return {ok: true};}}, event: {listen: async () => () => {}}}};
+  context.window.top = context.window;
   const bridge = fs.readFileSync(path.join(__dirname, '../src-tauri/src/window_bridge.js'), 'utf8');
   vm.runInNewContext(bridge.replace('__NOTCHY_CONFIG__', JSON.stringify({token: 'test-token', keys, preferences: {'notchy-language-v1': 'en', 'notchy-minimal-focus-v1': '{"deadline":12345}'}})), context);
   const i18n = create(localStorage); assert.equal(i18n.locale(), 'en'); i18n.setLocale('fr'); await Promise.resolve();

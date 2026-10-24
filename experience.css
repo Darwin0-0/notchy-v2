@@ -86,6 +86,12 @@
 .experience-grid-menu-label {padding:var(--space-8); color:var(--text-muted); font-size:var(--label-size); font-weight:700; line-height:var(--label-lh); letter-spacing:var(--label-tracking)}
 .experience-grid-menu .experience-grid-menu-item {min-height:32px; flex:none; border-radius:var(--r-chip); padding:var(--space-8); background:transparent; color:var(--text-secondary); text-align:left; font:500 12px/1.35 var(--font)}
 .experience-grid-menu .experience-grid-menu-item[aria-checked=true] {background:var(--surface-control); color:var(--accent-focus)}
+.experience-grid-menu .experience-grid-menu-item[data-grid-presentation] {display:flex; align-items:center; gap:var(--space-12)}
+.experience-grid-menu .module-format-icon {width:30px; height:30px; flex:none; fill:none; stroke:none}
+.experience-grid-size-copy {display:flex; min-width:0; flex-direction:column; gap:var(--space-4)}
+.experience-grid-size-copy strong {font:700 12px/1.2 var(--font)}
+.experience-grid-size-copy > span {color:var(--text-tertiary); font:500 11px/1.2 var(--font)}
+.experience-grid-menu .experience-grid-menu-item[data-grid-presentation]:disabled {opacity:.35}
 .experience-grid-menu .experience-grid-menu-item:not(:disabled):hover {background:var(--surface-control)}
 .experience-grid-menu .experience-grid-menu-item[data-experience-command=remove] {color:var(--status-negative)}
 .experience-sr { position: absolute; width: var(--measure-1-px); height: var(--measure-1-px); overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

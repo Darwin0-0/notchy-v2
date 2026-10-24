@@ -320,7 +320,7 @@ function canonicalTree(presentation,{empty=false}={}){
  if(!empty){state.tasks=[{id:'one',title:'Read a chapter',totalMinutes:90,elapsedMs:0,done:false,settings:{...state.settings}},{id:'two',title:'Review the project',totalMinutes:25,elapsedMs:0,done:false,settings:{...state.settings}}];state.activeId='one';}
  const node=(tag,className='',textContent='')=>({tag,className,textContent,dataset:{},attributes:{},children:[],append(...children){this.children.push(...children);},setAttribute(key,value){this.attributes[key]=String(value);}});
  const screen=node('div'),button=(command,label,glyph,className)=>{const element=node('button',className);element.dataset.command=command;element.label=label;element.glyph=glyph;return element;};
- const context=uiContext({Math,Core,node,button,screen,surface:{dataset:{modulePresentation:presentation}},clock:ms=>String(ms/60000).padStart(2,'0')+':00',t:value=>value,selected:value=>value.tasks.find(task=>task.id===value.activeId)||null,
+ const context=uiContext({Math,Core,node,button,screen,win:{},emptyGalet:null,surface:{dataset:{modulePresentation:presentation}},clock:ms=>String(ms/60000).padStart(2,'0')+':00',t:value=>value,selected:value=>value.tasks.find(task=>task.id===value.activeId)||null,
   updateRows(value){assert.equal(value,state);calls.rows++;},updateTimer(value){assert.equal(value,state);calls.timer++;},empty(){calls.empty++;}});
  vm.runInContext(between('    function header(','    function empty(')+between('    function moduleRing(','    function timerView('),context);context.moduleView(state);
  const all=()=>{const result=[];const visit=element=>{result.push(element);for(const child of element.children)visit(child);};visit(screen);return result;};
@@ -334,6 +334,13 @@ test('Full and Main keep one selected timer beside the live task list instead of
   assert.equal(f.find('nd-module-list').attributes.role,'list');assert.equal(f.find('nd-module-list').attributes['aria-label'],'Tâches');assert.equal(f.calls.rows,1);assert.equal(f.calls.timer,1);assert.equal(f.calls.empty,0);
   assert.match(f.find('nd-module-ring').innerHTML,/viewBox="0 0 100 100"/);assert.match(f.find('nd-module-ring').innerHTML,new RegExp('stroke-width="'+6+'"'));assert.match(f.find('nd-module-ring').innerHTML,/stroke="#202024"/,'the DS control track remains visible against the host surface-card');
  }
+});
+
+test('the revised Full list keeps its creation action below the rows and its selected task opens the shared list',()=>{
+ const full=canonicalTree('full'),tasks=full.find('nd-module-tasks'),add=full.find('nd-module-add'),heading=full.find('nd-timer-heading');
+ assert.equal(tasks.children.at(-1),add);assert.equal(add.dataset.command,'add');assert.equal(add.label,'Nouvelle tâche');
+ assert.equal(full.find('nd-selected-title').dataset.command,'open-details');assert.equal(full.find('nd-selected-name').textContent,'Read a chapter');
+ assert(heading.children.includes(full.find('nd-session-badge')));assert.equal(full.find('nd-title-chevron').attributes['aria-hidden'],'true');
 });
 
 test('Side offers the selected timer and actual next task; Small keeps just clock, title and one transport',()=>{
@@ -352,6 +359,28 @@ test('empty cards keep their message separate from the real creation action in e
   const f=canonicalTree(presentation,{empty:true});vm.runInContext(between('    function empty()','    function segmentBar('),f.context);f.context.moduleView(f.state);
   const content=f.find('nd-empty'),message=f.find('nd-empty-content'),action=f.find('nd-primary');assert.deepEqual(content.children,[message,action],'the action is outside the independently sized message area');assert.deepEqual(message.children.map(child=>child.tag),['div','h2','p']);assert.equal(message.children[1].textContent,'Aucune tâche');assert.equal(message.children[2].textContent,'Elles seront découpées en sessions Pomodoro.');assert.equal(action.dataset.command,'add');assert.equal(action.label,'Nouvelle tâche');assert.equal(action.children[0].textContent,'Nouvelle tâche');assert.match(message.children[0].innerHTML,/<circle class="nd-empty-rays"/);assert.match(message.children[0].innerHTML,/<path d="M22 26/,'the checklist itself remains a separate stationary SVG path');
  }
+});
+
+test('task empty cards use the shared Galet without changing their rays, text or creation action',()=>{
+ for(const preview of [false,true]){
+  const f=canonicalTree('side',{empty:true}),make=f.context.node,calls=[];
+  Object.assign(f.context,{options:{preview},doc:{},motionEnabled:()=>false});
+  f.context.node=(...args)=>{const element=make(...args);element.querySelector=selector=>selector==='path'?{remove(){calls.push('remove-list-icon');}}:null;return element;};
+  const character={dispose(){}};
+  f.context.win.NotchyGalet={create(host,options){calls.push({host,options});return character;}};
+  vm.runInContext(between('    function empty()','    function segmentBar('),f.context);f.context.moduleView(f.state);
+  assert.equal(calls[0],'remove-list-icon');const created=calls[1];assert.equal(created.host,f.find('nd-empty-mimo'));
+  assert.equal(created.options.active,!preview);assert.equal(created.options.motion(),false);assert.equal(created.options.scope,f.context.doc);
+  assert.equal(f.context.emptyGalet,character);assert.match(f.find('nd-empty-art').innerHTML,/nd-empty-rays/);
+  assert.equal(f.find('nd-empty-art').children.length,1);assert.equal(f.find('nd-empty').children[1].dataset.command,'add');
+  assert.equal(f.find('nd-empty-content').children[1].textContent,'Aucune tâche');
+ }
+});
+
+test('changing task routes disposes the empty-state renderer before detaching its host',()=>{
+ const events=[],context=uiContext({emptyGalet:{dispose(){events.push('dispose-galet');}},clearCompletion(){},closeMenu(){},timers:new Map(),rowAnimations:new Map(),rows:new Map(),win:{clearTimeout(){}},screen:{replaceChildren(){events.push('detach-view');}}});
+ vm.runInContext(between('    function cleanView()','    function changeView('),context);context.cleanView();context.cleanView();
+ assert.deepEqual(events,['dispose-galet','detach-view','detach-view']);assert.equal(context.emptyGalet,null);
 });
 
 test('a Small projection redraws its Add or transport actions when the shared store changes emptiness elsewhere',()=>{
@@ -399,12 +428,14 @@ test('a legacy Quarter to canonical Full and Main transition preserves the runni
 
 test('canonical Tasks updates its visible timer, selected name, progress and next real task without switching view',()=>{
  const Core=require('../duration-core.js'),state=Core.fresh();state.tasks=[{id:'one',title:'Current real task',totalMinutes:90,elapsedMs:12000,done:false,settings:{...state.settings}},{id:'done',title:'Already finished',totalMinutes:25,elapsedMs:0,done:true,settings:{...state.settings}},{id:'next',title:'The next real task',totalMinutes:40,elapsedMs:0,done:false,settings:{...state.settings}}];state.activeId='one';state.startedAt=1000;
- const clocks=[{},{}],titles=[{}],smallTitle={},phase={},progress={style:{},closest:()=>({dataset:{circumference:276}})},nextTitle={},nextDuration={},next={dataset:{},setAttribute(key,value){this[key]=value;},querySelector:selector=>selector==='.nd-upnext-title'?nextTitle:nextDuration},play={setAttribute(key,value){this[key]=value;},querySelector:()=>({replaceWith(value){play.glyph=value;}})};
- const context=uiContext({Core,Number,String,Math,view:'tasks',size:'full',ACCENT:'#ff7a45',surface:{dataset:{canonicalView:'true'},style:{setProperty(){}}},selected:value=>value.tasks.find(task=>task.id===value.activeId),t:value=>value,pad:value=>String(value).padStart(2,'0'),clock:String,phaseLabel:value=>value.current.kind==='focus'?'Focus':'Pause',icon:value=>value,
-  screen:{querySelectorAll:selector=>selector==='.nd-clock,.nd-mini-clock'?clocks:selector.includes('.nd-mini-title')?titles:selector==='.nd-ring-progress'?[progress]:[]},$:selector=>({'.nd-module-small-title':smallTitle,'.nd-upnext-task':next,'.nd-phase':phase,'[data-command=toggle]':play})[selector]||null});
+ const clocks=[{},{}],titles=[{}],smallTitle={},phase={},badge={dataset:{}},colors=new Map(),progress={style:{},closest:()=>({dataset:{circumference:276}})},nextTitle={},nextDuration={},next={dataset:{},setAttribute(key,value){this[key]=value;},querySelector:selector=>selector==='.nd-upnext-title'?nextTitle:nextDuration},play={setAttribute(key,value){this[key]=value;},querySelector:()=>({replaceWith(value){play.glyph=value;}})};
+ const context=uiContext({Core,Number,String,Math,view:'tasks',size:'full',ACCENT:'#ff7a45',surface:{dataset:{canonicalView:'true'},style:{setProperty(name,value){colors.set(name,value);}}},selected:value=>value.tasks.find(task=>task.id===value.activeId),t:value=>value,pad:value=>String(value).padStart(2,'0'),clock:String,phaseLabel:value=>value.finished?'Terminé':value.current.kind==='focus'?'Focus':'Pause',icon:value=>value,
+  screen:{querySelectorAll:selector=>selector==='.nd-clock,.nd-mini-clock'?clocks:selector.includes('.nd-mini-title')?titles:selector==='.nd-ring-progress'?[progress]:[]},$:selector=>({'.nd-module-small-title':smallTitle,'.nd-upnext-task':next,'.nd-phase':phase,'.nd-session-badge':badge,'[data-command=toggle]':play})[selector]||null});
  vm.runInContext(between('    const totalLabel =','    function node(')+between('    function updateTimer(','    function notifyPhase('),context);context.updateTimer(state);const expected=Core.phase(state.tasks[0]);
  assert(clocks.every(item=>item.textContent===String(expected.remainingMs)));assert.equal(titles[0].textContent,'Current real task');assert.equal(smallTitle.textContent,'Current real task · 1/3');assert.equal(progress.style.strokeDashoffset,276*expected.fraction);assert.equal(next.dataset.id,'next');assert.equal(nextTitle.textContent,'The next real task');assert.equal(nextDuration.textContent,'40 min');assert.equal(next.disabled,false);assert.equal(play.glyph,'pause');assert.equal(play.disabled,false);assert.equal(context.view,'tasks');
  state.startedAt=null;state.tasks[2].done=true;context.updateTimer(state);assert.equal(next.disabled,true);assert.equal(next.dataset.id,'');assert.equal(nextTitle.textContent,'Tout est fait');assert.equal(nextDuration.textContent,'');assert.equal(play.glyph,'play');
+ assert.equal(badge.textContent,'Focus · 1/3');assert.equal(badge.dataset.complete,'false');assert.equal(colors.get('--nd-phase'),'#ff7a45');
+ state.tasks[0].elapsedMs=90*60000;context.updateTimer(state);assert.equal(badge.textContent,'Terminé · 3/3');assert.equal(badge.dataset.complete,'true');assert.equal(colors.get('--nd-phase'),'#4fd88a');
 });
 
 test('leaving a form or detailed timer restores the host destination without changing task state',()=>{
@@ -578,7 +609,7 @@ function motionFixture(){
  let mutation;const reduced={matches:false,addEventListener(name,handler){listeners.set(name,handler);},removeEventListener(name,handler){assert.equal(listeners.get(name),handler);listeners.delete(name);calls.listenerRemoved++;}};
  class Observer{constructor(callback){mutation=callback;}observe(target,options){calls.observed.push({target,options});}disconnect(){calls.disconnected++;}}
  const draft={title:'Unfinished draft',h:'2',m:'15',split:true},state={tasks:[{id:'A',done:true},{id:'B',done:false}],activeId:'B',startedAt:7000};
- const context=uiContext({String,Map,doc:{body},win:{MutationObserver:Observer,clearTimeout:id=>calls.cleared.push(id)},reduced,disposed:false,draft,interval:91,
+ const context=uiContext({String,Map,doc:{body},win:{MutationObserver:Observer,clearTimeout:id=>calls.cleared.push(id)},reduced,disposed:false,draft,interval:91,emptyGalet:null,
   surface:{dataset:{},getAnimations(options){assert.equal(options.subtree,true);return [{cancel(){calls.cssCancelled++;}}];}},
   rows:new Map(),rowAnimations:new Map(),timers:new Map(),store:{snapshot:()=>state},reorder:(value,animate)=>calls.reorders.push({value,animate})});
  vm.runInContext(between('    function motionEnabled()','    function selected('),context);

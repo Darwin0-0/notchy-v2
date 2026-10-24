@@ -3,16 +3,22 @@ const {test} = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src-tauri/src/window_bridge.js'), 'utf8');
 const key = 'notchy-minimal-modules-v1';
-function fixture({saved={},preferences={},invoker,localSendActive=false,startup,development=false,keys=[key]}={}) {
+function fixture({saved={},preferences={},invoker,localSendActive=false,startup,development=false,keys=[key],framed=false}={}) {
   const calls=[],fetches=[],listeners=[],events=[];
   class Storage {constructor(){this.values=new Map(Object.entries(saved));}getItem(key){return this.values.get(key)??null;}setItem(key,value){this.values.set(key,String(value));}removeItem(key){this.values.delete(key);}}
   class EventSource {constructor(url,options){events.push({url,options});}}
   const localStorage=new Storage();
   const window={fetch:async(input,options)=>{fetches.push({input,options});return {ok:true};},EventSource,__TAURI__:{core:{invoke:async(command,args)=>{calls.push({command,args});return invoker?invoker(command,args):{ok:true};}},event:{listen:async(name,callback)=>{const entry={name,callback,removed:false};listeners.push(entry);return ()=>{entry.removed=true;};}}}};
-  const location=new URL('http://127.0.0.1:58252/?desktop=1');
+  const location=new URL('http://127.0.0.1:58252/notchy-ui?desktop=1');
+  window.top=framed?{}:window;
   vm.runInNewContext(source.replace('__NOTCHY_CONFIG__',JSON.stringify({token:'private-session',keys,preferences,checking:false,development,localSendActive,startup})),{window,Storage,localStorage,location,URL,Request,Headers,ArrayBuffer,Uint8Array,DataView,TextDecoder});
   return {window,calls,fetches,listeners,events,localStorage};
 }
+test('a child frame never receives the Notchy bridge, credentials or storage migration',async()=>{
+  const context=fixture({framed:true,preferences:{[key]:'private-value'}});
+  assert.equal(context.window.notchyDesktop,undefined);assert.equal(context.localStorage.getItem(key),null);assert.equal(context.calls.length,0);
+  await context.window.fetch('/api/shelf');assert.equal(context.fetches[0].options,undefined);
+});
 test('Tauri credentials apply only to this server and replace legacy public header',async()=>{
   const context=fixture();
   await context.window.fetch('/api/shelf',{headers:{'X-Notchy':'1'},method:'POST',body:'file'});
@@ -51,6 +57,19 @@ test('Native cursor events expose only the payload and stop after asynchronous u
   const second=fixture();const early=second.window.notchyDesktop.onPointer(()=>assert.fail('Disposed pointer subscription fired'));
   early();await Promise.resolve();assert.equal(second.listeners[0].removed,true);
   second.listeners[0].callback({payload:{inside:false}});
+});
+
+test('Mimo remains a companion without desktop dragging, document reading or conversation IPC',()=>{
+  const f=fixture();
+  for(const method of ['mimoRequest','mimoDesktopStart','mimoDesktopCancel','mimoContextRead','mimoContextCancel','mimoContextRelease','onMimoDesktop']) {
+    assert.equal(f.window.notchyDesktop[method],undefined,method);
+  }
+  assert.equal(f.calls.length,0);
+  assert.equal(f.listeners.length,0);
+  const app=fs.readFileSync(require('node:path').join(__dirname,'../src-tauri/src/app.rs'),'utf8');
+  assert.doesNotMatch(app,/mimo_desktop|mimo-desktop|mimo-context/);
+  const config=JSON.parse(fs.readFileSync(require('node:path').join(__dirname,'../src-tauri/tauri.conf.json'),'utf8'));
+  assert.equal(Object.keys(config.bundle.resources).some(name=>name.includes('MimoContextBridge')),false);
 });
 test('Native geometry serializes animations and coalesces to the latest frame',async()=>{
   const replies=[];let active=0,peak=0;
@@ -148,4 +167,23 @@ test('QuickLook search commands use the origin-checked bridge and preserve nativ
   await assert.rejects(() => f.window.notchyDesktop.search('run-executable', {}), /Unknown search operation/);
   const failing = fixture({invoker: () => ({ok:false,error:'Preview unavailable'})});
   await assert.rejects(() => failing.window.notchyDesktop.search('search_preview', {id:'opaque-result'}), /Preview unavailable/);
+});
+
+test('QuickLook module operations are fixed native commands without caller URLs or paths', async () => {
+  const f = fixture({invoker: (_, args) => ({supported:true, installed:args.value.command !== 'quicklook-module-remove', phase:'installed'})});
+  for (const operation of ['status', 'install', 'remove', 'source']) {
+    const reply = await f.window.notchyDesktop.quickLookModule(operation);
+    assert.equal(reply.supported, true);
+    const call = f.calls.at(-1);
+    assert.equal(call.command, 'desktop_command');
+    assert.equal(call.args.value.command, 'quicklook-module-' + operation);
+    assert.deepEqual(Object.keys(call.args.value.value), []);
+  }
+  const count = f.calls.length;
+  for (const invalid of ['https://example.com/engine.exe', '../remove', '', null, {}]) {
+    await assert.rejects(() => f.window.notchyDesktop.quickLookModule(invalid), /Unknown QuickLook module operation/);
+  }
+  assert.equal(f.calls.length, count);
+  const failure = fixture({invoker: () => ({ok:false,error:'Download unavailable'})});
+  await assert.rejects(() => failure.window.notchyDesktop.quickLookModule('install'), /Download unavailable/);
 });

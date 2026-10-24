@@ -7,7 +7,7 @@
   'use strict';
   const instances = new WeakMap();
   const SVG = 'http://www.w3.org/2000/svg';
-  const fields = ['icon', 'title', 'hint', 'actionLabel', 'onAction', 'since'];
+  const fields = ['icon', 'character', 'variant', 'title', 'hint', 'actionLabel', 'onAction', 'since'];
   const text = value => typeof value === 'string' ? value : '';
 
   function options(value) {
@@ -38,7 +38,9 @@
       const element = document.createElement(tag); element.className = 'notch-empty-' + name; elements[name] = element;
     }
     elements.icon.setAttribute('aria-hidden', 'true'); elements.action.type = 'button';
-    let state = {}, disposed = false;
+    let state = {}, disposed = false, character = null, motionObserver = null;
+    const Galet = document.defaultView?.NotchyGalet;
+    const motion = () => document.body?.dataset.motion !== 'false';
     const originalIcons = new Map();
     function action(event) {if (!disposed && !elements.action.disabled && !elements.action.hidden) return state.onAction?.(event);}
     elements.action.addEventListener('click', action);
@@ -51,10 +53,21 @@
       for (const field of fields) {
         if (!Object.prototype.hasOwnProperty.call(patch, field) && Object.prototype.hasOwnProperty.call(state, field)) continue;
         const value = patch[field];
-        next[field] = field === 'icon' ? svgNode(value, host) : field === 'since' ? timestamp(value)
+        next[field] = field === 'icon' ? svgNode(value, host) : field === 'character' ? Galet?.states.includes(value) ? value : null : field === 'variant' ? Object.hasOwn(Galet?.variants || {}, value) ? value : 'default' : field === 'since' ? timestamp(value)
           : field === 'onAction' ? typeof value === 'function' ? value : null : text(value);
       }
-      if (next.icon !== state.icon) {
+      if (next.character) {
+        if (!character) {
+          elements.icon.replaceChildren();
+          character = Galet.create(elements.icon, {motion, variant:next.variant});
+          const Observer = document.defaultView?.MutationObserver;
+          if (Observer && document.body) {motionObserver = new Observer(() => character?.setMotion(motion)); motionObserver.observe(document.body, {attributes:true, attributeFilter:['data-motion']});}
+        }
+        if (next.variant !== state.variant) character.setVariant(next.variant);
+        if (next.character !== state.character) character.setState(next.character);
+        elements.icon.hidden = false;
+      } else if (next.icon !== state.icon || state.character) {
+        motionObserver?.disconnect(); motionObserver = null; character?.dispose(); character = null;
         if (next.icon && !originalIcons.has(next.icon) && original.some(node => node !== next.icon && node.contains?.(next.icon))) {
           originalIcons.set(next.icon, {parent: next.icon.parentNode, next: next.icon.nextSibling});
         }
@@ -79,7 +92,7 @@
     }
     function dispose() {
       if (disposed) return false;
-      disposed = true; elements.action.removeEventListener('click', action); instances.delete(host);
+      disposed = true; motionObserver?.disconnect(); character?.dispose(); elements.action.removeEventListener('click', action); instances.delete(host);
       for (const [icon, {parent, next}] of originalIcons) parent.insertBefore(icon, next?.parentNode === parent ? next : null);
       const owned = Object.values(elements);
       if (host.childNodes.length === owned.length && owned.every(node => node.parentNode === host)) host.replaceChildren(...original);

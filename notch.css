@@ -496,6 +496,12 @@ body[data-motion="false"] .localsend-strip > span { transition: none; }
 .shelf-drag-preview > svg { width: var(--measure-32-px); height: var(--measure-32-px); margin-bottom: var(--measure-2-px); fill: none; stroke: var(--ui-selection); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .shelf-drag-preview > strong { font-size: var(--measure-16-px); line-height: var(--measure-22-px); font-weight: 600; }
 .shelf-drag-preview > span { color: var(--ui-secondary); font-size: var(--text-s); line-height: var(--measure-18-px); }
+#notch #galet-drag { display:grid; place-items:center; width:var(--measure-112-px); height:var(--measure-112-px); margin-bottom:var(--space-8); transform:translate(var(--galet-drag-x,0px),var(--galet-drag-y,0px)); transition:transform var(--dur-instant) var(--ease-out); }
+#notch #galet-drag > .notchy-galet { width:100%; height:100%; }
+.galet-file-catch { position:absolute; z-index:30; display:grid; place-items:center; width:var(--measure-28-px); height:var(--measure-36-px); border-radius:var(--space-4); background:var(--text-primary); color:var(--surface-base); box-shadow:0 var(--space-4) var(--space-12) #0006; font:700 var(--measure-18-px) var(--font); pointer-events:none; }
+.galet-file-catch::after { content:''; position:absolute; top:0; right:0; width:var(--space-8); height:var(--space-8); border-radius:0 0 0 var(--space-4); background:var(--text-tertiary); }
+@media (prefers-reduced-motion:reduce) { #notch #galet-drag { transform:none; transition:none; } }
+body[data-motion="false"] #notch #galet-drag { transform:none; transition:none; }
 .notch[data-file-drag="true"] #notch-panel > :not(.shelf-drag-preview) { visibility: hidden; pointer-events: none; }
 .notch[data-file-drag="true"] .shelf-drop { border-color: var(--color-80adff)!important; background: var(--color-5585df0e)!important; }
 .notch[data-file-drag="true"] .shelf-list { border-radius: var(--measure-9-px); box-shadow: inset 0 0 0 var(--measure-1-px) var(--color-80adff); background: var(--color-5585df0e); }
@@ -2625,6 +2631,13 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; appe
 .notch#notch #nook-layout #music-player:is([data-module-presentation="small"],[data-module-presentation="wide"]) .music-empty-reference>svg{width:24px;height:24px}
 .notch#notch #nook-layout #music-player:is([data-module-presentation="small"],[data-module-presentation="wide"]) .music-empty-reference strong{font-size:16px}
 .notch#notch #nook-layout #music-player:is([data-module-presentation="small"],[data-module-presentation="wide"]) .music-empty-reference :is(p,button){display:none}
+
+/* The revised Nook keeps the live reader and gives Focus a direct return. */
+#notch #focus-player[data-duration-module]>.focus-tool-back{position:absolute;left:var(--space-16);top:var(--space-12);height:var(--space-32);margin:0;padding:0 var(--space-12);border-radius:var(--radius-pill);background:#252c37;color:var(--text-primary);font-size:var(--text-s);font-weight:700;z-index:3}
+.notch#notch #nook-layout #music-player:is([data-module-presentation="full"],[data-module-presentation="main"]){border-radius:var(--space-24)}
+.notch#notch #nook-layout #music-player:is([data-module-presentation="full"],[data-module-presentation="main"]) .music-controls{justify-content:center;gap:var(--space-20)}
+.notch#notch #nook-layout #music-player:is([data-module-presentation="full"],[data-module-presentation="main"]) .music-timeline{row-gap:var(--space-8)}
+.notch#notch #nook-layout .weather-slot:is([data-weather-presentation="small"],[data-weather-presentation="wide"]){border-radius:var(--space-24);background:#14181f}
 .notch#notch #music-player[data-module-presentation="wide"]{--music-size:banner}
 #notch .weather-design [data-weather-command="calendar"] .weather-typography-calendar{color:var(--text-muted)}
 #notch .weather-design [data-weather-command="calendar"][data-has-events="true"]{color:var(--accent-focus)}
@@ -2659,3 +2672,21 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; appe
 body[data-motion="false"] #notch :is(.focus-boundary-wave,.focus-boundary-particle) { animation: none; opacity: 0; }
 body[data-motion="false"] #notch .focus-boundary-check { animation: none; }
 body[data-motion="false"] #notch .focus-boundary-fill { transition: none; }
+
+/* The same Galet moves between slots; the resting notch keeps its existing size. */
+#galet-header { order:-1; flex:0 0 40px; width:40px; height:40px; }
+.notch#notch #notch-menu>#galet-header { width:40px; height:40px; min-height:40px; padding:0; border:0; border-radius:50%; background:transparent; }
+#galet-empty { width:72px; height:72px; flex:0 0 72px; }
+#galet-band { display:inline-flex; align-items:center; justify-content:center; width:100%; height:100%; flex:0 0 auto; }
+#galet-band[data-fallback="true"] { position:absolute; top:0; left:calc(50% - 20px); width:40px; height:40px; }
+#notch :is(#galet-band,#galet-header,#galet-empty,#galet-drag)[hidden] { display:none!important; }
+#notch :is(#galet-band,#galet-header,#galet-empty)>.notchy-galet { --galet-size:100%; width:100%; height:100%; }
+#notch :is(#galet-band,#galet-header,#galet-empty) svg { width:100%; height:100%; stroke:none; }
+#notch [data-galet-slot="true"]>:not(#galet-band) { display:none!important; }
+#notch .activity-glyph[data-galet-slot="true"] { width:36px; height:36px; flex-basis:36px; }
+#notch #focus-live[data-galet-slot="true"]>#focus-live-time { display:block!important; }
+#notch #focus-live[data-galet-slot="true"]>#galet-band { width:36px; height:36px; flex-basis:36px; order:-1; }
+#notch #module-feedback-icon[data-galet-slot="true"] { width:40px; height:40px; flex-basis:40px; }
+#notch .supporting-galet { width:64px; height:64px; flex:none; }
+#notch .supporting-galet>svg { width:100%; height:100%; fill:initial; stroke:none; }
+#notch .weather-design-error .notch-empty-icon.notchy-galet { inline-size:48px; block-size:48px; width:48px; height:48px; }

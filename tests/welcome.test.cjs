@@ -6,6 +6,7 @@ const LOGO_AT=welcomeMotion.introStart,WELCOME_AT=welcomeMotion.introEnd,CTA_REA
 
 function fixture() {
   const frames = new Map(), animations = [], observers = [], timers = new Map();
+  const galets = [];
   let now = 0, nextTimer = 1;
   const eventTarget = value => Object.assign(value, {
     listeners: new Map(),
@@ -40,9 +41,23 @@ function fixture() {
     animate(keyframes, options) {const animation = {target: this, keyframes, options, finished: new Promise(() => {}), cancel() {this.cancelled = true;}}; animations.push(animation); return animation;}
   });
   document.createElement = makeNode; document.createElementNS = (_, tag) => makeNode(tag); document.body = makeNode('body');
+  window.NotchyGalet = {create(mark, options = {}) {
+    const calls = {states: [], emotes: [], active: [], motion: [], refresh: 0, dispose: 0};
+    let enabled = options.active !== false, disposed = false, state = 'idle';
+    const controller = {
+      setState(value) {if (!disposed) {state = value; calls.states.push(value);}},
+      emote(value) {if (!disposed) calls.emotes.push(value);},
+      setActive(value) {if (!disposed) {enabled = !!value; calls.active.push(enabled);}},
+      setMotion(value) {if (!disposed) calls.motion.push(value);},
+      refresh() {if (!disposed) calls.refresh++;},
+      dispose() {if (!disposed) {enabled = false; disposed = true; calls.dispose++;}},
+      inspect() {return {state, active:enabled && !disposed && !document.hidden, disposed};}
+    };
+    galets.push({mark, options, calls, controller}); return controller;
+  }};
   const host = makeNode('section');
   const all = node => [node, ...node.children.flatMap(all)];
-  return {document, reduced, host, animations, observers, frames, timers,
+  return {document, reduced, host, animations, observers, frames, timers, galets,
     nodes: () => all(host),
     click(command) {const node = all(host).find(node => node.dataset.welcomeCommand === command); assert(node, command); host.fire('click', {target: node});},
     flushFocus() {const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback());},
@@ -50,7 +65,7 @@ function fixture() {
   };
 }
 
-test('the restored introduction reveals the real V1 Mimo head before the welcome and useful guide', () => {
+test('the authored introduction delegates the mascot to Galet before the welcome and useful guide', () => {
   const f = fixture(); let started = 0, finished = 0; const stages = [];
   const welcome = create({host: f.host, start: () => started++, tutorialFinish: () => finished++, stageChanged: stage => stages.push(stage)});
   welcome.show();
@@ -59,16 +74,14 @@ test('the restored introduction reveals the real V1 Mimo head before the welcome
   assert.deepEqual(stages, ['idle','logo']); assert.equal(welcome.inspect().blinking, true);
   assert(f.animations.length > 0); assert(f.animations.every(animation => animation.options.duration + animation.options.delay <= 500));
   assert(f.animations.every(animation => animation.keyframes.every(frame => !frame.filter && !frame.transform?.includes('scale'))));
-  const head=f.nodes().find(node => node.attributes.viewBox === '0 0 64 64' && node.attributes['data-mimo-source'] === 'notchy-v1');
+  const head=f.nodes().find(node => node.className === 'welcome-mimo');
   assert(head); assert.equal(head.attributes['aria-hidden'],'true');
-  const shapes=f.nodes().filter(node=>head.contains(node)&&['path','circle','rect'].includes(node.tagName));
-  assert.equal(shapes.length,4); assert(!shapes.some(node=>node.tagName==='rect'),'the exact V1 shell and features have no added ears or props');
-  assert(f.nodes().some(node => node.attributes['fill-rule'] === 'evenodd' && node.attributes.d === 'M25 8H39C51 8 58 16 58 28V37C58 50 51 55 39 55H25C13 55 6 50 6 37V28C6 16 13 8 25 8Z M25 12C15 12 10 18 10 28V37C10 47 15 51 25 51H39C49 51 54 47 54 37V28C54 18 49 12 39 12Z'));
+  assert.equal(head.tagName,'span'); assert.equal(head.dataset.galetSource,'reference-canvas');
+  assert.equal(f.galets.length,1); assert.equal(f.galets[0].mark,head);
+  assert.equal(f.galets[0].options.scope,f.document); assert.equal(f.galets[0].options.active,false);
+  assert.equal(f.galets[0].controller.inspect().active,true,'the visible logo owns one active shared mascot');
   assert(f.nodes().some(node => node.attributes['aria-label'] === 'Notchy'));
-  const eyes=f.nodes().filter(node => node.attributes.class === 'welcome-mimo-eye'); assert.equal(eyes.length, 2);
-  assert.deepEqual(eyes.map(eye=>[eye.attributes.cx,eye.attributes.cy,eye.attributes.r,eye.attributes.fill]),[[23,32,4.5,'#ffffff'],[41,32,4.5,'#ffffff']]);
-  assert(!f.nodes().some(node => node.attributes.viewBox === '0 0 40 40'));
-  assert(!f.nodes().some(node => /glow|mimo-body|mimo-pc/.test(node.className)));
+  assert(!f.nodes().some(node => /welcome-mimo-(shell|features|eyelids|eye)/.test(node.attributes.class||'')),'the welcome never owns a second robot renderer');
   assert.equal(f.host.dataset.welcomeDesign, 'mimo-head'); assert.equal(f.timers.size, 5);
   f.advance(WELCOME_AT-LOGO_AT); assert.deepEqual(stages,['idle','logo','welcome']); assert.equal(f.timers.size,2);
   const actions=f.nodes().find(node=>node.className==='welcome-actions');assert.equal(actions.inert,true);
@@ -82,6 +95,7 @@ test('the restored introduction reveals the real V1 Mimo head before the welcome
   assert(introAnimations.every(animation => animation.cancelled));
   assert.equal(welcome.inspect().stage, 'tour');
   assert.equal(welcome.inspect().blinking, false);
+  assert.equal(f.galets[0].controller.inspect().active,false,'the guide deactivates its hidden mascot');
   assert.deepEqual(f.nodes().filter(node=>['0 0 260 70','0 0 220 78'].includes(node.attributes.viewBox)).map(node=>node.attributes.viewBox),['0 0 260 70','0 0 220 78','0 0 260 70']);
   f.click('previous'); assert.equal(welcome.inspect().step, 0);
   f.click('next'); assert.equal(welcome.inspect().step, 1);
@@ -93,6 +107,7 @@ test('the restored introduction reveals the real V1 Mimo head before the welcome
   assert.equal(stages.at(-1), 'done'); assert.equal(welcome.inspect().animating, false);
   assert.equal(f.timers.size, 0);
   welcome.dispose();
+  assert.equal(f.galets[0].calls.dispose,1);
 });
 
 test('visibility, reduced motion and the animation preference cancel motion and deferred focus', () => {
@@ -192,24 +207,23 @@ test('intro renders preserve one staged sequence and reduced motion cancels its 
   welcome.dispose();
 });
 
-test('Mimo wakes, looks toward the revealed name and settles before the welcome without owning the blink', () => {
+test('Galet greets during the authored reveal while the welcome only choreographs its container', () => {
   const f=fixture(),welcome=create({host:f.host});
   const find=name=>f.nodes().find(node=>node.attributes.class===name||node.className===name);
   welcome.show(); f.advance(LOGO_AT); assert.equal(welcome.inspect().beat,'wake');
-  const features=find('welcome-mimo-features'),eyelids=find('welcome-mimo-eyelids'),mascot=find('welcome-mascot'),wordmark=find('welcome-wordmark');
+  const mascot=find('welcome-mascot'),wordmark=find('welcome-wordmark');
   assert.match(mascot.style.transform,/translateX\(91px\)/);
   f.advance(300);assert.equal(welcome.inspect().beat,'awake');
-  const waking=f.animations.find(animation=>animation.target===eyelids);assert.equal(waking.options.duration,220);
-  assert.equal(waking.keyframes[0].transform,'scaleY(.12)');assert.equal(waking.keyframes[1].transform,'scaleY(1)');
-  assert(!f.animations.some(animation=>animation.target.attributes.class==='welcome-mimo-eye'),'individual eye transforms remain owned by the continuous blink');
-  f.advance(260);assert.equal(welcome.inspect().beat,'curious');assert.equal(features.style.transform,'translate(2px,-0.5px)');
+  assert.deepEqual(f.galets[0].calls.emotes,['greet']);
+  assert(!f.animations.some(animation=>animation.target===f.galets[0].mark),'Galet owns its own eyes and volume motion');
+  f.advance(260);assert.equal(welcome.inspect().beat,'curious');
   assert.match(mascot.style.transform,/rotate\(3deg\)/);
   f.advance(220);assert.equal(welcome.inspect().beat,'name');assert.equal(mascot.style.transform,'');
   assert(f.animations.some(animation=>animation.target===wordmark&&animation.keyframes[0].opacity===0&&animation.keyframes.at(-1).opacity===1));
-  f.advance(400);assert.equal(welcome.inspect().beat,'ready');assert.equal(features.style.transform,'');
+  f.advance(400);assert.equal(welcome.inspect().beat,'ready');
   assert(f.animations.some(animation=>animation.target===mascot&&animation.keyframes.some(frame=>frame.transform==='translateY(1.5px) rotate(1.5deg)')));
   f.advance(WELCOME_AT-LOGO_AT-1180-1);assert.equal(welcome.inspect().stage,'logo');f.advance(1);assert.equal(welcome.inspect().stage,'welcome');
-  assert(f.animations.filter(animation=>[mascot,features,eyelids,wordmark].includes(animation.target)).every(animation=>animation.options.duration+animation.options.delay<=500));
+  assert(f.animations.filter(animation=>[mascot,wordmark].includes(animation.target)).every(animation=>animation.options.duration+animation.options.delay<=500));
   welcome.dispose();
 });
 

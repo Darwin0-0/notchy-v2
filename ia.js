@@ -32,6 +32,7 @@
   function create({document, t, onTab, onRoute, onScan, onNativeHealth, motion = () => true}) {
     const settings=document.getElementById('settings-player'), menu=document.getElementById('notch-menu');
     const window=document.defaultView, translated=new Map();
+    const Galet=window.NotchyGalet || (typeof module==='object'&&module.exports?require('./galet.js'):null);
     const node=(tag,className,source)=>{const el=document.createElement(tag);el.className=className;if(source){translated.set(el,source);el.textContent=t(source);}return el;};
     const icon=id=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),path=document.createElementNS(svg.namespaceURI,'path');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.dataset.settingsIcon=id;svg.style.setProperty('color',ICON_COLORS[id] || 'var(--text-tertiary)');path.setAttribute('d',ICONS[id] || ICONS.general);svg.append(path);return svg;};
     const general=node('div','ia-page');general.id='ia-general';
@@ -81,7 +82,7 @@
     const body=document.createElement('div'); body.className='ia-settings-body';
     const panels=new Map([['general',general],['appearance',appearance],['notch',notchPage],['about',about],...['modules','health'].map(id=>[id,document.getElementById(id+'-player')])]);
     const buttons=new Map();
-    let disposed=false, active=null, requested='general', healthEpoch=0, healthFlight=null, animation=null, aboutMimo=null;
+    let disposed=false, active=null, requested='general', healthEpoch=0, healthFlight=null, animation=null, aboutGalet=null;
     for (const id of TABS) {
       const button=document.createElement('button'); button.type='button'; button.id='ia-tab-'+id; button.dataset.settingsTab=id; button.setAttribute('role','tab');
       const label=node('span','',LABELS[id]);button.append(icon(id),label);button.setAttribute('aria-controls',panels.get(id).id); tabs.append(button); buttons.set(id,button);
@@ -147,9 +148,11 @@
         // The grid editor temporarily owns its panel outside the settings body.
         if(body.contains(panel))panel.hidden=id!==next;
       }
-      if(next==='about'&&!logo.childElementCount){const mark=document.querySelector('.welcome-mimo');if(mark)logo.append(mark.cloneNode(true));}
-      if(!aboutMimo&&next==='about'){const mark=logo.querySelector('.welcome-mimo');if(mark&&window?.NotchyWelcome?.attachMimo)aboutMimo=window.NotchyWelcome.attachMimo(mark,{motion,active:false,scope:document});}
-      aboutMimo?.setActive(next==='about');
+      if(!aboutGalet&&next==='about'){
+        if(typeof Galet?.create!=='function')throw new TypeError('Le compagnon Galet est indisponible.');
+        aboutGalet=Galet.create(logo,{motion,active:false,scope:document});
+      }
+      aboutGalet?.setMotion(motion);aboutGalet?.setActive(next==='about'&&document.getElementById('notch').dataset.state==='open');
       if(changed&&next&&motion()&&!document.hidden&&typeof panels.get(next).animate==='function')animation=panels.get(next).animate([{opacity:.4,transform:'translateY(6px)'},{opacity:1,transform:'translateY(0)'}],{duration:220,easing:'cubic-bezier(.16,1,.3,1)'});
       for (const button of menu.querySelectorAll('[data-view]')) {
         button.hidden=!PRIMARY.includes(button.dataset.view);
@@ -160,7 +163,7 @@
       if (next==='health' && changed) void refreshHealth();
       for (const card of nook.querySelectorAll('[data-activity]')) if (card.classList.contains('activity-main') || card.classList.contains('activity-module-summary') || card.classList.contains('activity-card')) {card.removeAttribute('tabindex');card.setAttribute('role','group');card.setAttribute('aria-label',t({music:'Musique',focus:'Tâches & Focus',tasks:'Tâches & Focus',weather:'Météo',shelf:'Étagère'}[card.dataset.activity] || card.dataset.activity));}
     }
-    return {render, refreshHealth, dispose() {if(disposed)return;disposed=true;healthEpoch++;animation?.cancel();aboutMimo?.dispose();tabs.removeEventListener('click',select);tabs.removeEventListener('keydown',key);scan.removeEventListener('click',scanNetwork);nook.removeEventListener('click',openCard,true);}};
+    return {render, refreshHealth, dispose() {if(disposed)return;disposed=true;healthEpoch++;animation?.cancel();aboutGalet?.dispose();tabs.removeEventListener('click',select);tabs.removeEventListener('keydown',key);scan.removeEventListener('click',scanNetwork);nook.removeEventListener('click',openCard,true);}};
   }
   return Object.freeze({PRIMARY,TABS,tabForRoute,invokeCore,prepare,create});
 });

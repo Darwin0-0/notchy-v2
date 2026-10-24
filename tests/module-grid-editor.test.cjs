@@ -29,8 +29,9 @@ test('resize menus expose only declared formats and disable overlaps without mov
   f.click(f.modulesHost,f.control('grid-options','focus'));
   const options=f.modulesHost.querySelector('.experience-grid-menu').querySelectorAll('button').filter(node=>node.dataset.gridPresentation);
   assert.deepEqual(options.map(node=>node.dataset.gridPresentation),layout.supportedFormats(layout.getBuiltinContract('focus')));
+  for(const control of options){const mark=control.querySelector('svg'),format=layout.getFormat(control.dataset.gridPresentation);assert.equal(mark.children.length,9);assert.equal(mark.children.filter(cell=>cell.attributes.fill==='currentColor').length,format.cols*format.rows);assert.equal(control.attributes['aria-label'],`${control.dataset.gridPresentation} · ${format.cols} × ${format.rows} · ${format.width} × ${format.height}`);}
   const full=options.find(node=>node.dataset.gridPresentation==='full');assert.equal(full.disabled,true);f.click(f.modulesHost,full);assert.deepEqual(f.changes,[]);
-  const small=options.find(node=>node.dataset.gridPresentation==='small');assert.equal(small.disabled,false);f.click(f.modulesHost,small);
+  const small=options.find(node=>node.dataset.gridPresentation==='small');assert.equal(small.disabled,false);f.click(f.modulesHost,small.querySelector('rect'));
   assert.deepEqual(f.changes[0].grid,[placement('focus','small',0,0),placement('music','tall',2,0)]);assert.deepEqual(input,before);
   assert.equal(f.document.activeElement.dataset.experienceModule,'focus');f.component.dispose();
 });

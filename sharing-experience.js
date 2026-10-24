@@ -10,11 +10,9 @@
   const CAPABILITIES = ['canOcr', 'canConvert', 'canSend', 'canOpen', 'canDownload', 'canRemove', 'canPreview'];
   let instance = 0;
   const PATHS = {upload: 'M12 16V4M7 9l5-5 5 5M4 20h16', file: 'M6 3h8l4 4v14H6z', ocr: 'M3 7V5a2 2 0 0 1 2-2h2 M17 3h2a2 2 0 0 1 2 2v2 M21 17v2a2 2 0 0 1-2 2h-2 M7 21H5a2 2 0 0 1-2-2v-2 M7 12h10', convert: 'M4 7h15l-3-3 M20 17H5l3 3 M20 7v5 M4 17v-5', send: 'm22 2-7 20-4-9-9-4Z M22 2 11 13', open: 'M14 3h7v7 M10 14 21 3 M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5', download: 'M12 3v12 m-4-4 4 4 4-4 M5 15v5h14v-5', remove: 'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7', star: 'm12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.3-5.7-3-5.7 3 1.1-6.3-4.5-4.4 6.3-.9Z', phone: 'M7 4.5a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 17 4.5v15a2.5 2.5 0 0 1-2.5 2.5h-5A2.5 2.5 0 0 1 7 19.5zM11 18h2', laptop: 'M6 5h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM2 20h20', check: 'm5 12 4 4L19 6', back: 'm14 6-6 6 6 6', cancel: 'm6 6 12 12 M18 6 6 18', retry: 'M21 12a9 9 0 1 1-3-6.7L21 8 M21 3v5h-5'};
-  // Geometry and timing from Nook_Search.dc.html. Anonymous approach glyphs
-  // illustrate discovery; only the real peer list ever displays device names.
-  const RADAR_MARKUP = '<circle cx="165" cy="100" r="34" fill="none" stroke="#1d2735"/><circle cx="165" cy="100" r="66" fill="none" stroke="#1d2735"/><circle cx="165" cy="100" r="98" fill="none" stroke="#1d2735"/>' + [0,1,2].map(delay=>'<circle cx="165" cy="100" r="24" fill="none" stroke="#4aa8ff" stroke-width="2"><animate attributeName="r" values="24;98" dur="3s" begin="'+delay+'s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;0" dur="3s" begin="'+delay+'s" repeatCount="indefinite"/></circle>').join('') + '<g><path d="M165 100L263 100A98 98 0 0 0 233 30Z" fill="#4aa8ff" opacity=".18"/><animateTransform attributeName="transform" type="rotate" from="0 165 100" to="360 165 100" dur="4s" repeatCount="indefinite"/></g><g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.15;0.25;0.9;1" dur="6s" begin="0s" repeatCount="indefinite"/><circle cx="272" cy="52" r="21" fill="#141c28" stroke="#4aa8ff" stroke-width="2"/><rect x="267" y="43" width="10" height="18" rx="3" fill="none" stroke="#ececec" stroke-width="2"/></g><g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.15;0.25;0.9;1" dur="6s" begin="2s" repeatCount="indefinite"/><circle cx="54" cy="150" r="21" fill="#141c28" stroke="#4aa8ff" stroke-width="2"/><rect x="45" y="143" width="18" height="12" rx="2" fill="none" stroke="#ececec" stroke-width="2"/><line x1="42" y1="159" x2="66" y2="159" stroke="#ececec" stroke-width="2" stroke-linecap="round"/></g><circle cx="165" cy="100" r="24" fill="#1b2a44" stroke="#4aa8ff" stroke-width="2"/><rect x="155" y="92" width="20" height="13" rx="2" fill="none" stroke="#ececec" stroke-width="2"/><line x1="152" y1="110" x2="178" y2="110" stroke="#ececec" stroke-width="2" stroke-linecap="round"/>';
   const REFERENCE_ICONS = {
-    upload:'<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"></path></g>',
+    plus:'<path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"></path>',
+    upload:'<g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 16v4h16v-4"></path></g>',
     file:'<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"></path></g>',
     phone:'<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2.5"></rect><path d="M11 18h2"></path></g>',
     laptop:'<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="2"></rect><path d="M2 20h20"></path></g>',
@@ -52,11 +50,13 @@
     return normalizeSharingFiles(files).filter(item => selected.has(item.id));
   }
 
-  function create({host, t = value => value, onAction = () => {}, invoke = null} = {}) {
+  function create({host, t = value => value, onAction = () => {}, invoke = null, onGetQuickLook = null} = {}) {
     if (!host?.ownerDocument) throw new TypeError('A sharing host is required.');
     const document = host.ownerDocument;
     let disposed = false, state = {}, files = [], devices = [], selected = [], dragDepth = 0, ipOpen = false, ipError = '', searching = false, searchTimer = null;
-    let activeFile = null, previewing = false, previewSent = null, previewFlight = null, previewVersion = 0, previewError = '', previewTimer = null;
+    let onlineBefore = null, transferBefore = '', networkReaction = null, reactionTimer = null, networkState = 'idle';
+    let activeFile = null, previewing = false, previewSent = null, previewFlight = null, previewRequest = null, previewStatus = null, previewVersion = 0, previewError = '', previewTimer = null, previewNeedsQuickLook = false;
+    const renderedFile = id => /\.html?$/i.test(files.find(item => item.id === id)?.name || '');
     const fileRows = new Map(), deviceRows = new Map();
     const say = (source, values = {}) => String(t(source, values) ?? source).replace(/\{(\w+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
     const make = (tag, className, value) => {const node = document.createElement(tag); if (className) node.className = className; if (value !== undefined) node.textContent = value; return node;};
@@ -64,39 +64,47 @@
     const place = (parent, node, index) => {if (parent.children[index] !== node) parent.insertBefore(node, parent.children[index] || null);};
     function icon(name) {const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false'); if (REFERENCE_ICONS[name]) svg.innerHTML = REFERENCE_ICONS[name]; else {const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', PATHS[name] || PATHS.file); svg.append(path);} return svg;}
     function button(className, command, label, glyph) {const node = make('button', className); node.type = 'button'; node.dataset.sharingCommand = command; if (glyph) node.append(icon(glyph)); if (label) node.append(make('span', '', label)); return node;}
-    const shelf = make('section', 'sharing-shelf'), drop = button('sharing-drop', 'add', '', 'upload'), dropTitle = make('strong'), shelfEmpty = make('div', 'sharing-drop sharing-drop-empty');
+    const shelf = make('section', 'sharing-shelf'), shelfHeading = make('header', 'sharing-shelf-heading'), shelfTitle = make('h2', '', 'TRAY'), shelfBody = make('div', 'sharing-card-body'), drop = button('sharing-drop', 'add', '', 'upload'), dropTitle = make('strong'), shelfEmpty = make('div', 'sharing-drop sharing-drop-empty');
     drop.append(dropTitle);
-    const fileList = make('div', 'sharing-files'), fileStatus = make('p', 'sharing-file-status'), shelfFooter = make('footer', 'sharing-shelf-footer'), count = make('span', 'sharing-file-count'), selectAll = button('sharing-select-all', 'select-all'), selectedTools = make('span', 'sharing-selected-tools');
+    const fileList = make('div', 'sharing-files'), fileStatus = make('p', 'sharing-file-status'), shelfFooter = make('footer', 'sharing-shelf-footer'), count = make('span', 'sharing-file-count'), shelfHelp = make('span', 'sharing-file-summary'), selectAll = button('sharing-select-all', 'select-all'), selectedTools = make('span', 'sharing-selected-tools');
+    const getQuickLook=button('sharing-pill sharing-secondary','get-quicklook');getQuickLook.hidden=true;
     fileStatus.setAttribute('role','status'); fileStatus.setAttribute('aria-live','polite'); fileStatus.hidden = true;
     fileList.setAttribute('role', 'list'); count.setAttribute('role', 'status'); count.setAttribute('aria-live', 'polite');
     const selectionButtons = new Map();
     for (const command of ['open', 'download', 'remove']) {const node = button('sharing-icon', command, '', command); node.dataset.sharingSelection = 'true'; selectedTools.append(node); selectionButtons.set(command, node);}
-    shelfFooter.append(count, selectAll, selectedTools); shelf.append(drop, shelfEmpty, fileList, fileStatus, shelfFooter);
+    shelfHeading.append(shelfTitle,count); shelfBody.append(drop,shelfEmpty,fileList); shelfFooter.append(shelfHelp,selectAll,selectedTools); shelf.append(shelfHeading,shelfBody,fileStatus,getQuickLook,shelfFooter);
     const nearby = make('section', 'sharing-nearby'), heading = make('header', 'sharing-nearby-heading'), title = make('h2', '', 'LOCALSEND'), readiness = make('span', 'sharing-readiness');
     heading.append(title, readiness);
-    const deviceList = make('div', 'sharing-devices'); deviceList.setAttribute('role', 'list');
-    const empty = make('div', 'sharing-device-empty'), emptyActions = make('div', 'sharing-empty-actions'), retry = button('sharing-pill sharing-secondary', 'discover');
-    const search = make('div','sharing-search'), radar = document.createElementNS('http://www.w3.org/2000/svg','svg'), searchTitle = make('strong'), searchHint = make('p');
-    radar.setAttribute('class','sharing-search-radar'); radar.setAttribute('viewBox','0 0 330 200'); radar.setAttribute('aria-hidden','true'); radar.setAttribute('focusable','false'); radar.innerHTML = RADAR_MARKUP; search.append(radar,searchTitle,searchHint);
+    const nearbyBody = make('div', 'sharing-card-body'), deviceList = make('div', 'sharing-devices'); deviceList.setAttribute('role', 'list');
+    const empty = make('div', 'sharing-device-empty'), emptyActions = make('div', 'sharing-empty-actions'), retry = button('sharing-pill sharing-secondary', 'discover', '', 'retry'), retryLabel = make('span'); retry.append(retryLabel);
+    const search = make('div','sharing-search'), searchTitle = make('strong'), searchHint = make('p');
+    search.append(searchTitle,searchHint);
     const transfer = make('div', 'sharing-transfer'), transferOpen = button('sharing-transfer-open', 'open-transfer'), transferLabel = make('strong'), transferDetail = make('span'), transferProgress = make('div', 'sharing-transfer-progress'), transferFill = make('span'), transferCancel = button('sharing-icon', 'cancel', '', 'cancel');
     transferOpen.append(transferLabel, transferDetail); transferProgress.append(transferFill); transferProgress.setAttribute('role', 'progressbar'); transferProgress.setAttribute('aria-valuemin', '0'); transferProgress.setAttribute('aria-valuemax', '100'); transfer.append(transferOpen, transferProgress, transferCancel);
     const nearbyFooter = make('footer', 'sharing-nearby-footer'), help = make('span'), manual = button('sharing-manual', 'manual-ip', '+ IP'), stopSearch = button('sharing-pill sharing-secondary','stop'), deviceSummary = make('p','sharing-device-summary'), status = make('p', 'sharing-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); nearbyFooter.append(help,stopSearch,manual);
     const form = make('form', 'sharing-ip-form'), formHeading = make('header'), formTitle = make('strong'), formBack = button('sharing-icon', 'close-ip', '', 'back'), inputLabel = make('label'), address = make('input', 'sharing-ip-input'), formMessage = make('p', 'sharing-ip-message'), formSubmit = button('sharing-pill', 'connect');
     form.noValidate = true; formSubmit.type = 'submit'; address.type = 'text'; address.inputMode = 'decimal'; address.autocomplete = 'off'; address.spellcheck = false; address.maxLength = 21; address.placeholder = '192.168.1.20'; address.name = 'address'; formMessage.id = 'sharing-ip-message-' + ++instance; address.setAttribute('aria-describedby', formMessage.id); address.setAttribute('aria-invalid', 'false');
     inputLabel.append(make('span'), address); formHeading.append(formTitle, formBack); form.append(formHeading, inputLabel, formMessage, formSubmit); form.hidden = true;
-    nearby.append(heading, deviceList, deviceSummary, empty, search, transfer, nearbyFooter, status, form); host.classList.add('sharing-experience'); host.replaceChildren(shelf, nearby);
+    nearbyBody.append(deviceList,deviceSummary,empty,search,transfer); nearby.append(heading,nearbyBody,status,nearbyFooter,form); host.classList.add('sharing-experience'); host.replaceChildren(shelf, nearby);
     const emptyAction = event => {event.stopPropagation?.(); command(event);};
-    const shelfEmptyView = Empty.show(shelfEmpty, {icon:icon('upload'),onAction:emptyAction}), deviceEmptyView = Empty.show(empty, {icon:icon('laptop'),onAction:emptyAction});
+    const shelfEmptyView = Empty.show(shelfEmpty, {icon:icon('upload'),character:'idle',variant:'shelf',onAction:emptyAction}), deviceEmptyView = Empty.show(empty, {icon:icon('laptop'),character:'idle',variant:'sharing',onAction:emptyAction});
+    const networkCharacter = deviceEmptyView.elements.icon, networkRings = [];
+    for (let index=0;index<3;index++) {const ring=make('span','sharing-mimo-ring'); ring.setAttribute('aria-hidden','true'); networkCharacter.append(ring); networkRings.push(ring);}
     shelfEmptyView.elements.action.classList.add('sharing-drop-cta'); shelfEmptyView.elements.hint.classList.add('sharing-drop-detail'); shelfEmptyView.elements.action.dataset.sharingCommand = 'add';
     const emptyIp = deviceEmptyView.elements.action; emptyIp.classList.add('sharing-pill'); emptyIp.dataset.sharingCommand = 'manual-ip'; emptyActions.append(emptyIp,retry); empty.append(emptyActions);
     const motionQuery = document.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)');
     function syncRadarMotion() {
-      if (searching && !disposed && !host.hidden && !document.hidden && document.body?.dataset.motion !== 'false' && !motionQuery?.matches) radar.unpauseAnimations?.();
-      else {radar.pauseAnimations?.(); radar.setCurrentTime?.(0);}
+      const active = !disposed && !host.hidden && !host.closest?.('[hidden],[inert]') && !document.hidden && document.body?.dataset.motion !== 'false' && !motionQuery?.matches;
+      for (const ring of networkRings) ring.style.animationPlayState = active ? 'running' : 'paused';
     }
     const Observer = document.defaultView?.MutationObserver, motionObserver = Observer ? new Observer(syncRadarMotion) : null;
-    motionObserver?.observe(document.body,{attributes:true,attributeFilter:['data-motion']}); motionObserver?.observe(host,{attributes:true,attributeFilter:['hidden']});
+    motionObserver?.observe(document.body,{attributes:true,attributeFilter:['data-motion']});
+    for (let ancestor=host;ancestor;ancestor=ancestor.parentElement) motionObserver?.observe(ancestor,{attributes:true,attributeFilter:['hidden','inert']});
     motionQuery?.addEventListener?.('change',syncRadarMotion); document.addEventListener?.('visibilitychange',syncRadarMotion);
+    function reactNetwork(reaction) {
+      clearTimeout(reactionTimer); networkReaction = reaction;
+      reactionTimer = setTimeout(()=>{reactionTimer=null; networkReaction=null; render();},2000); reactionTimer.unref?.();
+    }
     function endSearch() {searching = false; clearTimeout(searchTimer); searchTimer = null;}
     function beginSearch() {
       endSearch(); searching = true; state = {...state,status:''};
@@ -132,13 +140,16 @@
         place(fileList, row.row, index);
       }
       shelf.dataset.empty = String(!files.length); fileList.hidden = !files.length; drop.disabled = busy; drop.hidden = !files.length; shelfEmpty.hidden = !!files.length;
-      dropTitle.textContent = say('Dépose ici'); shelfEmptyView.update({title:say('Dépose un fichier ici'),hint:say('Garde tes PDF et images à portée de main, prêts à envoyer.'),actionLabel:say('Choisir un fichier')}); shelfEmptyView.elements.action.disabled = busy;
-      put(count, selected.length ? say('{count} sélectionné(s)', {count: selected.length}) : say(files.length === 1 ? '{count} fichier gardé' : '{count} fichiers gardés', {count: files.length}));
+      dropTitle.textContent = say('Dépose ici'); shelfEmptyView.update({title:say('Dépose un fichier ici'),hint:say('Garde tes fichiers à portée de main, prêts à envoyer.'),actionLabel:say('Choisir un fichier')}); shelfEmptyView.elements.action.disabled = busy;
+      if (shelfEmptyView.elements.action.firstChild?.localName !== 'svg') shelfEmptyView.elements.action.insertBefore(icon('upload'),shelfEmptyView.elements.action.firstChild || null);
+      put(count, say(files.length === 1 ? '{count} fichier gardé' : '{count} fichiers gardés', {count: files.length}));
+      put(shelfHelp,selected.length ? say('{count} sélectionné(s)',{count:selected.length}) : say('Tous tes fichiers à portée de main'));
       selectAll.hidden = !files.length; selectAll.disabled = busy; selectAll.textContent = say('Tout'); selectAll.setAttribute('aria-label', say(selected.length === files.length ? 'Tout désélectionner' : 'Tout sélectionner')); selectAll.setAttribute('aria-pressed', String(files.length > 0 && selected.length === files.length));
       for (const [command, node] of selectionButtons) {const capability = 'can' + command[0].toUpperCase() + command.slice(1); node.hidden = !selected.length || command === 'open' && selected.length !== 1 || !selected.every(item => item[capability]); node.disabled = busy; node.setAttribute('aria-label', toolLabel(command)); node.title = toolLabel(command);}
       selectedTools.hidden = !selected.length;
       const fileMessage = previewError || (typeof state.fileStatus === 'string' ? state.fileStatus : text(state.fileStatus?.message || state.fileStatus?.error));
       put(fileStatus,fileMessage); fileStatus.hidden = !fileMessage; fileStatus.dataset.error = String(!!previewError || !!state.fileStatus?.error || state.fileStatus?.kind === 'error');
+      getQuickLook.hidden=!previewError||!previewNeedsQuickLook||typeof onGetQuickLook!=='function';getQuickLook.textContent=say('QuickLook dans le Market');getQuickLook.disabled=busy;
       const peerIds = new Set(devices.map(peer => peer.identity));
       for (const [id, row] of deviceRows) if (!peerIds.has(id)) {row.row.remove(); deviceRows.delete(id);}
       for (const [index, peer] of devices.entries()) {
@@ -157,6 +168,10 @@
       }
       const activeTransfer = state.transfer && ['preparing', 'waiting', 'sending', 'receiving'].includes(state.transfer.status), pending = !!state.incoming;
       const online = devices.filter(peer=>peer.online);
+      const onlineNow = new Set(online.map(peer=>peer.identity)), transferKey = state.transfer ? state.transfer.id + ':' + state.transfer.status : '';
+      if (onlineBefore && online.some(peer=>!onlineBefore.has(peer.identity))) reactNetwork('finished');
+      if (onlineBefore && transferKey !== transferBefore && state.transfer?.status === 'complete') reactNetwork(state.transfer.direction === 'receive' ? 'received' : 'finished');
+      onlineBefore = onlineNow; transferBefore = transferKey;
       if (online.length || activeTransfer || pending || state.status?.error || state.status?.kind === 'error') endSearch();
       nearby.dataset.state = pending ? 'consent' : activeTransfer ? 'transfer' : searching ? 'searching' : devices.length ? 'found' : 'idle';
       transfer.hidden = !activeTransfer && !pending; search.hidden = !searching || activeTransfer || pending; deviceList.hidden = !devices.length || searching || activeTransfer || pending; empty.hidden = !!devices.length || searching || activeTransfer || pending;
@@ -171,42 +186,74 @@
       searchTitle.textContent = say('Recherche d’appareils…'); searchHint.textContent = say('Même réseau Wi-Fi requis'); stopSearch.textContent = say('Annuler'); stopSearch.hidden = !searching; help.hidden = searching || devices.length > 0;
       if (devices.length) {if (retry.parentElement !== nearbyFooter) nearbyFooter.insertBefore(retry,manual);} else if (retry.parentElement !== emptyActions) emptyActions.append(retry);
       retry.hidden = searching || activeTransfer || pending;
-      deviceEmptyView.update({title:say('Aucun appareil à proximité'),hint:say('Même réseau Wi‑Fi requis, internet n’est pas nécessaire.'),actionLabel:say('Ajouter une IP')}); retry.textContent = say('Réessayer'); retry.disabled = busy;
+      const networkError = !!ipError || !!state.status?.error || state.status?.kind === 'error' || state.transfer?.status === 'error';
+      const reaction = networkError ? 'error' : pending ? 'share-request' : activeTransfer ? state.transfer.status === 'waiting' ? 'approval' : 'receiving' : searching ? 'searching' : ipOpen ? busy ? 'working' : 'question' : networkReaction || 'idle';
+      networkState = reaction;
+      deviceEmptyView.update({character:reaction,title:say('Aucun appareil à proximité'),hint:say('Même réseau Wi‑Fi requis, internet n’est pas nécessaire.'),actionLabel:say('Ajouter une IP')}); put(retryLabel,say('Réessayer')); retry.disabled = busy;
+      // One shared character follows the actual flow instead of replaying a demo.
+      const characterParent = ipOpen ? formHeading : searching ? search : !deviceList.hidden || !transfer.hidden ? title : empty;
+      const characterBefore = characterParent === search ? searchTitle : characterParent === empty ? deviceEmptyView.elements.title : characterParent === formHeading ? formTitle : title.firstChild;
+      if (networkCharacter.parentElement !== characterParent) characterParent.insertBefore(networkCharacter,characterBefore || null);
+      networkCharacter.dataset.sharingPlacement = characterParent === search || characterParent === empty ? 'hero' : 'inline';
+      if (emptyIp.firstChild?.localName !== 'svg') emptyIp.insertBefore(icon('plus'),emptyIp.firstChild || null);
       help.textContent = say('Sans internet : même Wi‑Fi'); manual.disabled = busy; emptyIp.disabled = busy;
       const message = typeof state.status === 'string' ? state.status : text(state.status?.message || state.status?.error);
       put(status, message); status.hidden = !message; status.dataset.error = String(!!state.status?.error || state.status?.kind === 'error');
       form.hidden = !ipOpen; formTitle.textContent = say('Ajouter une IP'); formBack.setAttribute('aria-label', say('Retour')); inputLabel.firstChild.textContent = say('Adresse réseau locale'); address.setAttribute('aria-label', say('Adresse réseau locale')); address.disabled = busy; address.setAttribute('aria-invalid', String(!!ipError));
-      for (const layer of [heading, deviceList, deviceSummary, empty, search, transfer, nearbyFooter, status]) layer.inert = ipOpen;
+      for (const layer of [heading, nearbyBody, nearbyFooter, status]) layer.inert = ipOpen;
       formMessage.textContent = ipError || message || say('Même réseau Wi‑Fi requis.'); formMessage.dataset.error = String(!!ipError || !!state.status?.error || state.status?.kind === 'error'); formSubmit.textContent = say(busy ? 'Connexion…' : 'Connecter'); formSubmit.disabled = busy;
       if (focused) {
         let visible = focused.isConnected && !focused.disabled;
         for (let ancestor = focused; ancestor && ancestor !== host; ancestor = ancestor.parentElement) if (ancestor.hidden || ancestor.inert) visible = false;
-        const restore = visible ? focused : ipOpen ? address : files.length ? drop : shelfEmptyView.elements.action;
+        const restore = visible ? focused : ipOpen ? formBack : files.length ? drop : shelfEmptyView.elements.action;
         if (!restore.disabled && document.activeElement !== restore) restore.focus({preventScroll: true});
       }
       syncRadarMotion();
       if (previewing) void syncPreview();
     }
     function syncPreview() {
-      if (previewFlight) return previewFlight;
       const target = () => !disposed && previewing && selected.some(item => item.id === activeFile) ? activeFile : null;
+      if (previewFlight) {
+        if (previewRequest?.id && target() !== previewRequest.id && !previewRequest.close) {
+          previewRequest.cancelled = true; previewVersion++;
+          // Do not leave Escape waiting behind a workbook conversion.
+          previewRequest.close = (async () => {try {await invoke('shelf_preview_close', {});} catch (_) {}})();
+        }
+        return previewFlight;
+      }
       if (target() === previewSent) return Promise.resolve();
+      let renderedRequest = renderedFile(activeFile);
       previewFlight = (async () => {
         while (target() !== previewSent) {
           const id = target();
-          await invoke(id ? 'shelf_preview' : 'shelf_preview_close', id ? {id} : {});
+          const request = {id, cancelled: false, close: null}; previewRequest = request;
+          if(id)renderedRequest=renderedFile(id);
+          if(id&&typeof onGetQuickLook==='function'){
+            let status;
+            try {status=previewStatus||await invoke('search_status',{});}
+            catch (error) {if (!request.cancelled && id === target()) throw error;if(request.close)await request.close;previewRequest=null;previewSent=null;continue;}
+            if(request.cancelled||id!==target()){if(request.close)await request.close;previewRequest=null;previewSent=null;continue;}
+            previewStatus=status;
+            renderedRequest=status?.renderedPreview?.supported===true&&renderedFile(id);
+            if(status?.quickLook?.available===false&&!renderedRequest){previewing=false;previewStatus=null;previewVersion++;clearInterval(previewTimer);previewTimer=null;previewRequest=null;await onGetQuickLook();continue;}
+          }
+          try {await invoke(id ? 'shelf_preview' : 'shelf_preview_close', id ? {id} : {});}
+          catch (error) {if (!request.cancelled && id === target()) throw error;}
+          if (request.close) await request.close;
+          previewRequest = null;
+          if (request.cancelled) {previewSent = null; continue;}
           previewSent = id; previewVersion++;
         }
       })().catch(async () => {
-        stopPreview();
+        previewing = false; previewStatus = null; previewVersion++; clearInterval(previewTimer); previewTimer = null;
         if (previewSent !== null) {try {await invoke('shelf_preview_close', {});} catch (_) {}}
         previewSent = null;
-        if (!disposed) previewError = say('Impossible de lancer l’aperçu QuickLook. Vérifie que QuickLook est installé.');
-      }).finally(() => {previewFlight = null; if (!disposed) render();});
+        if (!disposed) {previewNeedsQuickLook=!renderedRequest;previewError=say(renderedRequest?'Aperçu indisponible.':'Impossible de lancer l’aperçu QuickLook. Retrouve son module dans le Market.');}
+      }).finally(() => {previewRequest = null; previewFlight = null; if (!disposed) render();});
       return previewFlight;
     }
     function stopPreview() {
-      previewing = false; previewVersion++; clearInterval(previewTimer); previewTimer = null;
+      previewing = false; previewStatus = null; previewVersion++; clearInterval(previewTimer); previewTimer = null;
       void syncPreview();
     }
     async function refreshPreview() {
@@ -214,12 +261,15 @@
       const version = previewVersion;
       try {
         const status = await invoke('search_status', {});
-        if (!disposed && previewing && !previewFlight && version === previewVersion && status?.quickLook?.previewVisible === false) stopPreview();
+        if (!disposed && previewing && version === previewVersion) previewStatus = status;
+        const rendered=status?.renderedPreview?.supported===true&&renderedFile(activeFile);
+        if (!disposed && previewing && !previewFlight && version === previewVersion && (rendered?status?.renderedPreview?.visible===false:status?.quickLook?.previewVisible===false)) stopPreview();
       } catch (_) { /* A temporary status failure does not close an existing viewer. */ }
     }
     function togglePreview() {
       if (typeof invoke !== 'function' || state.busy || !selected.find(item => item.id === activeFile)?.canPreview) return false;
-      previewError = ''; previewing = !previewing; previewVersion++;
+      previewError = ''; previewNeedsQuickLook=false; previewing = !previewing; previewVersion++;
+      if (!previewing) previewStatus = null;
       clearInterval(previewTimer); previewTimer = null;
       if (previewing) {previewTimer = setInterval(refreshPreview, 1000); previewTimer.unref?.();}
       void syncPreview(); render(); return true;
@@ -229,8 +279,9 @@
       if (disposed) return;
       const target = event.target.closest?.('[data-sharing-command]'); if (!target || !host.contains(target) || target.disabled) return;
       const command = target.dataset.sharingCommand, id = target.dataset.sharingFile, peerId = target.dataset.sharingPeer;
+      if(command==='get-quicklook'){if(previewNeedsQuickLook&&typeof onGetQuickLook==='function'){stopPreview();onGetQuickLook();}return;}
       if (command === 'connect') return;
-      if (command === 'manual-ip' || command === 'close-ip') {ipOpen = command === 'manual-ip'; ipError = ''; render(); (ipOpen ? address : manual).focus({preventScroll: true}); return;}
+      if (command === 'manual-ip' || command === 'close-ip') {ipOpen = command === 'manual-ip'; ipError = ''; render(); (ipOpen ? formBack : manual).focus({preventScroll: true}); return;}
       if (command === 'select' || command === 'select-all') {
         const chosen = new Set(selected.map(item => item.id));
         if (command === 'select' && files.some(file => file.id === id)) {activeFile = id; if (previewing) {chosen.clear(); chosen.add(id);} else if (chosen.has(id)) chosen.delete(id); else chosen.add(id);}
@@ -254,10 +305,16 @@
     function submit(event) {
       event.preventDefault(); event.stopPropagation(); if (disposed || state.busy) return;
       const value = manualIPv4(address.value);
-      if (!value) {ipError = say('Entre une adresse IP locale valide (ex. 192.168.1.20).'); render(); address.focus({preventScroll: true}); return;}
+      if (!value) {ipError = say('Entre une adresse IP locale valide (ex. 192.168.1.20).'); render(); return;}
       ipError = ''; address.value = value; render(); emit('connect', {address: value});
     }
     function input() {if (ipError) {ipError = ''; render();}}
+    function moveSelection(direction, focusRow = true) {
+      if(![-1,1].includes(direction)||!files.length||state.busy)return false;
+      const index=files.findIndex(item=>item.id===activeFile),next=files[Math.max(0,Math.min(files.length-1,index+direction))];
+      activeFile=next.id;previewVersion++;render({selectedIds:[next.id]});emit('select',{id:next.id,selected:true,selectedIds:[next.id]});
+      const row=fileRows.get(next.id);if(focusRow)row.select.focus({preventScroll:true});row.row.scrollIntoView?.({block:'nearest'});return true;
+    }
     function keydown(event) {
       if (disposed || event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
       if (ipOpen) {if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); ipOpen = false; ipError = ''; render(); manual.focus({preventScroll: true});} return;}
@@ -270,10 +327,7 @@
       const direction = {ArrowUp:-1, ArrowLeft:-1, ArrowDown:1, ArrowRight:1}[event.key];
       if (!direction) return;
       event.preventDefault(); event.stopPropagation();
-      const index = files.findIndex(item => item.id === activeFile), next = files[Math.max(0, Math.min(files.length - 1, index + direction))];
-      activeFile = next.id; previewVersion++; render({selectedIds:[next.id]});
-      emit('select', {id:next.id, selected:true, selectedIds:[next.id]});
-      const row = fileRows.get(next.id); row.select.focus({preventScroll:true}); row.row.scrollIntoView?.({block:'nearest'});
+      moveSelection(direction);
     }
     function isFileDrag(event) {return Array.from(event.dataTransfer?.types || []).includes('Files');}
     function enter(event) {if (!isFileDrag(event) || disposed || state.busy) return; dragDepth++; host.dataset.dragging = 'true';}
@@ -282,7 +336,7 @@
     function dropFiles(event) {if (!isFileDrag(event) || disposed) return; event.preventDefault(); event.stopPropagation(); dragDepth = 0; host.dataset.dragging = 'false'; const incomingFiles = Array.from(event.dataTransfer?.files || []); if (!state.busy && incomingFiles.length) emit('add', {files: incomingFiles});}
     const listeners = [['click', command], ['keydown', keydown], ['dragenter', enter], ['dragover', over], ['dragleave', leave], ['drop', dropFiles]];
     for (const [name, handler] of listeners) host.addEventListener(name, handler); form.addEventListener('submit', submit); address.addEventListener('input', input);
-    return {render, stopPreview, isPreviewing: () => previewing, dispose() {if (disposed) return; disposed = true; stopPreview(); endSearch(); syncRadarMotion(); motionObserver?.disconnect(); motionQuery?.removeEventListener?.('change',syncRadarMotion); document.removeEventListener?.('visibilitychange',syncRadarMotion); shelfEmptyView.dispose(); deviceEmptyView.dispose(); for (const [name, handler] of listeners) host.removeEventListener(name, handler); form.removeEventListener('submit', submit); address.removeEventListener('input', input); fileRows.clear(); deviceRows.clear(); host.dataset.dragging = 'false';}};
+    return {render, stopPreview, inspect: () => ({searching,disposed,network:{state:networkState,placement:networkCharacter.dataset.sharingPlacement || 'hero',online:onlineBefore?.size || 0}}), previewTarget: () => previewing ? activeFile : null, navigatePreview: direction => previewing && moveSelection(direction, false), isPreviewing: () => previewing, dispose() {if (disposed) return; disposed = true; stopPreview(); endSearch(); clearTimeout(reactionTimer); reactionTimer=null; syncRadarMotion(); motionObserver?.disconnect(); motionQuery?.removeEventListener?.('change',syncRadarMotion); document.removeEventListener?.('visibilitychange',syncRadarMotion); shelfEmptyView.dispose(); deviceEmptyView.dispose(); for (const [name, handler] of listeners) host.removeEventListener(name, handler); form.removeEventListener('submit', submit); address.removeEventListener('input', input); fileRows.clear(); deviceRows.clear(); host.dataset.dragging = 'false';}};
   }
   return Object.freeze({normalizeSharingFiles, sharingDeviceList, manualIPv4, sharingSelection, create});
 });

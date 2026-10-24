@@ -81,6 +81,7 @@ struct ServerState {
     port: u16,
     token: String,
     closing: CancellationToken,
+    rendered: Arc<std::sync::Mutex<Option<(String, Vec<u8>)>>>,
 }
 pub struct Server {
     pub port: u16,
@@ -88,6 +89,7 @@ pub struct Server {
     services: Arc<Services>,
     closing: CancellationToken,
     task: Mutex<Option<JoinHandle<()>>>,
+    rendered: Arc<std::sync::Mutex<Option<(String, Vec<u8>)>>>,
 }
 impl Server {
     pub async fn start(services: Arc<Services>, port: u16) -> anyhow::Result<Self> {
@@ -95,11 +97,13 @@ impl Server {
         let port = listener.local_addr()?.port();
         let token = crate::shelf::token();
         let closing = CancellationToken::new();
+        let rendered = Arc::new(std::sync::Mutex::new(None));
         let state = ServerState {
             services: services.clone(),
             port,
             token: token.clone(),
             closing: closing.clone(),
+            rendered: rendered.clone(),
         };
         let app = Router::new().fallback(handle).with_state(state);
         let stopped = closing.clone();
@@ -114,9 +118,11 @@ impl Server {
             services,
             closing,
             task: Mutex::new(Some(task)),
+            rendered,
         })
     }
     pub async fn dispose(&self) {
+        self.clear_rendered();
         self.closing.cancel();
         self.services.dispose().await;
         if let Some(mut task) = self.task.lock().await.take() {
@@ -129,6 +135,17 @@ impl Server {
             }
         }
     }
+    pub fn publish_rendered(&self, document: crate::rendered_preview::Document) -> Result<String> {
+        if document.html.len() > 8 * 1024 * 1024 { return Err(failure(413, "Ce document est trop volumineux pour l’aperçu.")); }
+        let id = crate::shelf::token();
+        // Content is served only in the opaque iframe, never inserted into Notchy's DOM.
+        let bundle_bootstrap = include_str!("rendered_bundle_bootstrap.js");
+        let body = format!("<!doctype html><meta charset=\"utf-8\"><script>{bundle_bootstrap}\naddEventListener('DOMContentLoaded',()=>parent.postMessage({{type:'notchy-preview-ready'}},'*'),{{once:true}});addEventListener('keydown',e=>{{if(e.key==='Escape'){{e.preventDefault();e.stopPropagation();parent.postMessage({{type:'notchy-preview-key',key:'Escape'}},'*')}}}},true)</script>{}", document.html).into_bytes();
+        *self.rendered.lock().unwrap() = Some((id.clone(), body));
+        Ok(format!("/rendered-preview/{id}"))
+    }
+    pub fn clear_rendered(&self) { *self.rendered.lock().unwrap() = None; }
+    pub fn rendered_visible(&self) -> bool { self.rendered.lock().unwrap().is_some() }
 }
 impl Drop for Server {
     fn drop(&mut self) {
@@ -220,6 +237,8 @@ fn secure(state: &ServerState, request: &Request, parameters: &[(String, String)
 }
 
 async fn handle(State(state): State<ServerState>, request: Request) -> Response {
+    let rendered = request.uri().path().strip_prefix("/rendered-preview/").is_some_and(valid_id);
+    let main = matches!(request.uri().path(), "/" | "/index.html") || request.uri().path() == crate::rendered_navigation::MAIN_PATH;
     let mut response = match dispatch(&state, request).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
@@ -235,13 +254,15 @@ async fn handle(State(state): State<ServerState>, request: Request) -> Response 
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     );
-    response
-        .headers_mut()
-        .insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-    response.headers_mut().insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static("frame-src 'none'; frame-ancestors 'none'"),
-    );
+    if rendered && response.status().is_success() {
+        response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(
+            "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src blob:; object-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"));
+    } else {
+        response.headers_mut().insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+        let policy = if main { format!("frame-src http://127.0.0.1:{}/rendered-preview/; frame-ancestors 'none'", state.port) }
+            else { "frame-src 'none'; frame-ancestors 'none'".into() };
+        response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_str(&policy).unwrap());
+    }
     response
 }
 
@@ -327,6 +348,14 @@ async fn dispatch(state: &ServerState, request: Request) -> Result<Response> {
     }
     if method == Method::OPTIONS {
         return Err(failure(405, "Méthode refusée."));
+    }
+    if let Some(id) = path.strip_prefix("/rendered-preview/") {
+        if !valid_id(id) || request.uri().query().is_some() || !matches!(method, Method::GET | Method::HEAD) { return Err(failure(404, "Aperçu indisponible.")); }
+        let guard = state.rendered.lock().unwrap();
+        let (_, bytes) = guard.as_ref().filter(|(current, _)| current == id).ok_or_else(|| failure(404, "Cet aperçu est fermé."))?;
+        return Response::builder().status(200).header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header(header::CONTENT_LENGTH, bytes.len()).body(if method == Method::HEAD { Body::empty() } else { Body::from(bytes.clone()) })
+            .map_err(|_| failure(503, "Aperçu indisponible."));
     }
     if !path.starts_with("/api/") {
         return asset(&path, &method);
@@ -553,7 +582,7 @@ fn asset(path: &str, method: &Method) -> Result<Response> {
     if method != Method::GET && method != Method::HEAD {
         return Err(failure(404, "Page introuvable."));
     }
-    let path = if path == "/" {
+    let path = if path == "/" || path == crate::rendered_navigation::MAIN_PATH {
         "index.html"
     } else {
         path.trim_start_matches('/')
@@ -586,16 +615,9 @@ fn asset(path: &str, method: &Method) -> Result<Response> {
     let contents = file.contents();
     #[cfg(debug_assertions)]
     let _ = file; // The embedded table is the allowlist; bytes come from the live dist directory.
-    let bytes = if extension == "html" {
-        String::from_utf8_lossy(contents.as_ref())
-            .replace(
-                "connect-src 'self'",
-                "connect-src 'self' ipc: http://ipc.localhost; frame-src 'none'",
-            )
-            .into_bytes()
-    } else {
-        contents.to_vec()
-    };
+    // Keep IPC fetch disabled: Tauri's native message transport preserves the
+    // initiating document path, unlike its HTTP Origin-based fetch transport.
+    let bytes = contents.to_vec();
     Response::builder()
         .status(200)
         .header(header::CONTENT_TYPE, mime)
@@ -795,7 +817,7 @@ mod tests {
             response.headers()[header::X_CONTENT_TYPE_OPTIONS],
             "nosniff"
         );
-        assert!(response
+        assert!(!response
             .text()
             .await
             .unwrap()
@@ -994,6 +1016,140 @@ mod tests {
             HeaderValue::from_static("5368709120"),
         );
         assert_eq!(binary(&headers).unwrap(), Some(5 * 1024 * 1024 * 1024));
+        server.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn rendered_documents_have_their_own_opaque_csp_without_weakening_the_main_page() {
+        let (_directory, _services, server, client) = fixture().await;
+        let base = format!("http://127.0.0.1:{}", server.port);
+        let main = client.get(format!("{base}{}?desktop=1", crate::rendered_navigation::MAIN_PATH)).send().await.unwrap();
+        assert_eq!(main.status(), 200);
+        let main_policy = main.headers()[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+        assert_eq!(main_policy, format!("frame-src {base}/rendered-preview/; frame-ancestors 'none'"));
+        assert_eq!(main.headers()[header::X_FRAME_OPTIONS], "DENY");
+        let main_body = main.text().await.unwrap();
+        assert!(main_body.contains("script-src 'self'"));
+        assert!(main_body.contains("style-src 'self'"));
+        assert!(main_body.contains("connect-src 'self'"));
+        assert!(!main_body.contains("ipc.localhost"));
+        assert!(!main_body.contains("'unsafe-inline'"));
+
+        let html = "<h1>Document été</h1><script>document.body.dataset.fixture='inline'</script>";
+        let path = server.publish_rendered(crate::rendered_preview::Document { name: "Untrusted.html".into(), html: html.into() }).unwrap();
+        assert!(valid_id(path.strip_prefix("/rendered-preview/").unwrap()));
+        // The unpredictable document URL is the read capability, not the native API token.
+        let response = client.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/html; charset=utf-8");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(response.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+        assert!(response.headers().get(header::X_FRAME_OPTIONS).is_none());
+        let policy = response.headers()[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+        let sandbox = policy.split(';').map(str::trim).find(|part| part.starts_with("sandbox")).unwrap();
+        assert_eq!(sandbox, "sandbox allow-scripts");
+        assert!(!policy.contains("allow-same-origin"));
+        assert!(!policy.contains("ipc:"));
+        for directive in ["default-src 'none'", "script-src 'unsafe-inline' 'unsafe-eval' blob:", "style-src 'unsafe-inline'",
+            "connect-src 'none'", "frame-src blob:", "object-src 'none'", "worker-src 'none'",
+            "base-uri 'none'", "form-action 'none'", "frame-ancestors 'self'"]
+        { assert!(policy.split(';').map(str::trim).any(|part| part == directive), "{directive}"); }
+        let expected_length: usize = response.headers()[header::CONTENT_LENGTH].to_str().unwrap().parse().unwrap();
+        let body = response.text().await.unwrap();
+        assert_eq!(body.len(), expected_length);
+        assert!(body.contains(html), "Untrusted bytes remain in the isolated document only");
+        let bundle_bootstrap = include_str!("rendered_bundle_bootstrap.js");
+        assert!(body.contains(bundle_bootstrap));
+        assert!(body.find(bundle_bootstrap).unwrap() < body.find(html).unwrap(),
+            "Bundle navigation compatibility is registered before author document handlers");
+        assert!(body.contains("addEventListener('DOMContentLoaded',()=>parent.postMessage({type:'notchy-preview-ready'},'*'),{once:true})"),
+            "A parsed document can reveal the preview without waiting for every nested frame load");
+        assert!(body.contains("type:'notchy-preview-key',key:'Escape'"));
+        assert!(!body.contains(&server.token), "The native API secret is never published with the document");
+        let head = client.head(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(head.status(), 200);
+        assert_eq!(head.headers()[header::CONTENT_TYPE], "text/html; charset=utf-8");
+        assert_eq!(head.headers()[header::CONTENT_LENGTH].to_str().unwrap().parse::<usize>().unwrap(), expected_length);
+        assert!(head.bytes().await.unwrap().is_empty());
+        server.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn rendered_publication_replaces_the_read_capability_and_clear_revokes_it() {
+        let (_directory, _services, server, client) = fixture().await;
+        let base = format!("http://127.0.0.1:{}", server.port);
+        assert!(!server.rendered_visible());
+        let first = server.publish_rendered(crate::rendered_preview::Document { name: "one.html".into(), html: "<p>first-only</p>".into() }).unwrap();
+        assert!(server.rendered_visible());
+        let second = server.publish_rendered(crate::rendered_preview::Document { name: "two.html".into(), html: "<p>second-only</p>".into() }).unwrap();
+        assert_ne!(first, second, "Each publication has a fresh opaque capability");
+        let retired = client.get(format!("{base}{first}")).send().await.unwrap();
+        assert_eq!(retired.status(), 404);
+        assert_eq!(retired.headers()[header::X_FRAME_OPTIONS], "DENY");
+        assert!(!retired.text().await.unwrap().contains("first-only"));
+        let current = client.get(format!("{base}{second}")).send().await.unwrap();
+        assert_eq!(current.status(), 200);
+        assert!(current.text().await.unwrap().contains("second-only"));
+
+        assert_eq!(server.publish_rendered(crate::rendered_preview::Document {
+            name: "oversized.html".into(), html: "x".repeat(8 * 1024 * 1024 + 1),
+        }).err().unwrap().status, 413);
+        assert!(server.rendered_visible());
+        assert_eq!(client.get(format!("{base}{second}")).send().await.unwrap().status(), 200,
+            "A rejected publication must not replace the last complete document");
+        server.clear_rendered();
+        assert!(!server.rendered_visible());
+        server.clear_rendered();
+        for path in [&first, &second] {
+            assert_eq!(client.get(format!("{base}{path}")).send().await.unwrap().status(), 404);
+            assert_eq!(client.head(format!("{base}{path}")).send().await.unwrap().status(), 404);
+        }
+        server.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn rendered_routes_reject_queries_forged_origins_and_http_invocation() {
+        let (_directory, services, server, client) = fixture().await;
+        let base = format!("http://127.0.0.1:{}", server.port);
+        let path = server.publish_rendered(crate::rendered_preview::Document {
+            name: "private.html".into(), html: "<p>private-rendered-sentinel</p>".into(),
+        }).unwrap();
+        for suffix in ["?", "?x=1", "?token=wrong", "?preview=1", "?id=a&id=b", "/child"] {
+            assert_eq!(client.get(format!("{base}{path}{suffix}")).send().await.unwrap().status(), 404, "{suffix}");
+        }
+        for invalid_path in ["/rendered-preview/", "/rendered-preview/not-an-id",
+            "/rendered-preview/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "/rendered-preview/%2fprivate",
+            "/rendered-preview.js", "/src-tauri/src/rendered_preview.rs"]
+        { assert_eq!(client.get(format!("{base}{invalid_path}")).send().await.unwrap().status(), 404, "{invalid_path}"); }
+        for origin in ["null", "https://evil.example", "http://127.0.0.1:1"] {
+            let response = client.get(format!("{base}{path}")).header(header::ORIGIN, origin).send().await.unwrap();
+            assert_eq!(response.status(), 403, "{origin}");
+            assert!(!response.text().await.unwrap().contains("private-rendered-sentinel"));
+        }
+        assert_eq!(client.get(format!("{base}{path}")).header("sec-fetch-site", "cross-site").send().await.unwrap().status(), 403);
+        assert_eq!(client.get(format!("{base}{path}")).header(header::HOST, "evil.example").send().await.unwrap().status(), 403);
+        for method in [Method::POST, Method::PUT, Method::DELETE, Method::PATCH, Method::OPTIONS] {
+            let response = client.request(method, format!("{base}{path}"))
+                .header(header::ORIGIN, &base).header("X-Notchy", &server.token)
+                .json(&json!({"html":"<p>must-not-publish</p>","command":"publish-rendered"})).send().await.unwrap();
+            assert!(!response.status().is_success());
+        }
+        // Serving the document URL does not grant any private API permission.
+        assert_eq!(client.get(format!("{base}/api/shelf?token={}", path.trim_start_matches("/rendered-preview/")))
+            .send().await.unwrap().status(), 403);
+        for route in ["/api/rendered-preview", "/api/desktop_command", "/api/search-preview"] {
+            let response = client.post(format!("{base}{route}"))
+                .header(header::ORIGIN, &base).header("X-Notchy", &server.token)
+                .json(&json!({"command":"search-preview","value":{"id":"a".repeat(32)}})).send().await.unwrap();
+            assert!(!response.status().is_success(), "Native invocation is not an HTTP API: {route}");
+        }
+        let current = client.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(current.status(), 200);
+        let body = current.text().await.unwrap();
+        assert!(body.contains("private-rendered-sentinel"));
+        assert!(!body.contains("must-not-publish"));
+        assert!(services.shelf.list().await.unwrap()["items"].as_array().unwrap().is_empty());
         server.dispose().await;
     }
 }

@@ -5,6 +5,8 @@
   "description": "Music, tasks, focus time and files in a quieter Windows notch",
   "scripts": {
     "build": "node scripts/build-frontend.cjs",
-    "test": "node --test tests/*.test.cjs"
+    "test": "node --test tests/*.test.cjs",
+    "storage:check": "node scripts/check-storage.cjs",
+    "storage:guard": "node scripts/check-storage.cjs --guard"
   }
 }

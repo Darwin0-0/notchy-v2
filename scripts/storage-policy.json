@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "limits": { "buildCacheGB": 8, "testBrowserCacheGB": 2, "minimumFreeGB": 12 },
+  "retention": { "currentTrial": 1, "previousTrialUntilValidation": 1, "latestInstallerVersion": 1, "testRunsPerFeature": 2 },
+  "deletion": "Never automatic. Show exact paths, reason and estimated size; obtain fresh explicit human approval for this batch.",
+  "protected": [
+    "Notchy — Mémoire",
+    "notchy-public/.development/profile",
+    "notchy-public/.development/previous-trial",
+    "notchy-public/.git",
+    "notchy-designs",
+    "backups",
+    "notchy-minimal/work/tauri-tooling",
+    "notchy-minimal/src-tauri/target/debug/notchy-v2.exe",
+    "notchy-minimal/src-tauri/target/debug/native",
+    "notchy-minimal/src-tauri/target/debug/licenses",
+    "notchy-minimal/src-tauri/target/release/bundle",
+    "outputs/notchy-release-0.3.12-2026-10-21",
+    "outputs/notchy-mimo-agent-2026-10-22",
+    "outputs/notchy-preview-sizing-2026-10-22",
+    "outputs/notchy-module-lab.html",
+    "outputs/notchy-mimo-blueprint-2026-10-22",
+    "outputs/notchy-galet-experience-2026-10-22",
+    "outputs/notchy-mimo-experience-2026-10-22",
+    "outputs/notchy-presentation-kit-2026-10-20",
+    "outputs/notchy-bundled-quicklook-2026-10-21/QuickLook-4.5.0.zip",
+    "outputs/notchy-bundled-quicklook-2026-10-21/QuickLook-source-b13df028.zip",
+    "outputs/notchy-office-fidelity-2026-10-21/officeviewer-v6"
+  ]
+}

@@ -42,6 +42,39 @@ function dom() {
   return {document, host, icon};
 }
 
+test('optional Mimo reuses the shared renderer without replaying on text updates and restores the icon', () => {
+  const {host, icon, document} = dom(), calls = [];
+  document.body = {dataset:{motion:'false'}};
+  document.defaultView = {NotchyGalet:{states:['idle','error'],variants:{default:{},focus:{},music:{}},create(mount, options) {
+    calls.push(['create',mount,options.motion(),options.variant]);
+    return {setVariant:value=>calls.push(['variant',value]),setState:value=>calls.push(['state',value]),dispose:()=>calls.push(['dispose'])};
+  }}};
+  const controller = NotchEmpty.show(host,{icon,character:'idle',variant:'focus',title:'Vide'});
+  controller.update({title:'Toujours vide'});
+  assert.equal(calls.filter(call=>call[0]==='create').length,1);
+  assert.deepEqual(calls.filter(call=>call[0]==='state'),[['state','idle']]);
+  assert.equal(calls[0][2],false);
+  assert.equal(calls[0][3],'focus');
+  controller.update({variant:'music'});
+  assert.deepEqual(calls.at(-1),['variant','music']);
+  assert.deepEqual(calls.filter(call=>call[0]==='state'),[['state','idle']]);
+  controller.update({variant:'__proto__'});
+  assert.deepEqual(calls.at(-1),['variant','default']);
+  controller.update({character:'error'});
+  assert.deepEqual(calls.at(-1),['state','error']);
+  controller.update({character:'__proto__'});
+  assert.deepEqual(calls.at(-1),['dispose']);
+  assert.equal(controller.elements.icon.childNodes[0],icon);
+  controller.update({character:'idle'}); controller.dispose();
+  assert.equal(calls.filter(call=>call[0]==='dispose').length,2);
+});
+
+test('a standalone empty state keeps its approved icon when Mimo is not loaded', () => {
+  const {host, icon} = dom(), controller = NotchEmpty.show(host,{icon,character:'idle'});
+  assert.equal(controller.elements.icon.childNodes[0],icon);
+  assert.equal(controller.elements.icon.hidden,false); controller.dispose();
+});
+
 test('browser and CommonJS expose the same small API without a DOM at import time', () => {
   const window = {document: {}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../empty-states.js'), 'utf8'), {window});

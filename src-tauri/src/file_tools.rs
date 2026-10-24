@@ -73,10 +73,10 @@ async fn cancellation(mut receiver: watch::Receiver<bool>) {
 }
 
 #[cfg(windows)]
-struct WorkerJob(usize);
+pub(crate) struct WorkerJob(usize);
 #[cfg(windows)]
 impl WorkerJob {
-    fn attach(child: &tokio::process::Child) -> Result<Self> {
+    pub(crate) fn attach(child: &tokio::process::Child) -> Result<Self> {
         use windows_sys::Win32::System::JobObjects::*;
         unsafe {
             let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());

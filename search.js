@@ -20,9 +20,10 @@
     'Réessaie dans un instant.': 'Try again in a moment.', 'Réessayer': 'Try again',
     'Ouvrir': 'Open', 'Afficher dans l’Explorateur': 'Show in File Explorer', 'Envoyer via LocalSend': 'Send via LocalSend',
     'Autres actions': 'More actions', 'Actions pour {name}': 'Actions for {name}',
+    'Aperçu': 'Preview', 'Aperçu indisponible.': 'Preview unavailable.',
     'Aperçu QuickLook': 'QuickLook preview', 'Obtenir QuickLook': 'Get QuickLook',
     'Fermer l’aperçu': 'Close preview',
-    'QuickLook est nécessaire pour afficher un aperçu. Installe-le, puis reviens dans Notchy.': 'QuickLook is needed for previews. Install it, then return to Notchy.',
+    'QuickLook est nécessaire pour afficher un aperçu. Obtiens le module dans le Market.': 'QuickLook is needed for previews. Get the module in Market.',
     'Impossible de lancer l’aperçu QuickLook.': 'QuickLook preview could not be started.',
     'Ouverture…': 'Opening…', 'Impossible d’ouvrir cet élément.': 'This item could not be opened.',
     'Impossible d’afficher cet élément.': 'This item could not be revealed.',
@@ -77,7 +78,7 @@
     return parts;
   }
 
-  function create({host, invoke, t, onOpen, onClose, onSend} = {}) {
+  function create({host, invoke, t, onOpen, onClose, onSend, onGetQuickLook} = {}) {
     if (host?.nodeType !== 1 || !host.ownerDocument?.createElement || typeof invoke !== 'function') {
       throw new TypeError('Search requires a host element and a native invoke function.');
     }
@@ -90,7 +91,10 @@
     let cancelFocus = null;
     let status = {files: 0, indexing: false, shortcutUnavailable: false}, statusReady = false, reindexing = false, opener = null, emptyController = null, menuOpener = null;
     let quickLook = {supported: false, available: false};
-    let previewing = false, previewSent = null, previewFlight = null, previewVersion = 0;
+    let renderedSupported = false;
+    const renderedHit = (hit = hits[selected]) => renderedSupported && hit?.kind === 'file' && /\.html?$/i.test(hit.name);
+    const previewSupported = () => quickLook.supported || renderedHit();
+    let previewing = false, previewSent = null, previewFlight = null, previewRequest = null, previewVersion = 0;
     const element = (tag, className) => {const node = document.createElement(tag); if (className) node.className = className; return node;};
     const label = (key, values = {}) => {
       const translated = typeof t === 'function' ? t(key) : key;
@@ -152,7 +156,7 @@
     function emptyState(title, hint, retry = false) {
       if (emptyApi?.show) {
         if (!emptyController) emptyController = emptyApi.show(empty, {icon: icon('search')});
-        emptyController.update({title, hint, actionLabel: retry ? label('Réessayer') : '', onAction: retry ? refresh : null});
+        emptyController.update({title, hint, character:retry ? 'error' : 'idle', variant:'search', actionLabel: retry ? label('Réessayer') : '', onAction: retry ? refresh : null});
       } else {
         empty.replaceChildren(); const strong = element('strong'), detail = element('span'); strong.textContent = title; detail.textContent = hint;
         empty.append(strong, detail);
@@ -208,28 +212,43 @@
       send.hidden = typeof onSend !== 'function' || hits[selected]?.kind !== 'file';
       openButton.hidden = !canOpen(hits[selected]);
       reveal.title = label('Afficher dans l’Explorateur') + ' · ' + (canOpen(hits[selected]) ? 'Ctrl+' : '') + label('Entrée');
-      const previewLabel = label(previewing ? 'Fermer l’aperçu' : quickLook.available ? 'Aperçu QuickLook' : 'Obtenir QuickLook');
-      preview.hidden = !quickLook.supported;
+      const previewLabel = label(previewing ? 'Fermer l’aperçu' : renderedHit() ? 'Aperçu' : quickLook.available ? 'Aperçu QuickLook' : 'Obtenir QuickLook');
+      preview.hidden = !previewSupported();
       preview.setAttribute('aria-label', previewLabel); preview.title = previewLabel + ' · Space';
       preview.setAttribute('aria-keyshortcuts', 'Space Alt+p'); preview.setAttribute('aria-pressed', String(previewing));
       preview.setAttribute('aria-busy', String(!!previewFlight));
       contextMenu.setAttribute('aria-label', label('Actions pour {name}', {name: hits[selected]?.name || ''}));
       for (const {action, item, copy} of menuItems) {
         copy.textContent = action === 'preview' ? previewLabel : label(action === 'open' ? 'Ouvrir' : action === 'reveal' ? 'Afficher dans l’Explorateur' : 'Envoyer via LocalSend');
-        item.hidden = action === 'preview' ? !quickLook.supported : action === 'open' ? !canOpen(hits[selected]) : action === 'send' && (hits[selected]?.kind !== 'file' || typeof onSend !== 'function');
+        item.hidden = action === 'preview' ? !previewSupported() : action === 'open' ? !canOpen(hits[selected]) : action === 'send' && (hits[selected]?.kind !== 'file' || typeof onSend !== 'function');
       }
       if (previewing) void syncPreview();
     }
 
     function focusResult() {list.children[selected]?.focus({preventScroll: true});}
     function syncPreview() {
-      if (previewFlight) return previewFlight;
       const target = () => opened && !disposed && previewing ? hits[selected]?.id || null : null;
+      if (previewFlight) {
+        if (previewRequest?.id && target() !== previewRequest.id && !previewRequest.close) {
+          previewRequest.cancelled = true; previewVersion++;
+          // Close reaches the native cancellation path before a heavy preview finishes.
+          previewRequest.close = (async () => {try {await invoke('search_preview_close', {});} catch (_) {}})();
+        }
+        return previewFlight;
+      }
       if (target() === previewSent) return Promise.resolve();
+      let renderedRequest = renderedHit(), requestGeneration = generation;
       previewFlight = (async () => {
         while (target() !== previewSent) {
           const id = target();
-          await invoke(id ? 'search_preview' : 'search_preview_close', id ? {id} : {});
+          if (id) renderedRequest = renderedHit(hits.find(hit => hit.id === id));
+          requestGeneration = generation;
+          const request = {id, cancelled: false, close: null}; previewRequest = request;
+          try {await invoke(id ? 'search_preview' : 'search_preview_close', id ? {id} : {});}
+          catch (error) {if (!request.cancelled && id === target()) throw error;}
+          if (request.close) await request.close;
+          previewRequest = null;
+          if (request.cancelled) {previewSent = null; continue;}
           previewSent = id;
           previewVersion++;
         }
@@ -237,15 +256,15 @@
         previewing = false; previewVersion++;
         if (previewSent !== null) {try {await invoke('search_preview_close', {});} catch (_) {}}
         previewSent = null;
-        if (opened && !disposed) error = 'Impossible de lancer l’aperçu QuickLook.';
-      }).finally(() => {previewFlight = null; if (opened && !disposed) render();});
+        if (opened && !disposed && requestGeneration === generation) error = renderedRequest ? 'Aperçu indisponible.' : 'Impossible de lancer l’aperçu QuickLook.';
+      }).finally(() => {previewRequest = null; previewFlight = null; if (opened && !disposed) render();});
       return previewFlight;
     }
     function stopPreview() {previewing = false; previewVersion++; void syncPreview();}
     function togglePreview() {
-      if (!quickLook.supported || !hits[selected] || loading || acting) return;
+      if (!previewSupported() || !hits[selected] || loading || acting) return;
       closeMenu();
-      if (!quickLook.available) {void activate('preview'); return;}
+      if (!quickLook.available && !renderedHit()) {void activate('preview'); return;}
       error = ''; previewing = !previewing; previewVersion++; focusResult(); void syncPreview(); render();
     }
     function results(value) {
@@ -288,10 +307,11 @@
     function readStatus(value, previewRequest) {
       if (!value || typeof value !== 'object') return;
       if (value.quickLook && typeof value.quickLook === 'object') quickLook = {supported: value.quickLook.supported === true, available: value.quickLook.available === true};
+      if (value.renderedPreview && typeof value.renderedPreview === 'object') renderedSupported = value.renderedPreview.supported === true;
       // A reply sampled before a toggle, selection or completed Invoke/Close
       // cannot describe the current viewer, even after its flight has settled.
-      if (previewRequest === previewVersion && previewing && !previewFlight && value.quickLook?.previewVisible === false) {previewing = false; previewSent = null; previewVersion++;}
-      if (quickLook.available && error === 'QuickLook est nécessaire pour afficher un aperçu. Installe-le, puis reviens dans Notchy.') error = '';
+      if (previewRequest === previewVersion && previewing && !previewFlight && (renderedHit() ? value.renderedPreview?.visible === false : value.quickLook?.previewVisible === false)) {previewing = false; previewSent = null; previewVersion++;}
+      if (quickLook.available && error === 'QuickLook est nécessaire pour afficher un aperçu. Obtiens le module dans le Market.') error = '';
       status = {files: Number.isSafeInteger(value.files) && value.files >= 0 ? value.files : status.files, indexing: value.indexing === true,
         shortcutUnavailable: typeof value.shortcut?.available === 'boolean' ? !value.shortcut.available : status.shortcutUnavailable};
       statusReady = true; statusError = typeof value.lastError === 'string' && !!value.lastError;
@@ -354,16 +374,16 @@
     async function activate(action = 'open') {
       const hit = hits[selected];
       if (!opened || disposed || acting || loading || !hit || action === 'send' && (hit.kind !== 'file' || typeof onSend !== 'function')) return;
-      if (action === 'preview' && !quickLook.supported) return;
-      if (action === 'preview' && quickLook.available) {togglePreview(); return;}
+      if (action === 'preview' && !previewSupported()) return;
+      if (action === 'preview' && (quickLook.available || renderedHit())) {togglePreview(); return;}
       if (action !== 'preview') stopPreview();
       if (action === 'open' && !canOpen(hit)) action = 'reveal';
       closeMenu(); const current = generation; input.focus({preventScroll: true}); acting = true; error = ''; render();
       try {
         if (action === 'send') await onSend(hit.id);
         else if (action === 'preview') {
-          await invoke(quickLook.available ? 'search_preview' : 'search_quicklook_install', quickLook.available ? {id: hit.id} : {});
-          if (opened && !disposed && current === generation && !quickLook.available) error = 'QuickLook est nécessaire pour afficher un aperçu. Installe-le, puis reviens dans Notchy.';
+          if(typeof onGetQuickLook==='function')await onGetQuickLook();
+          if (opened && !disposed && current === generation) error = 'QuickLook est nécessaire pour afficher un aperçu. Obtiens le module dans le Market.';
         }
         else await invoke(action === 'reveal' ? 'search_reveal' : 'search_open', {id: hit.id});
         if (action !== 'preview' && opened && !disposed && current === generation) close();
@@ -389,11 +409,11 @@
         return;
       }
       if (event.key === 'Escape') {event.preventDefault(); event.stopImmediatePropagation(); if (previewing) {stopPreview(); focusResult(); render();} else close(); return;}
-      if (event.key?.toLowerCase() === 'p' && event.altKey && !event.ctrlKey && !event.metaKey && !event.repeat && quickLook.supported) {
+      if (event.key?.toLowerCase() === 'p' && event.altKey && !event.ctrlKey && !event.metaKey && !event.repeat && previewSupported()) {
         event.preventDefault(); event.stopImmediatePropagation(); void activate('preview'); return;
       }
       const row = event.target.closest?.('[data-result-id]'), inResults = !!row && list.contains(row);
-      const queryPreview = event.target === input && quickLook.supported && hits[selected] && !loading && !acting;
+      const queryPreview = event.target === input && previewSupported() && hits[selected] && !loading && !acting;
       if ((inResults || queryPreview) && (event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
         event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) togglePreview(); return;
       }
@@ -401,9 +421,9 @@
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || inResults && previewing && ['ArrowLeft','ArrowRight'].includes(event.key)) {
         event.preventDefault(); if (!hits.length) return;
         const step = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1;
-        const enteringResults = quickLook.supported && event.target === input;
-        select(quickLook.supported ? selected + (enteringResults ? 0 : step) : (selected + (step > 0 ? 1 : hits.length - 1)) % hits.length);
-        if (quickLook.supported) focusResult();
+        const enteringResults = previewSupported() && event.target === input;
+        select(previewSupported() ? selected + (enteringResults ? 0 : step) : (selected + (step > 0 ? 1 : hits.length - 1)) % hits.length);
+        if (previewSupported()) focusResult();
       } else if (event.key === 'Enter') {event.preventDefault(); void activate(event.ctrlKey || event.metaKey ? 'reveal' : 'open');}
       else if (inResults && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key?.length === 1 || event.key === 'Backspace')) {
         event.preventDefault(); input.focus({preventScroll:true});
@@ -429,7 +449,7 @@
     listen(input, 'input', changed); listen(input, 'compositionstart', () => {composing = true; generation++; clearTimeout(debounce); debounce = null; loading = false; results([]); render();});
     listen(input, 'compositionend', () => {composing = false; changed();}); listen(host, 'keydown', key);
     listen(clear, 'click', () => {input.value = ''; changed(); input.focus({preventScroll: true});}); listen(closeButton, 'click', () => close());
-    listen(list, 'click', event => {const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return; closeMenu(); select(hits.findIndex(hit => hit.id === row.dataset.resultId), false); if (quickLook.supported) focusResult(); else void activate();});
+    listen(list, 'click', event => {const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return; closeMenu(); select(hits.findIndex(hit => hit.id === row.dataset.resultId), false); if (previewSupported()) focusResult(); else void activate();});
     listen(list, 'dblclick', event => {const row = event.target.closest('[data-result-id]'); if (!row || !list.contains(row)) return; select(hits.findIndex(hit => hit.id === row.dataset.resultId), false); void activate();});
     listen(list, 'pointermove', event => {if (!contextMenu.hidden || previewing || list.contains(document.activeElement)) return; const row = event.target.closest('[data-result-id]'); if (row && list.contains(row)) select(hits.findIndex(hit => hit.id === row.dataset.resultId), false);});
     listen(list, 'contextmenu', event => {
@@ -449,7 +469,7 @@
     listen(preview, 'click', togglePreview);
     listen(reindex, 'click', () => void rebuild());
     render();
-    return Object.freeze({open, close, stopPreview, isOpen: () => opened, isPreviewing: () => previewing, render, refresh, elements: {input, clear, close: closeButton, list, empty, information, open: openButton, preview, reveal, send, more, contextMenu, reindex, announcer}, dispose() {
+    return Object.freeze({open, close, stopPreview, previewTarget: () => previewing ? hits[selected]?.id || null : null, navigatePreview(direction) {if(!opened||!previewing||![-1,1].includes(direction)||!hits.length)return false;select(selected+direction);void syncPreview();render();return true;}, isOpen: () => opened, isPreviewing: () => previewing, render, refresh, elements: {input, clear, close: closeButton, list, empty, information, open: openButton, preview, reveal, send, more, contextMenu, reindex, announcer}, dispose() {
       if (disposed) return false; close({restoreFocus: false, notify: false}); disposed = true; for (const remove of listeners) remove(); emptyController?.dispose();
       host.replaceChildren(...previous); host.hidden = previousHidden; if (previousLabel === null) host.removeAttribute('aria-label'); else host.setAttribute('aria-label', previousLabel);
       delete host.dataset.status; if (!hadClass) host.classList.remove('notchy-search'); return true;
