@@ -58,6 +58,54 @@ const MAX_PEERS: usize = 64;
 const PEER_TTL: u64 = 90000;
 const FIRST_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+const DISCOVERY_HANDSHAKES: usize = 32;
+const DISCOVERY_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
+const KNOWN_PEER_REFRESH: Duration = Duration::from_secs(30);
+
+fn bind_discovery_port(port: u16, mut bind: impl FnMut(u16) -> io::Result<()>) -> io::Result<()> {
+    bind(port).or_else(|error| {
+        if port != 0 && matches!(error.kind(), io::ErrorKind::AddrInUse | io::ErrorKind::PermissionDenied) {
+            bind(0)
+        } else {
+            Err(error)
+        }
+    })
+}
+
+fn refresh_discovery_interfaces(socket: &tokio::net::UdpSocket, interfaces: &mut Vec<Ipv4Addr>, candidates: Vec<Ipv4Addr>) -> Result<(), ApiError> {
+    let mut current = Vec::new();
+    for ip in candidates {
+        if !current.contains(&ip) { current.push(ip); }
+    }
+    if current.is_empty() { current.push(Ipv4Addr::UNSPECIFIED); }
+    let options = socket2::SockRef::from(socket);
+    for old in interfaces.iter().filter(|ip| !current.contains(ip)) {
+        let _ = options.leave_multicast_v4(&GROUP, old);
+    }
+    interfaces.retain(|ip| current.contains(ip));
+    for ip in current {
+        if ip != Ipv4Addr::UNSPECIFIED && !interfaces.contains(&ip)
+            && options.join_multicast_v4(&GROUP, &ip).is_ok() {
+            interfaces.push(ip);
+        }
+    }
+    if interfaces.is_empty() {
+        options.join_multicast_v4(&GROUP, &Ipv4Addr::UNSPECIFIED)
+            .map_err(|error| network_error("actualiser la découverte du réseau local", error))?;
+        interfaces.push(Ipv4Addr::UNSPECIFIED);
+    }
+    Ok(())
+}
+
+fn network_error(action: &str, error: io::Error) -> ApiError {
+    let reason = match error.kind() {
+        io::ErrorKind::PermissionDenied => "Windows refuse l’accès à ce port ou au réseau",
+        io::ErrorKind::AddrInUse => "le port réseau est déjà utilisé",
+        io::ErrorKind::AddrNotAvailable => "aucune interface réseau compatible n’est disponible",
+        _ => "le réseau local est indisponible",
+    };
+    ApiError::new(503, format!("LocalSend ne peut pas {action} : {reason}."))
+}
 
 fn now() -> u64 {
     SystemTime::now()
@@ -752,6 +800,7 @@ struct Network {
     stop: watch::Sender<bool>,
     tasks: Vec<JoinHandle<()>>,
     socket: Option<Arc<tokio::net::UdpSocket>>,
+    interfaces: Vec<Ipv4Addr>,
 }
 
 #[derive(Clone)]
@@ -784,6 +833,7 @@ pub struct LocalSend {
     network: Mutex<Option<Network>>,
     lifecycle: Mutex<()>,
     receive_queue: Mutex<()>,
+    discovery_scan: Mutex<()>,
     disposed: AtomicBool,
     port: AtomicU64,
     options: Options,
@@ -820,6 +870,7 @@ impl LocalSend {
             network: Mutex::new(None),
             lifecycle: Mutex::new(()),
             receive_queue: Mutex::new(()),
+            discovery_scan: Mutex::new(()),
             disposed: AtomicBool::new(false),
             port: AtomicU64::new(options.port as u64),
             options,
@@ -852,6 +903,18 @@ impl LocalSend {
         if checking { return Ok(()); }
         self.start().await?;
         self.announce(true).await;
+        if !self.options.allow_loopback {
+            let mut network = self.network.lock().await;
+            if let Some(network) = network.as_mut().filter(|network| self.discovery_fallback(network)) {
+                let stopped = network.stop.subscribe();
+                let weak = Arc::downgrade(self);
+                network.tasks.push(tokio::spawn(async move {
+                    if let (Some(service), Some(local)) = (weak.upgrade(), crate::health::local_ipv4()) {
+                        let _ = service.scan_running(local, stopped).await;
+                    }
+                }));
+            }
+        }
         Ok(())
     }
 
@@ -882,7 +945,26 @@ impl LocalSend {
         match value["command"].as_str().unwrap_or_default() {
             "discover" => {
                 self.start().await?;
+                let candidates = if_addrs::get_if_addrs()
+                    .map_err(|error| network_error("repérer les interfaces du réseau local", error))?
+                    .into_iter().filter_map(|interface| match interface.ip() {
+                        IpAddr::V4(ip) if is_lan(ip.into(), false) => Some(ip),
+                        _ => None,
+                    }).collect();
+                {
+                    let mut network = self.network.lock().await;
+                    if let Some(network) = network.as_mut() {
+                        if let Some(socket) = network.socket.as_ref() {
+                            refresh_discovery_interfaces(socket, &mut network.interfaces, candidates)?;
+                        }
+                    }
+                }
                 self.announce(true).await;
+                if !self.options.allow_loopback && self.uses_tcp_discovery().await {
+                    if let Some(local) = crate::health::local_ipv4() {
+                        return self.scan_running(local, self.network_session().await?).await;
+                    }
+                }
                 Ok(self.snapshot().await)
             }
             "connect" => self.connect(value["address"].as_str().unwrap()).await,
@@ -916,13 +998,17 @@ impl LocalSend {
         self.remember_peer(peer).await
     }
 
-    async fn remember_peer(&self, mut peer: Peer) -> Option<Peer> {
+    async fn remember_peer(&self, peer: Peer) -> Option<Peer> {
+        self.remember_peer_in_session(peer, None).await
+    }
+
+    async fn remember_peer_in_session(&self, mut peer: Peer, stopped: Option<&watch::Receiver<bool>>) -> Option<Peer> {
         if peer.fingerprint == self.identity.fingerprint {
             return None;
         }
         let key = format!("{}:{}", peer.protocol, peer.fingerprint);
         let mut state = self.state.lock().await;
-        if !state.available {
+        if !state.available || stopped.is_some_and(|stopped| *stopped.borrow()) {
             return None;
         }
         if let Some(known) = state.peers.get(&key) {
@@ -980,49 +1066,131 @@ impl LocalSend {
             ApiError::new(400, "Indique une adresse IP locale et un port valide, par exemple 192.168.1.42:53317.")
         })?;
         self.start().await?;
+        self.register_endpoint(address, None, self.network_session().await?).await?;
+        Ok(self.snapshot().await)
+    }
+
+    async fn network_session(&self) -> Result<watch::Receiver<bool>, ApiError> {
+        self.network.lock().await.as_ref().map(|network| network.stop.subscribe())
+            .ok_or_else(|| ApiError::new(409, "La recherche LocalSend a été arrêtée."))
+    }
+
+    fn discovery_fallback(&self, network: &Network) -> bool {
+        self.options.discovery_port != 0 && network.socket.as_ref().is_some_and(|socket|
+            socket.local_addr().is_ok_and(|address| address.port() != self.options.discovery_port))
+    }
+
+    async fn uses_tcp_discovery(&self) -> bool {
+        self.network.lock().await.as_ref().is_some_and(|network| self.discovery_fallback(network))
+    }
+
+    async fn register_endpoint(&self, address: SocketAddr, expected: Option<String>, stopped: watch::Receiver<bool>) -> Result<Peer, ApiError> {
+        if !is_lan(address.ip(), self.options.allow_loopback) || address.port() == 0 || *stopped.borrow() {
+            return Err(ApiError::new(409, "La recherche LocalSend a été arrêtée."));
+        }
         let endpoint = Peer {
             id: token(),
             alias: String::new(),
             device_type: "desktop".into(),
             device_model: None,
             protocol: "https".into(),
-            fingerprint: String::new(),
+            fingerprint: expected.clone().unwrap_or_default(),
             address: address.ip(),
             port: address.port(),
             seen_at: now(),
         };
-        // Bootstrap only this user-selected numeric endpoint; subsequent sends pin its certificate.
-        let response = self
-            .peer_client(&endpoint, None)?
-            .post(endpoint.url("register"))
-            .json(&self.information())
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await
-            .map_err(|_| ApiError::new(503, "Cet appareil LocalSend est indisponible. Vérifie l’IP, le port et le même réseau Wi-Fi."))?;
-        if response.status() != StatusCode::OK {
-            return Err(ApiError::new(503, "Cet appareil a refusé la connexion LocalSend."));
+        let operation = async {
+            // Unpinned discovery is limited to a numeric LAN endpoint; later traffic pins its certificate.
+            let response = self
+                .peer_client(&endpoint, expected)?
+                .post(endpoint.url("register"))
+                .json(&self.information())
+                .timeout(Duration::from_secs(10))
+                .send()
+                .await
+                .map_err(|_| ApiError::new(503, "Cet appareil LocalSend est indisponible. Vérifie l’IP, le port et le même réseau Wi-Fi."))?;
+            if response.status() != StatusCode::OK {
+                return Err(ApiError::new(503, "Cet appareil a refusé la connexion LocalSend."));
+            }
+            let certificate = response
+                .extensions()
+                .get::<reqwest::tls::TlsInfo>()
+                .and_then(|info| info.peer_certificate())
+                .map(digest)
+                .ok_or_else(|| ApiError::new(503, "L’identité TLS de cet appareil est indisponible."))?;
+            let mut information = read_response(response).await?;
+            if !information.is_object() { return Err(ApiError::new(503, "Réponse LocalSend invalide.")); }
+            // Protocol v2 register replies omit these fields; the verified endpoint supplies them.
+            information["protocol"] = endpoint.protocol.clone().into();
+            information["port"] = endpoint.port.into();
+            let peer = Peer::parse(
+                &information,
+                address.ip(),
+                self.options.allow_loopback,
+                false,
+            )
+            .filter(|peer| peer.protocol == "https" && peer.fingerprint == certificate)
+            .ok_or_else(|| ApiError::new(503, "L’identité LocalSend ne correspond pas au certificat de cet appareil."))?;
+            self.remember_peer_in_session(peer, Some(&stopped))
+                .await
+                .ok_or_else(|| ApiError::new(409, "Cet appareil ne peut pas être ajouté à la recherche actuelle."))
+        };
+        let mut cancellation = stopped.clone();
+        tokio::select! {
+            biased;
+            _ = cancelled(&mut cancellation) => Err(ApiError::new(499, "Recherche LocalSend arrêtée.")),
+            result = operation => result,
         }
-        let certificate = response
-            .extensions()
-            .get::<reqwest::tls::TlsInfo>()
-            .and_then(|info| info.peer_certificate())
-            .map(digest)
-            .ok_or_else(|| ApiError::new(503, "L’identité TLS de cet appareil est indisponible."))?;
-        let information = read_response(response).await?;
-        let mut peer = Peer::parse(
-            &information,
-            address.ip(),
-            self.options.allow_loopback,
-            false,
-        )
-        .filter(|peer| peer.protocol == "https" && peer.fingerprint == certificate)
-        .ok_or_else(|| ApiError::new(503, "L’identité LocalSend ne correspond pas au certificat de cet appareil."))?;
-        peer.port = address.port();
-        self.remember_peer(peer)
-            .await
-            .ok_or_else(|| ApiError::new(409, "Cet appareil ne peut pas être ajouté à la recherche actuelle."))?;
-        Ok(self.snapshot().await)
+    }
+
+    async fn verify_endpoints(self: &Arc<Self>, endpoints: Vec<(SocketAddr, Option<String>)>, stopped: watch::Receiver<bool>, maximum: usize) -> Result<usize, ApiError> {
+        if *stopped.borrow() { return Err(ApiError::new(499, "Recherche LocalSend arrêtée.")); }
+        let requests = futures_util::stream::iter(endpoints.into_iter().take(maximum)).map(|(endpoint, expected)| {
+            let service = self.clone();
+            let stopped = stopped.clone();
+            async move {
+                tokio::time::timeout(DISCOVERY_HANDSHAKE_TIMEOUT, service.register_endpoint(endpoint, expected, stopped))
+                    .await.is_ok_and(|result| result.is_ok())
+            }
+        }).buffer_unordered(crate::discovery::CONCURRENCY).filter(|accepted| std::future::ready(*accepted)).count();
+        let mut cancellation = stopped.clone();
+        tokio::select! {
+            biased;
+            _ = cancelled(&mut cancellation) => Err(ApiError::new(499, "Recherche LocalSend arrêtée.")),
+            count = requests => Ok(count),
+        }
+    }
+
+    pub async fn scan_local_network(self: &Arc<Self>, local: Ipv4Addr) -> Result<Value, ApiError> {
+        if self.options.allow_loopback { return Err(ApiError::new(400, "La recherche de sous-réseau est désactivée pour cet essai isolé.")); }
+        self.start().await?;
+        self.scan_running(local, self.network_session().await?).await
+    }
+
+    async fn scan_running(self: &Arc<Self>, local: Ipv4Addr, stopped: watch::Receiver<bool>) -> Result<Value, ApiError> {
+        if *stopped.borrow() { return Err(ApiError::new(499, "Recherche LocalSend arrêtée.")); }
+        let Ok(_scan) = self.discovery_scan.try_lock() else { return Ok(self.snapshot().await); };
+        if self.options.allow_loopback { return Err(ApiError::new(400, "La recherche de sous-réseau est désactivée pour cet essai isolé.")); }
+        let mut cancellation = stopped.clone();
+        let candidates = tokio::select! {
+            biased;
+            _ = cancelled(&mut cancellation) => return Err(ApiError::new(499, "Recherche LocalSend arrêtée.")),
+            result = crate::discovery::scan_subnet(local, crate::discovery::PORT) => match result {
+                Err(error) if error.status == 409 => return Ok(self.snapshot().await),
+                result => result?,
+            },
+        };
+        let count = candidates.len();
+        let verified = self.verify_endpoints(candidates.into_iter().map(|endpoint| (endpoint.into(), None)).collect(), stopped, DISCOVERY_HANDSHAKES).await?;
+        let mut snapshot = self.snapshot().await;
+        snapshot["scan"] = json!({"localIpv4":local,"port":crate::discovery::PORT,"tcpCandidates":count,"handshakesAccepted":verified,"bounded":true});
+        Ok(snapshot)
+    }
+
+    async fn refresh_known_peers(self: &Arc<Self>, stopped: watch::Receiver<bool>) -> Result<usize, ApiError> {
+        let endpoints = self.state.lock().await.peers.values().filter(|peer| peer.protocol == "https")
+            .map(|peer| (SocketAddr::new(peer.address, peer.port), Some(peer.fingerprint.clone()))).collect();
+        self.verify_endpoints(endpoints, stopped, MAX_PEERS).await
     }
 
     async fn start(self: &Arc<Self>) -> Result<(), ApiError> {
@@ -1051,7 +1219,7 @@ impl LocalSend {
                 let mut state = self.state.lock().await;
                 state.available = false;
                 state.status = "error".into();
-                state.error = Some("LocalSend ne peut pas écouter le réseau local. Vérifie le réseau et les autorisations Windows.".into());
+                state.error = Some(error.message.clone());
                 Err(error)
             }
         }
@@ -1065,30 +1233,36 @@ impl LocalSend {
                 } else {
                     Err(error)
                 }
-            })?;
-        listener.set_nonblocking(true)?;
+            }).map_err(|error| network_error("ouvrir son port TCP", error))?;
+        listener.set_nonblocking(true).map_err(|error| network_error("préparer son écoute TCP", error))?;
         self.port
-            .store(listener.local_addr()?.port() as u64, Ordering::Release);
+            .store(listener.local_addr().map_err(|error| network_error("lire son port TCP", error))?.port() as u64, Ordering::Release);
+        let mut interfaces = Vec::new();
         let socket = if self.options.multicast {
-            let udp = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-            udp.set_reuse_address(true)?;
-            udp.bind(
-                &SocketAddr::from((Ipv4Addr::UNSPECIFIED, self.options.discovery_port)).into(),
-            )?;
-            let mut joined = false;
+            let udp = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))
+                .map_err(|error| network_error("créer sa découverte UDP", error))?;
+            udp.set_reuse_address(true).map_err(|error| network_error("préparer sa découverte UDP", error))?;
+            // A Windows UDP exclusion can reserve 53317 while the TCP transfer port remains free.
+            bind_discovery_port(self.options.discovery_port, |port| {
+                udp.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)).into())
+            }).map_err(|error| network_error("ouvrir son port de découverte UDP", error))?;
             for interface in if_addrs::get_if_addrs().unwrap_or_default() {
                 if let IpAddr::V4(ip) = interface.ip() {
-                    if is_lan(ip.into(), false) && udp.join_multicast_v4(&GROUP, &ip).is_ok() {
-                        joined = true;
+                    if is_lan(ip.into(), false) && !interfaces.contains(&ip)
+                        && udp.join_multicast_v4(&GROUP, &ip).is_ok() {
+                        interfaces.push(ip);
                     }
                 }
             }
-            if !joined {
-                udp.join_multicast_v4(&GROUP, &Ipv4Addr::UNSPECIFIED)?;
+            if interfaces.is_empty() {
+                udp.join_multicast_v4(&GROUP, &Ipv4Addr::UNSPECIFIED)
+                    .map_err(|error| network_error("rejoindre la découverte du réseau local", error))?;
+                interfaces.push(Ipv4Addr::UNSPECIFIED);
             }
-            udp.set_multicast_ttl_v4(1)?;
-            udp.set_nonblocking(true)?;
-            Some(Arc::new(tokio::net::UdpSocket::from_std(udp.into())?))
+            udp.set_multicast_ttl_v4(1).map_err(|error| network_error("limiter sa découverte au réseau local", error))?;
+            udp.set_nonblocking(true).map_err(|error| network_error("préparer son écoute UDP", error))?;
+            Some(Arc::new(tokio::net::UdpSocket::from_std(udp.into())
+                .map_err(|error| network_error("démarrer sa découverte UDP", error))?))
         } else {
             None
         };
@@ -1129,12 +1303,18 @@ impl LocalSend {
         let weak = Arc::downgrade(self);
         let maintenance = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(10));
+            let mut refresh_at = tokio::time::Instant::now() + KNOWN_PEER_REFRESH;
             loop {
                 tokio::select! { _ = stopped.changed() => break, _ = interval.tick() => {
                     let Some(service) = weak.upgrade() else { break; };
                     let mut state = service.state.lock().await; state.peers.retain(|_, peer| now().saturating_sub(peer.seen_at) < PEER_TTL);
                     state.rates.retain(|_, (at, _)| now().saturating_sub(*at) < 10000); drop(state);
                     service.announce(true).await;
+                    if !service.options.allow_loopback && tokio::time::Instant::now() >= refresh_at
+                        && service.uses_tcp_discovery().await {
+                        refresh_at = tokio::time::Instant::now() + KNOWN_PEER_REFRESH;
+                        let _ = service.refresh_known_peers(stopped.clone()).await;
+                    }
                 } }
             }
         });
@@ -1157,6 +1337,7 @@ impl LocalSend {
             stop,
             tasks,
             socket,
+            interfaces,
         })
     }
 
@@ -1164,25 +1345,28 @@ impl LocalSend {
         if !self.state.lock().await.available {
             return;
         }
-        let socket = self
-            .network
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|network| network.socket.clone());
-        if let Some(socket) = socket {
+        // Hold the network lock while selecting an interface and sending on the shared socket.
+        let network = self.network.lock().await;
+        if let Some(network) = network.as_ref() {
+            let Some(socket) = network.socket.as_ref() else { return; };
             let mut info = self.information();
             info["announce"] = announce.into();
             if let Ok(bytes) = serde_json::to_vec(&info) {
-                let _ = socket
-                    .send_to(&bytes, (GROUP, self.options.discovery_port))
-                    .await;
+                let options = socket2::SockRef::from(socket.as_ref());
+                for interface in &network.interfaces {
+                    if options.set_multicast_if_v4(interface).is_ok() {
+                        let _ = socket.send_to(&bytes, (GROUP, self.options.discovery_port)).await;
+                    }
+                }
             }
         }
     }
 
     async fn datagram(self: &Arc<Self>, value: Value, address: IpAddr) {
-        let Some(peer) = self.remember(&value, address).await else {
+        let Ok(stopped) = self.network_session().await else { return; };
+        if *stopped.borrow() { return; }
+        let Some(peer) = Peer::parse(&value, address, self.options.allow_loopback, false) else { return; };
+        let Some(peer) = self.remember_peer_in_session(peer, Some(&stopped)).await else {
             return;
         };
         if value["announce"] != true {
@@ -1190,6 +1374,7 @@ impl LocalSend {
         }
         {
             let mut state = self.state.lock().await;
+            if !state.available || *stopped.borrow() { return; }
             if now().saturating_sub(*state.replies.get(&address).unwrap_or(&0)) < 3000 {
                 return;
             }
@@ -1205,27 +1390,40 @@ impl LocalSend {
             let Some(service) = weak.upgrade() else {
                 return;
             };
-            let response = async {
-                let client = service.client(&peer)?;
-                let response = client
-                    .post(peer.url("register"))
-                    .json(&service.information())
-                    .timeout(Duration::from_secs(10))
-                    .send()
-                    .await
-                    .map_err(|_| ApiError::new(503, "Appareil indisponible."))?;
-                if response.status() != StatusCode::OK {
-                    return Err(ApiError::new(503, "Appareil indisponible."));
+            let operation = async {
+                let response = async {
+                    let client = service.client(&peer)?;
+                    let response = client
+                        .post(peer.url("register"))
+                        .json(&service.information())
+                        .timeout(Duration::from_secs(10))
+                        .send()
+                        .await
+                        .map_err(|_| ApiError::new(503, "Appareil indisponible."))?;
+                    if response.status() != StatusCode::OK {
+                        return Err(ApiError::new(503, "Appareil indisponible."));
+                    }
+                    let information = read_response(response).await?;
+                    if !information.is_object() { return Err(ApiError::new(503, "Réponse LocalSend invalide.")); }
+                    Ok(information)
                 }
-                read_response(response).await
-            }
-            .await;
-            if let Ok(mut info) = response {
-                info["port"] = peer.port.into();
-                info["protocol"] = peer.protocol.into();
-                let _ = service.remember(&info, address).await;
-            } else {
-                service.announce(false).await;
+                .await;
+                if let Ok(mut info) = response {
+                    info["port"] = peer.port.into();
+                    info["protocol"] = peer.protocol.clone().into();
+                    if let Some(registered) = Peer::parse(&info, address, service.options.allow_loopback, false)
+                        .filter(|registered| peer.protocol != "https" || registered.fingerprint == peer.fingerprint) {
+                        let _ = service.remember_peer_in_session(registered, Some(&stopped)).await;
+                    }
+                } else if !*stopped.borrow() {
+                    service.announce(false).await;
+                }
+            };
+            let mut cancellation = stopped.clone();
+            tokio::select! {
+                biased;
+                _ = cancelled(&mut cancellation) => {},
+                _ = operation => {},
             }
         });
     }
@@ -2034,8 +2232,8 @@ async fn prepare_http(service: Arc<LocalSend>, address: IpAddr, request: Request
         }
     };
     if value["info"]["protocol"] == "https" {
-        if let Some(fingerprint) = fingerprint {
-            value["info"]["fingerprint"] = fingerprint.0.into();
+        if let Some(fingerprint) = fingerprint.as_ref() {
+            value["info"]["fingerprint"] = fingerprint.0.clone().into();
         }
     }
     let files = match parse_offer(&value) {
@@ -2056,6 +2254,8 @@ async fn prepare_http(service: Arc<LocalSend>, address: IpAddr, request: Request
             json!({"message":"Les informations de cet appareil sont invalides."}),
         );
     };
+    let remembered = (peer.protocol == "https" && !peer.fingerprint.is_empty()
+        && fingerprint.as_ref().is_some_and(|certificate| certificate.0 == peer.fingerprint)).then(|| peer.clone());
     let (response, received) = oneshot::channel();
     let (cancel, _) = watch::channel(false);
     let (activity, _) = watch::channel(());
@@ -2088,6 +2288,9 @@ async fn prepare_http(service: Arc<LocalSend>, address: IpAddr, request: Request
         offer: offer.clone(),
         armed: true,
     };
+    if let Some(peer) = remembered {
+        service.remember_peer(peer).await;
+    }
     let weak = Arc::downgrade(&service);
     let session_offer = offer.clone();
     let session_time = service.options.session;
@@ -2489,9 +2692,54 @@ mod tests {
         service.dispose().await;
     }
 
+    #[test]
+    fn discovery_bind_falls_back_once_only_for_reserved_or_occupied_ports() {
+        for kind in [io::ErrorKind::AddrInUse, io::ErrorKind::PermissionDenied] {
+            let mut ports = Vec::new();
+            bind_discovery_port(PORT, |port| {
+                ports.push(port);
+                if port == PORT { Err(io::Error::from(kind)) } else { Ok(()) }
+            }).unwrap();
+            assert_eq!(ports, [PORT, 0]);
+        }
+        for (port, kind, expected) in [
+            (PORT, io::ErrorKind::AddrNotAvailable, vec![PORT]),
+            (0, io::ErrorKind::PermissionDenied, vec![0]),
+            (PORT, io::ErrorKind::PermissionDenied, vec![PORT, 0]),
+        ] {
+            let mut ports = Vec::new();
+            let failure = bind_discovery_port(port, |port| {
+                ports.push(port);
+                Err(io::Error::from(kind))
+            }).unwrap_err();
+            assert_eq!(failure.kind(), kind);
+            assert_eq!(ports, expected, "a persistent failure must remain an error");
+        }
+        let message = network_error("ouvrir son port de découverte UDP", io::Error::from(io::ErrorKind::PermissionDenied));
+        assert!(message.message.contains("UDP") && message.message.contains("Windows"));
+        assert!(!message.message.contains("stockage"));
+    }
+
     #[tokio::test]
-    async fn launch_listener_failure_is_retained_for_the_interface_without_claiming_readiness() {
-        let (_directory, mut service) = unstarted_fixture().await;
+    async fn discovery_interfaces_refresh_without_duplicates_or_stale_send_addresses() {
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
+        socket.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into()).unwrap();
+        socket.join_multicast_v4(&GROUP, &Ipv4Addr::UNSPECIFIED).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let socket = tokio::net::UdpSocket::from_std(socket.into()).unwrap();
+        let mut interfaces = vec![Ipv4Addr::UNSPECIFIED];
+        // Membership changes alone send no application identity or discovery announcement.
+        refresh_discovery_interfaces(&socket, &mut interfaces, vec![Ipv4Addr::LOCALHOST, Ipv4Addr::LOCALHOST]).unwrap();
+        assert_eq!(interfaces, [Ipv4Addr::LOCALHOST]);
+        refresh_discovery_interfaces(&socket, &mut interfaces, vec![Ipv4Addr::UNSPECIFIED]).unwrap();
+        assert_eq!(interfaces, [Ipv4Addr::UNSPECIFIED]);
+        refresh_discovery_interfaces(&socket, &mut interfaces, vec![]).unwrap();
+        assert_eq!(interfaces, [Ipv4Addr::UNSPECIFIED]);
+    }
+
+    #[tokio::test]
+    async fn occupied_discovery_port_keeps_original_announcement_target_and_tls_exe_sharing() {
+        let (directory, mut service) = unstarted_fixture().await;
         let occupied = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
         #[cfg(windows)]
         {
@@ -2504,15 +2752,96 @@ mod tests {
         }
         occupied.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into()).unwrap();
         let port = occupied.local_addr().unwrap().as_socket().unwrap().port();
+        occupied.join_multicast_v4(&GROUP, &Ipv4Addr::LOCALHOST).unwrap();
+        occupied.set_nonblocking(true).unwrap();
+        let announcements = tokio::net::UdpSocket::from_std(occupied.into()).unwrap();
         let options = &mut Arc::get_mut(&mut service).unwrap().options;
         options.discovery_port = port;
         options.multicast = true;
-        // Only an ephemeral test port is occupied; multicast fails at bind, before any announcement.
-        assert!(service.start_on_launch(false).await.is_err());
+        service.start().await.unwrap();
+        // This single-threaded fixture confines every announcement to loopback.
+        service.network.lock().await.as_mut().unwrap().interfaces = vec![Ipv4Addr::LOCALHOST];
+        service.start_on_launch(false).await.unwrap();
+        let state = service.snapshot().await;
+        assert_eq!(state["available"], true);
+        assert!(state["error"].is_null());
+        let udp = service.network.lock().await.as_ref().unwrap().socket.clone().unwrap();
+        assert_ne!(udp.local_addr().unwrap().port(), port);
+        service.announce(true).await;
+        let mut bytes = [0; 4096];
+        let (length, address) = tokio::time::timeout(Duration::from_secs(2), announcements.recv_from(&mut bytes))
+            .await.unwrap().unwrap();
+        assert_eq!(address.port(), udp.local_addr().unwrap().port());
+        assert_eq!(address.ip(), IpAddr::V4(Ipv4Addr::LOCALHOST), "announce must select its configured interface");
+        let information: Value = serde_json::from_slice(&bytes[..length]).unwrap();
+        assert_eq!(information["announce"], true);
+        assert_eq!(information["port"], service.port.load(Ordering::Acquire));
+        assert_ne!(information["port"], 0);
+
+        let (_receiver_directory, receiver, _client, _base) = fixture().await;
+        // An independent client uses only the captured announcement and the public register route.
+        let endpoint = Peer::parse(&information, address.ip(), true, false).unwrap();
+        let client = receiver.client(&endpoint).unwrap();
+        let mut registration = receiver.information();
+        registration["fingerprint"] = "ignored-in-authenticated-register".into();
+        let response = client.post(endpoint.url("register")).json(&registration).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let reply = read_response(response).await.unwrap();
+        assert_eq!(reply["port"], information["port"]);
+        assert_eq!(reply["fingerprint"], information["fingerprint"]);
+        let peer = service.state.lock().await.peers.values()
+            .find(|peer| peer.fingerprint == receiver.identity.fingerprint).cloned().unwrap();
+        assert_eq!(peer.protocol, "https");
+        let response = client.post(endpoint.url("register")).json(&registration).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let peers = service.snapshot().await;
+        assert_eq!(peers["peers"].as_array().unwrap().len(), 1);
+        assert_eq!(peers["peers"][0]["id"], peer.id, "registration refreshes the existing device");
+
+        let tools = Arc::new(FileTools::new(service.shelf.as_ref().clone(), directory.path().join("unused-ocr-helper.exe")).await.unwrap());
+        let name = "Notchy setup test.exe";
+        let mut payload = (0..131_113).map(|index| (index % 251) as u8).collect::<Vec<_>>();
+        payload[..2].copy_from_slice(b"MZ");
+        let expected_hash = digest(&payload);
+        let staged = tools.add_input_stream(name, futures_util::stream::once(async {
+            Ok::<_, io::Error>(bytes::Bytes::from(payload.clone()))
+        }), Some(payload.len() as u64)).await.unwrap();
+        let id = staged["item"]["id"].as_str().unwrap().to_owned();
+        assert!(staged["item"]["thumbnail"].is_null());
+        let receiver_copy = receiver.clone();
+        let consent = tokio::spawn(async move {
+            let incoming = wait_incoming(&receiver_copy).await;
+            assert!(receiver_copy.shelf.list().await.unwrap()["items"].as_array().unwrap().is_empty());
+            receiver_copy.accept(incoming["id"].as_str().unwrap()).await.unwrap();
+            incoming
+        });
+        let result = service.command(json!({"command":"share","source":"files","peerId":peer.id,"ids":[id]}), &tools).await.unwrap();
+        assert_eq!(consent.await.unwrap()["files"], json!([{"name":name,"size":payload.len()}]));
+        assert_eq!(result["transfer"]["status"], "complete");
+        let received = uploaded_bytes(&receiver).await;
+        assert_eq!(received, vec![payload.clone()]);
+        assert_eq!(digest(&received[0]), expected_hash);
+        let stored = receiver.shelf.list().await.unwrap();
+        assert_eq!(stored["items"][0]["name"], name);
+        assert_eq!(stored["items"][0]["received"], true);
+        #[cfg(windows)]
+        assert_eq!(stored["items"][0]["originProtected"], true);
+        assert_eq!(tools.open_input(&id, false).await.unwrap().item["name"], name);
+        tools.dispose().await;
+        receiver.dispose().await;
+        service.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn launch_failure_keeps_its_precise_error_without_claiming_readiness() {
+        let (_directory, mut service) = unstarted_fixture().await;
+        Arc::get_mut(&mut service).unwrap().identity.key = "invalid test key".into();
+        let failure = service.start_on_launch(false).await.unwrap_err();
         let state = service.snapshot().await;
         assert_eq!(state["available"], false);
         assert_eq!(state["status"], "error");
-        assert_eq!(state["error"], "LocalSend ne peut pas écouter le réseau local. Vérifie le réseau et les autorisations Windows.");
+        assert_eq!(state["error"], failure.message);
+        assert!(state["error"].as_str().unwrap().contains("TLS"));
         assert!(service.network.lock().await.is_none());
         service.dispose().await;
     }
@@ -2643,6 +2972,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn manual_connection_accepts_a_standard_tls_register_response_without_protocol_or_port() {
+        let (_sender_directory, sender, _, _) = fixture().await;
+        let (_receiver_directory, receiver, _, _) = fixture().await;
+        let mut information = receiver.information();
+        information.as_object_mut().unwrap().remove("protocol");
+        information.as_object_mut().unwrap().remove("port");
+        let app = Router::new().route(
+            "/api/localsend/v2/register",
+            axum::routing::post(move || {
+                let information = information.clone();
+                async move { axum::Json(information) }
+            }),
+        );
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = axum_server::Handle::new();
+        let server = tokio::spawn(axum_server::from_tcp_rustls(listener, receiver.identity.server_config().await.unwrap())
+            .handle(handle.clone()).serve(app.into_make_service()));
+        let state = sender.connect(&address.to_string()).await
+            .expect("the verified endpoint supplies protocol and port omitted by a standard register reply");
+        let first = state["peers"][0].clone();
+        let peer = sender.state.lock().await.peers.values().next().unwrap().clone();
+        assert_eq!(peer.protocol, "https");
+        assert_eq!(peer.port, address.port());
+        assert_eq!(peer.fingerprint, receiver.identity.fingerprint);
+        assert_eq!(sender.connect(&address.to_string()).await.unwrap()["peers"][0]["id"], first["id"]);
+        handle.shutdown();
+        server.await.unwrap().unwrap();
+        sender.dispose().await;
+        receiver.dispose().await;
+    }
+
+    #[tokio::test]
     async fn manual_connection_never_adds_a_peer_with_a_mismatched_tls_identity() {
         let (_sender_directory, sender, _, _) = fixture().await;
         let (_receiver_directory, receiver, _, _) = fixture().await;
@@ -2676,6 +3038,215 @@ mod tests {
         server.await.unwrap().unwrap();
         sender.dispose().await;
         receiver.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn endpoint_registration_rejects_nonobject_json_without_panicking_or_remembering_a_peer() {
+        let (_sender_directory, sender, _, _) = fixture().await;
+        let (_receiver_directory, receiver) = unstarted_fixture().await;
+        let body = Arc::new(Mutex::new(json!([])));
+        let response = body.clone();
+        let app = Router::new().route("/api/localsend/v2/register", axum::routing::post(move || {
+            let response = response.clone();
+            async move { axum::Json(response.lock().await.clone()) }
+        }));
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = axum_server::Handle::new();
+        let server = tokio::spawn(axum_server::from_tcp_rustls(listener, receiver.identity.server_config().await.unwrap())
+            .handle(handle.clone()).serve(app.into_make_service()));
+        for invalid in [json!([]), json!("invalid"), Value::Null] {
+            *body.lock().await = invalid;
+            let failure = sender.connect(&address.to_string()).await.unwrap_err();
+            assert_eq!(failure.status, 503);
+            assert!(failure.message.contains("invalide"));
+            assert_eq!(sender.snapshot().await["peers"], json!([]));
+        }
+        handle.shutdown();
+        server.await.unwrap().unwrap();
+        sender.dispose().await;
+        receiver.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn endpoint_discovery_is_bounded_and_known_refresh_keeps_the_pinned_identity() {
+        use std::sync::atomic::AtomicUsize;
+        let (_sender_directory, sender, _, _) = fixture().await;
+        let (_receiver_directory, receiver) = unstarted_fixture().await;
+        let mut information = receiver.information();
+        information.as_object_mut().unwrap().remove("protocol");
+        information.as_object_mut().unwrap().remove("port");
+        let requests = Arc::new(AtomicUsize::new(0));
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let (count, working, maximum) = (requests.clone(), active.clone(), peak.clone());
+        let app = Router::new().route("/api/localsend/v2/register", axum::routing::post(move || {
+            let (information, count, working, maximum) = (information.clone(), count.clone(), working.clone(), maximum.clone());
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                let current = working.fetch_add(1, Ordering::SeqCst) + 1;
+                maximum.fetch_max(current, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                working.fetch_sub(1, Ordering::SeqCst);
+                axum::Json(information)
+            }
+        }));
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = axum_server::Handle::new();
+        let server = tokio::spawn(axum_server::from_tcp_rustls(listener, receiver.identity.server_config().await.unwrap())
+            .handle(handle.clone()).serve(app.into_make_service()));
+        let stopped = sender.network_session().await.unwrap();
+        let accepted = sender.verify_endpoints(vec![(address, None); 40], stopped.clone(), DISCOVERY_HANDSHAKES).await.unwrap();
+        assert_eq!(accepted, 32);
+        assert_eq!(requests.load(Ordering::SeqCst), 32);
+        assert!(peak.load(Ordering::SeqCst) <= crate::discovery::CONCURRENCY);
+        let key = format!("https:{}", receiver.identity.fingerprint);
+        let (id, previous) = {
+            let mut state = sender.state.lock().await;
+            assert_eq!(state.peers.len(), 1);
+            let peer = state.peers.get_mut(&key).unwrap();
+            peer.seen_at = now().saturating_sub(45_000);
+            (peer.id.clone(), peer.seen_at)
+        };
+        assert_eq!(sender.refresh_known_peers(stopped.clone()).await.unwrap(), 1);
+        assert_eq!(requests.load(Ordering::SeqCst), 33, "refresh only contacts the known endpoint");
+        {
+            let mut state = sender.state.lock().await;
+            let peer = state.peers.get_mut(&key).unwrap();
+            assert_eq!(peer.id, id);
+            assert!(peer.seen_at > previous);
+            peer.seen_at = previous;
+            peer.fingerprint = "0".repeat(64);
+        }
+        assert_eq!(sender.refresh_known_peers(stopped).await.unwrap(), 0, "a different certificate is never bootstrapped during refresh");
+        assert_eq!(requests.load(Ordering::SeqCst), 33);
+        assert_eq!(sender.state.lock().await.peers[&key].seen_at, previous);
+        handle.shutdown();
+        server.await.unwrap().unwrap();
+        sender.dispose().await;
+        receiver.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn stop_cancels_a_deferred_discovery_handshake_without_reopening_or_late_peers() {
+        let (_sender_directory, sender, _, _) = fixture().await;
+        let (_receiver_directory, receiver) = unstarted_fixture().await;
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (began, resume, information) = (started.clone(), release.clone(), receiver.information());
+        let app = Router::new().route("/api/localsend/v2/register", axum::routing::post(move || {
+            let (began, resume, information) = (began.clone(), resume.clone(), information.clone());
+            async move {
+                began.notify_one();
+                resume.notified().await;
+                axum::Json(information)
+            }
+        }));
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = axum_server::Handle::new();
+        let server = tokio::spawn(axum_server::from_tcp_rustls(listener, receiver.identity.server_config().await.unwrap())
+            .handle(handle.clone()).serve(app.into_make_service()));
+        let stopped = sender.network_session().await.unwrap();
+        let service = sender.clone();
+        let scanning = tokio::spawn(async move { service.verify_endpoints(vec![(address, None)], stopped, DISCOVERY_HANDSHAKES).await });
+        tokio::time::timeout(Duration::from_secs(2), started.notified()).await.unwrap();
+        sender.stop().await;
+        let result = tokio::time::timeout(Duration::from_secs(1), scanning).await.unwrap().unwrap();
+        assert_eq!(result.unwrap_err().status, 499);
+        assert_eq!(sender.snapshot().await["available"], false);
+        assert!(sender.network.lock().await.is_none());
+        release.notify_one();
+        sender.start().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(sender.snapshot().await["peers"], json!([]));
+        handle.shutdown();
+        server.await.unwrap().unwrap();
+        sender.dispose().await;
+        receiver.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn stopped_datagram_callbacks_never_restore_peers_or_emit_late_announcements() {
+        for status in [StatusCode::OK, StatusCode::INTERNAL_SERVER_ERROR] {
+            let capture = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
+            capture.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into()).unwrap();
+            let target = capture.local_addr().unwrap().as_socket().unwrap().port();
+            capture.join_multicast_v4(&GROUP, &Ipv4Addr::LOCALHOST).unwrap();
+            capture.set_nonblocking(true).unwrap();
+            let capture = tokio::net::UdpSocket::from_std(capture.into()).unwrap();
+            let (_directory, mut service) = unstarted_fixture().await;
+            Arc::get_mut(&mut service).unwrap().options.discovery_port = target;
+            service.start().await.unwrap();
+            let outgoing = Arc::new(tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap());
+            {
+                let mut network = service.network.lock().await;
+                let network = network.as_mut().unwrap();
+                network.socket = Some(outgoing.clone());
+                network.interfaces = vec![Ipv4Addr::LOCALHOST];
+            }
+            let (_remote_directory, remote) = unstarted_fixture().await;
+            let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let address = listener.local_addr().unwrap();
+            let mut information = remote.information();
+            information["port"] = address.port().into();
+            let (started, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+            let (began, resume, reply) = (started.clone(), release.clone(), information.clone());
+            let app = Router::new().route("/api/localsend/v2/register", axum::routing::post(move || {
+                let (began, resume, reply) = (began.clone(), resume.clone(), reply.clone());
+                async move {
+                    began.notify_one();
+                    resume.notified().await;
+                    (status, axum::Json(reply))
+                }
+            }));
+            let handle = axum_server::Handle::new();
+            let server = tokio::spawn(axum_server::from_tcp_rustls(listener, remote.identity.server_config().await.unwrap())
+                .handle(handle.clone()).serve(app.into_make_service()));
+            information["announce"] = true.into();
+            service.datagram(information, Ipv4Addr::LOCALHOST.into()).await;
+            tokio::time::timeout(Duration::from_secs(2), started.notified()).await.unwrap();
+            assert_eq!(service.snapshot().await["peers"].as_array().unwrap().len(), 1);
+            service.stop().await;
+            assert_eq!(service.snapshot().await["available"], false);
+            assert!(service.network.lock().await.is_none());
+            service.start().await.unwrap();
+            {
+                let mut network = service.network.lock().await;
+                let network = network.as_mut().unwrap();
+                network.socket = Some(outgoing);
+                network.interfaces = vec![Ipv4Addr::LOCALHOST];
+            }
+            release.notify_one();
+            let late_reply = tokio::time::timeout(Duration::from_millis(200), async {
+                let mut bytes = [0; 4096];
+                loop {
+                    let (length, _) = capture.recv_from(&mut bytes).await.unwrap();
+                    let value: Value = serde_json::from_slice(&bytes[..length]).unwrap();
+                    if value["announce"] == false { break; }
+                }
+            }).await;
+            assert!(late_reply.is_err(), "an old failed callback must not announce in the restarted session");
+            assert_eq!(service.snapshot().await["peers"], json!([]), "an old successful callback must not restore a peer");
+            handle.shutdown();
+            server.await.unwrap().unwrap();
+            service.dispose().await;
+            remote.dispose().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn isolated_trials_never_scan_the_lan_and_an_in_progress_scan_reuses_the_snapshot() {
+        let (_directory, service) = unstarted_fixture().await;
+        assert_eq!(service.scan_local_network(Ipv4Addr::new(192,168,1,1)).await.unwrap_err().status, 400);
+        assert!(service.network.lock().await.is_none());
+        let _scan = service.discovery_scan.lock().await;
+        let (_stop, stopped) = watch::channel(false);
+        let current = service.scan_running(Ipv4Addr::new(192,168,1,1), stopped).await.unwrap();
+        assert_eq!(current["available"], false);
+        assert_eq!(current["peers"], json!([]));
+        assert!(service.network.lock().await.is_none());
     }
 
     #[test]
@@ -2819,6 +3390,81 @@ mod tests {
         drop(state);
         sender.dispose().await;
         receiver.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn authenticated_sender_without_udp_announcement_is_remembered_for_a_return_transfer() {
+        let (_sender_directory, sender, _sender_client, _sender_base) = fixture().await;
+        let (_receiver_directory, receiver, _receiver_client, base) = fixture().await;
+        let endpoint = Peer::parse(&receiver.information(), Ipv4Addr::LOCALHOST.into(), true, false).unwrap();
+        let client = sender.client(&endpoint).unwrap();
+        assert_eq!(receiver.snapshot().await["peers"], json!([]));
+        let invalid = client.post(format!("{base}prepare-upload"))
+            .json(&json!({"info":sender.information(),"files":{}})).send().await.unwrap();
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(receiver.snapshot().await["peers"], json!([]), "invalid metadata must not promote a peer");
+
+        let bytes = b"MZ inert return-transfer fixture, never executed";
+        let request = client.post(format!("{base}prepare-upload")).json(&json!({
+            "info":sender.information(),
+            "files":{"one":{"id":"one","fileName":"return-test.exe","size":bytes.len()}}
+        }));
+        let pending = tokio::spawn(async move { request.send().await.unwrap() });
+        let incoming = wait_incoming(&receiver).await;
+        let peer = receiver.state.lock().await.peers.values()
+            .find(|peer| peer.fingerprint == sender.identity.fingerprint).cloned()
+            .expect("an authenticated sender must be available for sending back without a UDP announcement");
+        assert_eq!(peer.port, sender.port.load(Ordering::Acquire) as u16);
+        assert!(receiver.shelf.list().await.unwrap()["items"].as_array().unwrap().is_empty(), "remembering is not consent");
+        receiver.accept(incoming["id"].as_str().unwrap()).await.unwrap();
+        let accepted = read_response(pending.await.unwrap()).await.unwrap();
+        let response = client.post(format!("{base}upload"))
+            .query(&[("sessionId",accepted["sessionId"].as_str().unwrap()),("fileId","one"),("token",accepted["files"]["one"].as_str().unwrap())])
+            .body(bytes.to_vec()).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let stored = receiver.shelf.list().await.unwrap();
+        let entries = receiver.shelf.share_entries(&[stored["items"][0]["id"].as_str().unwrap().to_owned()]).await.unwrap();
+        let sender_copy = sender.clone();
+        let consent = tokio::spawn(async move {
+            let incoming = wait_incoming(&sender_copy).await;
+            sender_copy.accept(incoming["id"].as_str().unwrap()).await.unwrap();
+        });
+        let returned = receiver.send(&peer.id, entries).await.unwrap();
+        consent.await.unwrap();
+        assert_eq!(returned["transfer"]["status"], "complete");
+        assert_eq!(uploaded_bytes(&sender).await, vec![bytes.to_vec()]);
+        assert_eq!(uploaded_bytes(&receiver).await, vec![bytes.to_vec()]);
+        sender.dispose().await;
+        receiver.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn anonymous_upload_claiming_a_valid_fingerprint_never_becomes_a_peer() {
+        let (_directory, service, _client, base) = fixture().await;
+        let anonymous = reqwest::Client::builder().no_proxy().danger_accept_invalid_certs(true).build().unwrap();
+        let (_sender_directory, sender) = unstarted_fixture().await;
+        let endpoint = Peer::parse(&service.information(), Ipv4Addr::LOCALHOST.into(), true, false).unwrap();
+        let authenticated = sender.client(&endpoint).unwrap();
+        let mut info = service.information();
+        info["fingerprint"] = "a".repeat(64).into();
+        let mut unspecified = info.clone();
+        unspecified.as_object_mut().unwrap().remove("protocol");
+        let mut plaintext = info.clone();
+        plaintext["protocol"] = "http".into();
+        for (client, info) in [(anonymous, info), (authenticated.clone(), unspecified), (authenticated, plaintext)] {
+            let request = client.post(format!("{base}prepare-upload")).json(&json!({
+                "info":info,"files":{"one":{"id":"one","fileName":"anonymous.txt","size":0}}
+            }));
+            let pending = tokio::spawn(async move { request.send().await.unwrap() });
+            let incoming = wait_incoming(&service).await;
+            assert_eq!(service.snapshot().await["peers"], json!([]));
+            assert!(service.shelf.list().await.unwrap()["items"].as_array().unwrap().is_empty());
+            service.reject(incoming["id"].as_str().unwrap()).await.unwrap();
+            assert_eq!(pending.await.unwrap().status(), StatusCode::FORBIDDEN);
+            assert_eq!(service.snapshot().await["peers"], json!([]));
+        }
+        sender.dispose().await;
+        service.dispose().await;
     }
 
     #[tokio::test]

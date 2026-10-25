@@ -1,7 +1,7 @@
 //! Read-only diagnostics. A local listener is never evidence of an open firewall or working internet.
 use crate::discovery;
 use serde::Serialize;
-use std::{net::{IpAddr,Ipv4Addr,SocketAddr,TcpStream},time::Duration};
+use std::{net::{IpAddr,Ipv4Addr,SocketAddr,TcpStream,UdpSocket},time::Duration};
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq,Serialize)]
 #[serde(rename_all="lowercase")]
@@ -19,9 +19,19 @@ pub struct HealthReport {
 }
 
 pub fn local_ipv4() -> Option<Ipv4Addr> {
-    let mut addresses=if_addrs::get_if_addrs().ok()?.into_iter().filter_map(|interface| match interface.ip() {
+    let addresses=if_addrs::get_if_addrs().ok()?.into_iter().filter_map(|interface| match interface.ip() {
         IpAddr::V4(ip) if discovery::is_private(ip) && !interface.is_loopback() => Some(ip), _ => None,
     }).collect::<Vec<_>>();
+    // UDP connect selects the outgoing route without sending a datagram.
+    let preferred=UdpSocket::bind((Ipv4Addr::UNSPECIFIED,0)).and_then(|socket| {
+        socket.connect((Ipv4Addr::new(192,0,2,1),9))?;
+        socket.local_addr()
+    }).ok().and_then(|address| match address.ip() {IpAddr::V4(ip)=>Some(ip),_=>None});
+    select_local_ipv4(addresses,preferred)
+}
+
+fn select_local_ipv4(mut addresses:Vec<Ipv4Addr>,preferred:Option<Ipv4Addr>)->Option<Ipv4Addr> {
+    if let Some(ip)=preferred.filter(|ip|addresses.contains(ip)) {return Some(ip);}
     addresses.sort_unstable_by_key(|ip| (ip.is_link_local(),*ip)); addresses.dedup(); addresses.into_iter().next()
 }
 
@@ -81,6 +91,16 @@ pub fn run(port:u16,spotify_status:&str)->HealthReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_address_prefers_the_routed_private_interface_over_a_smaller_vm_address() {
+        let vm=Ipv4Addr::new(172,19,48,1); let wifi=Ipv4Addr::new(192,168,1,191);
+        let addresses=vec![wifi,vm,wifi];
+        assert_eq!(select_local_ipv4(addresses.clone(),Some(wifi)),Some(wifi));
+        for preferred in [None,Some(Ipv4Addr::LOCALHOST),Some(Ipv4Addr::new(192,0,2,1))] {
+            assert_eq!(select_local_ipv4(addresses.clone(),preferred),Some(vm));
+        }
+        assert_eq!(select_local_ipv4(vec![],Some(wifi)),None);
+    }
     #[test]
     fn category_json_is_typed_and_public_is_never_hidden_by_another_adapter() {
         assert_eq!(category_from_json(r#"["Private","Public"]"#),Some(NetworkCategory::Public));

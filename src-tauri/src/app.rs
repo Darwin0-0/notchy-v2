@@ -213,7 +213,6 @@ struct DesktopState {
     startup: Arc<Startup>,
     geometry: Mutex<Geometry>,
     preferences: tokio::sync::Mutex<BTreeMap<String, String>>,
-    discovery_scan: tokio::sync::Mutex<()>,
     tray_items: Mutex<Option<[tauri::menu::MenuItem<tauri::Wry>; 3]>>,
     visible: AtomicBool,
     dialog: AtomicBool,
@@ -618,19 +617,8 @@ async fn discovery_first_candidates(window:WebviewWindow,state:State<'_,Arc<Desk
 }
 #[tauri::command]
 async fn discovery_scan(window:WebviewWindow,state:State<'_,Arc<DesktopState>>)->Result<Value,String> {
-    use futures_util::{stream,StreamExt};
     native_guard(&window,&state)?;let local=local_scan_ip()?;
-    let _scan=state.discovery_scan.try_lock().map_err(|_|"Une recherche locale est déjà en cours.".to_string())?;
-    let candidates=notchy::discovery::scan_subnet(local,notchy::discovery::PORT).await.map_err(|error|error.message)?;
-    let count=candidates.len();let nearby=state.services.nearby.clone();let files=state.services.files.clone();
-    let verified=stream::iter(candidates.into_iter().take(32)).map(|endpoint| {
-        let nearby=nearby.clone();let files=files.clone();async move {
-            tokio::time::timeout(Duration::from_secs(3),nearby.command(json!({"command":"connect","address":endpoint.to_string()}),&files)).await.is_ok_and(|result|result.is_ok())
-        }
-    }).buffer_unordered(8).filter(|accepted|std::future::ready(*accepted)).count().await;
-    let mut snapshot=state.services.nearby.snapshot().await;
-    snapshot["scan"]=json!({"localIpv4":local,"port":notchy::discovery::PORT,"tcpCandidates":count,"handshakesAccepted":verified,"bounded":true});
-    Ok(snapshot)
+    state.services.nearby.scan_local_network(local).await.map_err(|error|error.message)
 }
 async fn open_shelf(state: &DesktopState, id: Value, reveal: bool) -> Result<Value, ApiError> {
     let id = id
@@ -1185,7 +1173,7 @@ pub fn run() {
         let nearby_active=tauri::async_runtime::block_on(services.nearby.snapshot())["available"]==true;
         let config=json!({"token":server.token,"keys":KEYS,"preferences":preferences,"checking":checking,"development":cfg!(debug_assertions),"localSendActive":nearby_active,"startup":startup_status});
         let bridge=include_str!("window_bridge.js").replace("__NOTCHY_CONFIG__",&serde_json::to_string(&config)?);
-        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),discovery_scan:tokio::sync::Mutex::new(()),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None),quicklook_active:AtomicBool::new(false),quicklook_start_requested:AtomicBool::new(false),quicklook_autostart:!checking&&data_override.is_none(),rendered_ready:AtomicBool::new(false),quicklook_module,quicklook_command:tokio::sync::Mutex::new(None),preview_request:AtomicU64::new(0),office_preview:tokio::sync::Mutex::new(None),office_preview_error:Mutex::new(None),office_preview_starting:AtomicBool::new(false),native:native.clone(),quicklook_shelf_copies:Mutex::new(BTreeMap::new()),quicklook_shelf_cleanup:Mutex::new(Vec::new())});
+        let state=Arc::new(DesktopState{services,server,data:data.clone(),origin:origin.clone(),startup,geometry:Mutex::new(initial_geometry()),preferences:tokio::sync::Mutex::new(preferences),tray_items:Mutex::new(None),visible:AtomicBool::new(true),dialog:AtomicBool::new(false),downloads:AtomicU64::new(0),blur:AtomicU64::new(0),quitting:Arc::new(AtomicBool::new(false)),checking,reports:tokio::sync::Mutex::new(Vec::new()),search,search_error,search_shortcut:Mutex::new(None),quicklook_active:AtomicBool::new(false),quicklook_start_requested:AtomicBool::new(false),quicklook_autostart:!checking&&data_override.is_none(),rendered_ready:AtomicBool::new(false),quicklook_module,quicklook_command:tokio::sync::Mutex::new(None),preview_request:AtomicU64::new(0),office_preview:tokio::sync::Mutex::new(None),office_preview_error:Mutex::new(None),office_preview_starting:AtomicBool::new(false),native:native.clone(),quicklook_shelf_copies:Mutex::new(BTreeMap::new()),quicklook_shelf_cleanup:Mutex::new(Vec::new())});
         app.manage(state.clone());
         request_office_preview_start(&state, native.clone());
         let navigation_origin=origin.clone();let download_state=state.clone();

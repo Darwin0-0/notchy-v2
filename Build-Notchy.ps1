@@ -24,6 +24,9 @@ foreach ($taskDestination in $taskDestinations) {
 if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'native/bin/QuickLookPdfCompatibility.zip') -PathType Leaf)) {
   throw 'Prépare le correctif PDF avant la compilation : voir native/quicklook-compat/README.md et Build-PdfCompatibility.ps1.'
 }
+if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'native/bin/NotchyOfficePreview.zip') -PathType Leaf)) {
+  throw 'Prépare la passerelle Office avant la compilation : voir native/office-preview/README.md et Build-OfficePreview.ps1.'
+}
 & (Join-Path $taskRoot 'native/Build-Native.ps1')
 $taskArguments = @('build', '--locked', '--target', 'x86_64-pc-windows-msvc', '--target-dir', $taskTarget, '--manifest-path', (Join-Path $taskRoot 'src-tauri/Cargo.toml'), '--bin', 'notchy-v2')
 if ($Release) { $taskArguments += '--release' }

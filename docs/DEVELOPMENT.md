@@ -30,9 +30,14 @@ Prerequisites:
 - Rust with the MSVC x64 toolchain.
 - Visual Studio C++ build tools with a Windows SDK.
 - Node.js 22 or later for the frontend build and JavaScript tests; set `NOTCHY_NODE` if its executable is not on `PATH`.
-- For the small GPL QuickLook PDF compatibility component: MSBuild 17.14, Roslyn 4.14 and .NET Framework 4.8 WPF. These are developer prerequisites only; end users do not need a compiler.
+- For the small GPL QuickLook PDF compatibility and Office isolation components: MSBuild 17.14, Roslyn 4.14 and .NET Framework 4.8 WPF. These are developer prerequisites only; end users do not need a compiler.
 
-Clone the repository and open a **64-bit PowerShell** in its folder. Before invoking `Build-Notchy.ps1`, prepare `native/bin/QuickLookPdfCompatibility.zip` using the [pinned PDFViewer rebuild recipe](../native/quicklook-compat/README.md). It uses the official QuickLook source archive and an extracted portable engine as local references; it does not install or launch QuickLook. The generated package includes its GPL licence, patch and rebuild recipe and stays outside Git.
+Clone the repository and open a **64-bit PowerShell** in its folder. Before invoking `Build-Notchy.ps1`, prepare both generated GPL packages:
+
+- `native/bin/QuickLookPdfCompatibility.zip` using the [pinned PDFViewer rebuild recipe](../native/quicklook-compat/README.md), the official QuickLook source archive and an extracted QuickLook 4.5.0 portable engine.
+- `native/bin/NotchyOfficePreview.zip` using the [Office isolation recipe](../native/office-preview/README.md). Run `native/office-preview/Build-OfficePreview.ps1 -QuickLookRoot '<existing QuickLook 4.5.0 directory>' -OutputDirectory '<new Office build directory>'` from the repository root; the ZIP is written to `native/bin/` by default.
+
+These recipes use the engine only as local build references; they do not install or launch QuickLook. Both packages retain their corresponding sources or patch, GPL licence and rebuild recipe and stay outside Git. Reuse an existing verified package when its sources and toolchain have not changed.
 
 ```powershell
 git clone https://github.com/Darwin0-0/notchy-v2.git
@@ -40,7 +45,7 @@ cd notchy-v2
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Build-Notchy.ps1 -Release
 ```
 
-[Build-Notchy.ps1](../Build-Notchy.ps1) checks that the PDF compatibility package is prepared, compiles the helpers from [native/](../native/) using the Windows .NET Framework compiler, then builds Rust with `Cargo.lock`. The portable application, compatibility package and helpers are placed in `build/release/`. Omit `-Release` for `build/debug/`.
+[Build-Notchy.ps1](../Build-Notchy.ps1) checks that both GPL packages are prepared, compiles the helpers from [native/](../native/) using the Windows .NET Framework compiler, then builds Rust with `Cargo.lock`. The portable application, GPL packages and helpers are placed in `build/release/`. Omit `-Release` for `build/debug/`.
 
 After building, double-click `Notchy V2.cmd`. It prefers a release build, otherwise uses the debug build. LocalSend starts automatically with either. This launcher passes the repository folder as the data root. A release executable without `--data-root` uses the Windows application-data folder; a debug executable defaults to the isolated `.development/profile` folder.
 
@@ -105,6 +110,8 @@ JavaScript tests cover interaction, module sizing, persisted state, Pomodoro pha
 
 The Rust checks temporarily set `TAURI_CONFIG` to `{"bundle":{"resources":null}}`, then restore your previous environment value. GitHub Actions uses the same resource override, so these checks do not need the separately compiled Windows media bridges or create an application package. They also cover language preference validation in the application entry point. `Build-Notchy.ps1` builds the bridges and retains the normal bundle resources. A green test job does not replace checking the complete Windows application.
 
+The pinned Office isolation archive check is an explicit offline QA test, ignored by the ordinary suite so a clean clone does not require generated binaries. With an existing verified archive, set `NOTCHY_OFFICE_PREVIEW_QA_ARCHIVE` to its absolute path and run `cargo test --locked --manifest-path src-tauri/Cargo.toml --lib office_preview_install::tests::pinned_runtime_archive_and_manifest_match_the_packaged_helpers -- --ignored --exact`, using the same resource override above. The test reads the archive at runtime, checks its pinned hash and manifest, and never launches Office or QuickLook. Ordinary tests use small synthetic ZIPs to check rejected paths, changed sources and unpinned helpers.
+
 The check command also expands the Windows temporary directory to its full path and restores `TEMP`/`TMP` afterward. GitHub Actions does the same for its runner directory. Windows short aliases such as `RUNNER~1` can otherwise fail private-storage path validation; the storage protections remain enabled during tests.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the file map and review expectations, and [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) for sizing and interaction contracts.
@@ -147,6 +154,12 @@ The calendar stores appointments under `notchy-calendar-v1` in the existing loca
 LocalSend starts on every normal launch, including an existing Windows startup command that contains only `--autostart`; opening Tray is not required for reception or discovery. The older `--localsend` flag remains compatible but is no longer required. A deliberate **Stop** keeps sharing off for that process; restarting Notchy starts it again. `--desktop-check` never starts LocalSend or opens its network listeners automatically. A listen failure leaves the application usable and appears in Tray and Health, where the user can retry.
 
 Devices must be able to reach each other on the local network, and Windows Firewall may require permission. Incoming files still require explicit acceptance. LocalSend has no artificial byte-size cap per file or transfer. Available disk space, Shelf file-count limits and preview/OCR/conversion processing limits are separate constraints.
+
+If Windows reserves or occupies the UDP discovery port, Notchy binds one available local UDP port instead. Announcements still target the standard discovery port and advertise the real TCP transfer port, so another listener can register back over HTTPS. No Windows port reservations or firewall settings are changed. If both devices cannot receive discovery announcements, use the existing manual IP connection. Listener failures report a network error rather than a Shelf storage error.
+
+Announcements explicitly use each joined local IPv4 interface, so a virtual adapter or loopback route cannot silently replace Wi-Fi discovery. Interface selection and sending share one lock because periodic and manual announcements can overlap. A new discovery request refreshes interfaces; use Retry after connecting to another Wi-Fi or an IPv4 address change. A valid incoming file offer also remembers its sender when a TLS client certificate identifies it, making that device available for a return transfer even without a UDP announcement. This does not accept the files; consent is still required, and an anonymous client's claimed fingerprint alone never adds a device. The pending-offer cancellation guard exists before remembering the sender. The [official multicast implementation](https://github.com/localsend/localsend/blob/v1.17.0/common/lib/src/task/discovery/multicast_discovery.dart) and [protocol](https://github.com/localsend/protocol#3-discovery) describe the separate announcement and HTTPS registration steps.
+
+When UDP discovery uses a fallback port, startup also runs the existing bounded TCP discovery in the background; an explicit Retry requests it again, including when other peers are already known. The selected private IPv4 follows the current unicast route before falling back to the detected interfaces, so virtual adapters do not take priority merely because their IP sorts first. The scan only probes the selected private /24 and port 53317, verifies at most 32 reachable endpoints with eight TLS handshakes at a time, and never transfers a file. TCP probes take at most 400 ms each and TLS handshakes three seconds each; the complete scan can take about 25 seconds in the worst case. Periodic refresh only contacts known peers, every 30 seconds, through pinned HTTPS registration. A standard register reply may omit protocol and port: these come from the verified endpoint, while its reported identity must still match its certificate. Stopping sharing cancels discovery and prevents late registrations from reopening it.
 
 ## Keep runtime data private
 

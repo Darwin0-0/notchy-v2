@@ -299,10 +299,39 @@ pub fn set_restart_pending(data: &Path, required: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn archive(entries: &BTreeMap<&str, Vec<u8>>) -> Vec<u8> {
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, bytes) in entries {
+            archive.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            archive.write_all(bytes).unwrap();
+        }
+        archive.finish().unwrap().into_inner()
+    }
     #[test]
+    fn synthetic_archives_reject_foreign_paths_tampered_sources_and_unpinned_helpers() {
+        let mut entries: BTreeMap<&str, Vec<u8>> = [PROXY, WORKER, CONFIG, "source/Shared.cs", "source/Proxy.cs",
+            "source/Worker.cs", "source/Build-OfficePreview.ps1", "source/README.md", "source/LICENSE-GPL.txt"]
+            .into_iter().map(|name| (name, b"synthetic fixture".to_vec())).collect();
+        let hashes: BTreeMap<_, _> = entries.iter().map(|(name, bytes)| (*name, hash(bytes))).collect();
+        let manifest = serde_json::json!({"format":1,"version":"1.0.0","license":"GPL-3.0-or-later","quicklook_abi":"4.5.0.0","sha256":hashes});
+        entries.insert("manifest.json", serde_json::to_vec(&manifest).unwrap());
+        let bytes = archive(&entries);
+        assert!(verify_package(&bytes, ARCHIVE_SHA).is_err());
+        assert!(verify_package(&bytes, &hash(&bytes)).unwrap_err().contains("ne correspond pas à cette version"));
+        entries.insert("source/Worker.cs", b"tampered source".to_vec());
+        let bytes = archive(&entries);
+        assert!(verify_package(&bytes, &hash(&bytes)).unwrap_err().contains("vérification d’un fichier"));
+        for name in ["../NotchyOfficeWorker.exe", "QuickLook.Plugin.OfficeViewer.dll"] {
+            let bytes = archive(&BTreeMap::from([(name, b"foreign payload".to_vec())]));
+            assert!(verify_package(&bytes, &hash(&bytes)).unwrap_err().contains("fichier inattendu"));
+        }
+    }
+    #[test]
+    #[ignore = "Explicit offline QA only: requires the already-built pinned Office preview archive; never launches a process"]
     fn pinned_runtime_archive_and_manifest_match_the_packaged_helpers() {
-        let bytes = include_bytes!("../../native/bin/NotchyOfficePreview.zip");
-        let entries = verify_package(bytes, ARCHIVE_SHA).unwrap();
+        let path = PathBuf::from(std::env::var_os("NOTCHY_OFFICE_PREVIEW_QA_ARCHIVE").expect("existing pinned Office preview archive"));
+        let bytes = read_limited(&path, MAX_ARCHIVE).unwrap();
+        let entries = verify_package(&bytes, ARCHIVE_SHA).unwrap();
         assert_eq!(entries.len(), 10);
     }
     #[test]

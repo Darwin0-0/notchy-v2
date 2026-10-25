@@ -8,6 +8,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(400);
 static SCAN_ACTIVE: AtomicBool=AtomicBool::new(false);
 struct ScanGuard;
 impl Drop for ScanGuard {fn drop(&mut self){SCAN_ACTIVE.store(false,Ordering::Release);}}
+struct CancelProbesOnDrop(Arc<AtomicBool>);
+impl Drop for CancelProbesOnDrop {fn drop(&mut self){self.0.store(true,Ordering::Release);}}
 
 pub fn is_private(ip: Ipv4Addr) -> bool {
     let [a,b,_,_] = ip.octets();
@@ -34,10 +36,11 @@ pub fn first_candidates(local: Ipv4Addr, port: u16) -> Result<Vec<SocketAddrV4>,
         .map(|ip| SocketAddrV4::new(ip,port)).collect())
 }
 
-fn probe_candidates<F>(candidates: Vec<SocketAddrV4>, probe: F) -> Vec<SocketAddrV4>
+fn probe_candidates<F>(candidates: Vec<SocketAddrV4>, cancelled: Arc<AtomicBool>, probe: F) -> Vec<SocketAddrV4>
 where F: Fn(SocketAddrV4) -> bool + Send + Sync + 'static {
     let probe = Arc::new(probe); let mut found = Vec::new();
     for chunk in candidates.chunks(CONCURRENCY) {
+        if cancelled.load(Ordering::Acquire) { break; }
         let (sender, receiver) = mpsc::channel(); let mut workers = Vec::new();
         for address in chunk.iter().copied() {
             let sender = sender.clone(); let probe = probe.clone();
@@ -53,7 +56,9 @@ pub async fn scan_subnet(local: Ipv4Addr, port: u16) -> Result<Vec<SocketAddrV4>
     let candidates = first_candidates(local,port)?;
     if SCAN_ACTIVE.compare_exchange(false,true,Ordering::AcqRel,Ordering::Acquire).is_err() {return Err(ApiError::new(409,"Une recherche locale est déjà en cours."));}
     let guard=ScanGuard;
-    tokio::task::spawn_blocking(move || {let _guard=guard;probe_candidates(candidates, |address|
+    let cancelled=Arc::new(AtomicBool::new(false));
+    let _cancel_probes=CancelProbesOnDrop(cancelled.clone());
+    tokio::task::spawn_blocking(move || {let _guard=guard;probe_candidates(candidates,cancelled, |address|
         TcpStream::connect_timeout(&address.into(),PROBE_TIMEOUT).is_ok())})
         .await.map_err(|_| ApiError::new(503,"Recherche locale indisponible."))
 }
@@ -79,7 +84,23 @@ mod tests {
         let active=Arc::new(AtomicUsize::new(0)); let peak=Arc::new(AtomicUsize::new(0));
         let candidates=first_candidates(Ipv4Addr::new(10,1,2,3),PORT).unwrap();
         let (working,maximum)=(active.clone(),peak.clone());
-        let found=probe_candidates(candidates,move |address| {let count=working.fetch_add(1,Ordering::SeqCst)+1;maximum.fetch_max(count,Ordering::SeqCst);std::thread::sleep(Duration::from_millis(1));working.fetch_sub(1,Ordering::SeqCst);address.ip().octets()[3]==42});
+        let found=probe_candidates(candidates,Arc::new(AtomicBool::new(false)),move |address| {let count=working.fetch_add(1,Ordering::SeqCst)+1;maximum.fetch_max(count,Ordering::SeqCst);std::thread::sleep(Duration::from_millis(1));working.fetch_sub(1,Ordering::SeqCst);address.ip().octets()[3]==42});
         assert_eq!(found,vec![SocketAddrV4::new(Ipv4Addr::new(10,1,2,42),PORT)]); assert!(peak.load(Ordering::SeqCst)<=CONCURRENCY); assert_eq!(active.load(Ordering::SeqCst),0);
+    }
+    #[test]
+    fn abandoning_a_scan_stops_probes_after_the_current_chunk() {
+        use std::sync::{Mutex,atomic::AtomicUsize};
+        let cancelled=Arc::new(AtomicBool::new(false));
+        let cancellation=Mutex::new(Some(CancelProbesOnDrop(cancelled.clone())));
+        let calls=Arc::new(AtomicUsize::new(0));let working=calls.clone();
+        let candidates=first_candidates(Ipv4Addr::new(10,1,2,3),PORT).unwrap();
+        let found=probe_candidates(candidates,cancelled,move |_| {
+            if working.fetch_add(1,Ordering::AcqRel)+1==CONCURRENCY {
+                drop(cancellation.lock().unwrap().take());
+            }
+            true
+        });
+        assert_eq!(calls.load(Ordering::Acquire),CONCURRENCY);
+        assert_eq!(found.len(),CONCURRENCY);
     }
 }
