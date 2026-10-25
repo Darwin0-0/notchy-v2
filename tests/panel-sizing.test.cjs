@@ -18,7 +18,7 @@ function fixture() {
   const properties = {}, targets = [], options = [], homeProperties = {};
   const home = {dataset: {}, style: {setProperty(name, value) {homeProperties[name] = value;}}};
   const context = {
-    syncCalendarLayer() {}, calendar: null, calendarHeightLimit: 0, moduleLab: null,
+    syncCalendarLayer() {}, calendar: null, calendarHeightLimit: 0, moduleLab: null, search: null,
     ISLAND_CONFIG, ModuleLayout, closedBandSize, nookGridPlan, openPanelWidth, openPanelScale, shape, islandPage:'music',
     disposed: false, state: 'open', view: 'music', closingTo: null, fileDragging: false, editorActive: false, ia: {render() {}},
     musicActive: false, focusActive: false, transferActive: false, animations: false,
@@ -187,6 +187,28 @@ test('header, content, bottom inset and core navigation share one explicit heigh
   assert.equal(f.run().height,464,'the editor never inherits the previous three-card scene height');
   assert.equal(f.properties['--island-header-height'],'80px','navigation keeps its common header height while editing');
   assert.equal(f.properties['--panel-height'], '368px', 'the module editor does not reserve core navigation');
+});
+
+test('Spotlight reserves only its search content and sends the same compact bounds to the native shell', () => {
+  const f = fixture(), sent = [];
+  f.context.view = 'search';
+  f.context.search = {preferredSize: {width: 640, height: 68, inset: 12, radius: 24}};
+  f.context.desktop = {sendGeometry(value) {sent.push(value); return Promise.resolve(null);}};
+  f.useProductionPaint();
+  for (const [format, scale] of Object.entries(ISLAND_CONFIG.displayScales)) {
+    f.context.appearance.format = format;
+    const bar = f.run();
+    assert.equal(bar.width, 640); assert.equal(bar.height, 68); assert.equal(bar.band, 0);
+    assert.equal(f.properties['--panel-height'], '44px');
+    assert.equal(f.context.menu.hidden, true); assert.equal(f.context.menu.inert, true);
+    assert.equal(f.context.islandFooter.hidden, true); assert.equal(f.context.notch.dataset.search, 'true');
+    assert.equal(sent.at(-1).height, 68 * scale); assert.equal(sent.at(-1).width, 640 * scale);
+  }
+  f.context.search.preferredSize.height = 380;
+  assert.equal(f.run().height, 380); assert.equal(f.properties['--panel-height'], '356px');
+  f.context.view = 'tray';
+  assert.equal(f.run().height, 464); assert.equal(f.context.notch.dataset.search, 'false');
+  assert.equal(f.context.menu.hidden, false);
 });
 
 test('stored corner preferences map to restrained radii shared by the painted and native surface', () => {

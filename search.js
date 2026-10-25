@@ -6,6 +6,7 @@
 })(typeof window === 'object' ? window : null, function () {
   'use strict';
   const CONFIG = Object.freeze({minimumQuery: 2, maximumQuery: 256, limit: 8, debounce: 80, statusInterval: 1000, menuInset: 8});
+  const LAYOUT = Object.freeze({width: 640, inset: 12, heading: 44, row: 44, visibleRows: 6, gap: 8, footer: 32, empty: 112, radius: 24});
   // Keep the affordance aligned with Rust; native validation remains authoritative.
   const OPENABLE_FORMATS = 'pdf epub txt md csv json yaml yml log rtf docx xlsx pptx odt ods odp png jpg jpeg webp gif bmp tif tiff ico avif heic mp3 m4a wav flac ogg aac mp4 webm mkv avi mov zip';
   const MESSAGES = Object.freeze({
@@ -78,7 +79,7 @@
     return parts;
   }
 
-  function create({host, invoke, t, onOpen, onClose, onSend, onGetQuickLook} = {}) {
+  function create({host, invoke, t, onOpen, onClose, onSend, onGetQuickLook, onLayout} = {}) {
     if (host?.nodeType !== 1 || !host.ownerDocument?.createElement || typeof invoke !== 'function') {
       throw new TypeError('Search requires a host element and a native invoke function.');
     }
@@ -88,7 +89,7 @@
     const emptyApi = view?.NotchEmpty;
     let opened = false, disposed = false, hits = [], selected = -1, generation = 0, statusGeneration = 0;
     let debounce = null, poll = null, loading = false, acting = false, composing = false, error = '', statusError = false;
-    let cancelFocus = null;
+    let cancelFocus = null, layoutHeight = 0;
     let status = {files: 0, indexing: false, shortcutUnavailable: false}, statusReady = false, reindexing = false, opener = null, emptyController = null, menuOpener = null;
     let quickLook = {supported: false, available: false};
     let renderedSupported = false;
@@ -163,6 +164,11 @@
         if (retry) {const retryButton = button('search-retry'); retryButton.textContent = label('Réessayer'); retryButton.addEventListener('click', refresh, {once: true}); empty.append(retryButton);}
       }
     }
+    function preferredSize() {
+      const expanded = !!(hits.length || error || statusError || input.value.trim().length >= CONFIG.minimumQuery);
+      const bodyHeight = previewing && renderedHit() ? LAYOUT.visibleRows * LAYOUT.row : hits.length ? Math.min(hits.length, LAYOUT.visibleRows) * LAYOUT.row : LAYOUT.empty;
+      return {width: LAYOUT.width, height: LAYOUT.inset * 2 + LAYOUT.heading + (expanded ? LAYOUT.gap * 2 + bodyHeight + LAYOUT.footer : 0), inset: LAYOUT.inset, radius: LAYOUT.radius};
+    }
     function render() {
       if (disposed) return;
       const query = input.value.trim(), hasHits = hits.length > 0;
@@ -172,6 +178,9 @@
       closeButton.textContent = label('Échap'); closeButton.setAttribute('aria-label', label('Fermer la recherche'));
       list.setAttribute('aria-label', label('Résultats de recherche')); list.setAttribute('aria-busy', String(loading));
       list.hidden = !hasHits; empty.hidden = hasHits;
+      const size = preferredSize(), expanded = size.height > LAYOUT.inset * 2 + LAYOUT.heading;
+      body.hidden = footer.hidden = !expanded;
+      host.dataset.expanded = String(expanded);
       input.setAttribute('aria-expanded', String(opened && hasHits));
       host.dataset.status = error || statusError ? 'error' : loading ? 'loading' : status.indexing ? 'indexing' : 'ready';
       information.textContent = error ? label(error) : statusError ? label('La recherche est indisponible.') : status.indexing ? label('Indexation de {count} éléments…', {count: status.files})
@@ -199,6 +208,7 @@
       else if (!hasHits && query.length >= CONFIG.minimumQuery && statusReady && !loading) announcer.textContent = label('Aucun résultat');
       else announcer.textContent = '';
       select(selected, false);
+      if (opened && layoutHeight !== size.height) {layoutHeight = size.height; onLayout?.();}
     }
     function select(index, scroll = true) {
       const previousId = hits[selected]?.id;
@@ -469,10 +479,10 @@
     listen(preview, 'click', togglePreview);
     listen(reindex, 'click', () => void rebuild());
     render();
-    return Object.freeze({open, close, stopPreview, previewTarget: () => previewing ? hits[selected]?.id || null : null, navigatePreview(direction) {if(!opened||!previewing||![-1,1].includes(direction)||!hits.length)return false;select(selected+direction);void syncPreview();render();return true;}, isOpen: () => opened, isPreviewing: () => previewing, render, refresh, elements: {input, clear, close: closeButton, list, empty, information, open: openButton, preview, reveal, send, more, contextMenu, reindex, announcer}, dispose() {
+    return Object.freeze({open, close, stopPreview, get preferredSize() {return preferredSize();}, previewTarget: () => previewing ? hits[selected]?.id || null : null, navigatePreview(direction) {if(!opened||!previewing||![-1,1].includes(direction)||!hits.length)return false;select(selected+direction);void syncPreview();render();return true;}, isOpen: () => opened, isPreviewing: () => previewing, render, refresh, elements: {input, clear, close: closeButton, list, empty, information, open: openButton, preview, reveal, send, more, contextMenu, reindex, announcer}, dispose() {
       if (disposed) return false; close({restoreFocus: false, notify: false}); disposed = true; for (const remove of listeners) remove(); emptyController?.dispose();
       host.replaceChildren(...previous); host.hidden = previousHidden; if (previousLabel === null) host.removeAttribute('aria-label'); else host.setAttribute('aria-label', previousLabel);
-      delete host.dataset.status; if (!hadClass) host.classList.remove('notchy-search'); return true;
+      delete host.dataset.status; delete host.dataset.expanded; if (!hadClass) host.classList.remove('notchy-search'); return true;
     }});
   }
   return Object.freeze({CONFIG, MESSAGES, normalizeHits, highlightParts, canOpen, create});

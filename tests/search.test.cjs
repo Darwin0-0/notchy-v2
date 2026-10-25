@@ -113,11 +113,58 @@ test('the real native search opening route reveals the host before input focus w
   } finally {f.controller.dispose();pending.resolve({files:42,indexing:false});}
 });
 
+test('closing Spotlight restores an open route immediately and keeps the compact shell until its exit completes', () => {
+  const source = fs.readFileSync(require.resolve('../notch.js'), 'utf8');
+  const start = source.indexOf('  function searchOpening() {'), end = source.indexOf('  async function searchSend(', start);
+  for (const previous of ['rest', 'compact', 'open']) {
+    const steps = [], context = vm.createContext({disposed: false, view: 'tray', state: previous, searchReturnView: '', searchReturnState: '',
+      clearModuleFeedback() {}, renderSearchRoute() {},
+      selectViewButton(button) {context.view = button.dataset.view; steps.push('route:' + context.view);},
+      openFromOutside() {context.state = 'open';},
+      setState(next) {steps.push('state:' + next);},
+    });
+    vm.runInContext(source.slice(start, end), context);
+    context.searchOpening(); steps.length = 0; context.searchClosed();
+    assert.equal(context.searchReturnState, previous);
+    assert.deepEqual(steps, previous === 'open' ? ['route:tray', 'state:open'] : ['state:' + previous]);
+    assert.equal(context.view, previous === 'open' ? 'tray' : 'search', 'a closed origin never flashes the full Notchy panel before the shell shrinks');
+  }
+});
+
+test('reopening Spotlight during the real exit delay keeps the original collapsed route', () => {
+  const source=fs.readFileSync(require.resolve('../notch.js'),'utf8');
+  const opening=source.slice(source.indexOf('  function searchOpening() {'),source.indexOf('  async function searchSend('));
+  const transition=source.slice(source.indexOf('  function setState(next) {'),source.indexOf('  function applyState(next) {'));
+  for(const previous of ['rest','compact']) {
+    const timers=new Map();let nextTimer=0;
+    const context=vm.createContext({disposed:false,view:'tray',state:previous,closingTo:null,contentExitTimer:0,hoverTimer:0,
+      searchReturnView:'',searchReturnState:'',sizes:{rest:{},compact:{},open:{}},calendar:null,keyboardNavigation:false,
+      ISLAND_CONFIG:require('../notch.js').ISLAND_CONFIG,document:{hidden:false},expandedLayer:{},islandFooter:{},
+      window:{setTimeout(callback,delay){timers.set(++nextTimer,{callback,delay});return nextTimer;},clearTimeout(id){timers.delete(id);}},
+      clearModuleFeedback(){},renderSearchRoute(){},animateIslandLayer(){},renderIslandNavigation(){},update(){},
+      selectViewButton(button){context.view=button.dataset.view;},
+      openFromOutside(){context.setState('open');},
+      applyState(next){context.state=next;if(next!=='open'&&context.view==='search')context.view=context.searchReturnView;return true;},
+    });
+    vm.runInContext(opening+'\n'+transition,context);
+    context.searchOpening();context.searchClosed();
+    assert.equal(context.state,'open');assert.equal(context.closingTo,previous);assert.equal(timers.size,1);
+    assert.equal([...timers.values()][0].delay,context.ISLAND_CONFIG.durations.contentExit);
+    context.searchOpening();
+    assert.equal(timers.size,0);assert.equal(context.closingTo,null);
+    assert.equal(context.searchReturnView,'tray');assert.equal(context.searchReturnState,previous);
+    context.searchClosed();for(const timer of [...timers.values()])timer.callback();
+    assert.equal(context.state,previous);assert.equal(context.view,'tray');
+  }
+});
+
 test('delayed opening focus does not steal a deliberately focused search action or survive disposal', () => {
   const f = fixture(undefined,'fr',{animationFrames:true});
-  f.controller.open(); f.controller.elements.reindex.focus(); f.paint(); assert.equal(f.document.activeElement,f.controller.elements.reindex);
-  f.controller.open(); assert.equal(f.frames.size,1); f.document.emit('pointerdown',{target:f.controller.elements.reindex}); assert.equal(f.frames.size,0);
-  f.controller.open(); f.controller.dispose(); assert.equal(f.frames.size,0); f.opener.focus(); f.paint(); assert.equal(f.document.activeElement,f.opener);
+  try {
+    f.controller.open(); f.controller.elements.close.focus(); f.paint(); assert.equal(f.document.activeElement,f.controller.elements.close);
+    f.controller.open(); assert.equal(f.frames.size,1); f.document.emit('pointerdown',{target:f.controller.elements.close}); assert.equal(f.frames.size,0);
+    f.controller.open(); f.controller.dispose(); assert.equal(f.frames.size,0); f.opener.focus(); f.paint(); assert.equal(f.document.activeElement,f.opener);
+  } finally {f.controller.dispose();}
 });
 
 test('result names and visible paths both mark all words using text nodes and the shared orange token', async () => {
@@ -148,6 +195,27 @@ test('opening focuses the combobox, waits for two characters, and Escape restore
     f.controller.open(); await delay(0); assert.equal(f.document.activeElement, f.controller.elements.input); assert.equal(f.host.hidden, false);
     await f.type('r'); assert.equal(f.calls.filter(call => call.name === 'search_query').length, 0); assert.match(f.controller.elements.empty.textContent, /Type at least two/);
     const event = f.key('Escape'); assert.equal(event.prevented, true); assert.equal(event.stopped, true); assert.equal(f.controller.isOpen(), false); assert.equal(f.document.activeElement, f.opener); assert.equal(closed, 1);
+  } finally {f.controller.dispose();}
+});
+
+test('Spotlight starts with only the bar, grows to bounded results, and shrinks when cleared', async () => {
+  const sizes = [];
+  const f = fixture(name => name === 'search_query' ? response(Array.from({length: 8}, (_, index) => hit(String(index)))) : {}, 'fr', {onLayout: () => sizes.push(f.controller.preferredSize.height)});
+  try {
+    f.controller.open(); await delay(0);
+    const body = f.host.children[1], footer = f.host.children[2];
+    assert.equal(f.controller.preferredSize.height, 68);
+    assert.equal(body.hidden, true); assert.equal(footer.hidden, true);
+    await f.type('r'); assert.equal(f.controller.preferredSize.height, 68);
+    await f.type('ra');
+    assert.equal(f.controller.elements.list.children.length, 8, 'all results remain available through scrolling');
+    assert.equal(f.controller.preferredSize.height, 380);
+    assert.equal(body.hidden, false); assert.equal(footer.hidden, false);
+    const updates = sizes.length; f.controller.render(); assert.equal(sizes.length, updates, 'unchanged geometry does not restart the spring');
+    f.controller.elements.clear.emit('click');
+    assert.equal(f.controller.preferredSize.height, 68);
+    assert.equal(body.hidden, true); assert.equal(footer.hidden, true);
+    assert.equal(sizes.at(-1), 68);
   } finally {f.controller.dispose();}
 });
 

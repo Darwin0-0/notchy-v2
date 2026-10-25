@@ -15,6 +15,8 @@
 .notchy-search[hidden], .notchy-search [hidden] { display: none !important; }
 /* Utility views keep one fixed viewport; the result list owns its scrolling. */
 .notch #notch-panel > #search-player { height: 100%; min-height: 0; max-height: 100%; overflow: hidden; }
+.notch[data-search="true"] .search-field { border-color: transparent; background: transparent; }
+.notch[data-search="true"] .search-empty .notch-empty-icon { display: none; }
 #notch-menu #search-toggle { order: 2; margin-inline-start: auto; width: var(--space-32); padding: 0; }
 #notch-menu #search-toggle svg { width: var(--measure-18-px); height: var(--measure-18-px); fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 #notch-menu:has(#search-toggle) [data-view="settings"] { order: 4 !important; margin-inline-start: 0; }

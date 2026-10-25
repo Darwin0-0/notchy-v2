@@ -822,14 +822,17 @@
     return search.open();
   }
   function searchOpening() {
-    searchReturnView = view === 'search' ? 'nook' : view;
-    searchReturnState = state === 'open' ? 'open' : 'rest';
+    if (view !== 'search' || !closingTo) {
+      searchReturnView = view === 'search' ? 'nook' : view;
+      searchReturnState = state;
+    }
     clearModuleFeedback(false);
     selectViewButton({dataset: {view: 'search'}}); openFromOutside(); renderSearchRoute();
   }
   function searchClosed() {
     if (disposed || view !== 'search') return;
-    selectViewButton({dataset: {view: searchReturnView}, restoring:true}); setState(searchReturnState);
+    if (searchReturnState === 'open') selectViewButton({dataset: {view: searchReturnView}, restoring:true});
+    setState(searchReturnState);
   }
   async function searchSend(id) {
     const result = await invokeSearch('search_stage', {id});
@@ -3804,6 +3807,8 @@
   function update() {
     if (disposed) return;
     const core = islandCoreView(), layout = ISLAND_CONFIG.layout;
+    const searchSize = view === 'search' ? search?.preferredSize : null;
+    notch.dataset.search = String(!!searchSize);
     const activities = getCollapsedActivities();
     const closed = closedBandSize(state, {activities, feedback: moduleFeedback && isModuleEnabled(moduleFeedback.id) ? moduleFeedback : false});
     const receptionSize=receptionGeometry();
@@ -3831,12 +3836,12 @@
     if (calendarOpen) calendarHeightLimit = Math.max(calendarHeightLimit, activityHeight);
     const scale = receptionSize ? 1 : openPanelScale(appearance.format, {welcome: view === 'welcome'});
     const welcomeSize = view === 'welcome' ? welcomeStage === 'idle' ? {width: ISLAND_CONFIG.states.rest.width / scale, height: ISLAND_CONFIG.states.rest.height / scale} : welcomeStage === 'logo' ? {width: ISLAND_CONFIG.welcome.introWidth, height: ISLAND_CONFIG.welcome.introHeight} : ISLAND_CONFIG.welcome : {width: openPanelWidth(appearance.format, {lab: !!moduleLab, detail: durationDetail}), height: activityHeight};
-    const width = Math.min(receptionSize?.width||welcomeSize.width, Math.max(1, (window.innerWidth - layout.side * 2) / scale));
-    const height = Math.max(closed.band, Math.min(receptionSize?.height||welcomeSize.height, (desktop ? desktopMaxHeight - 8 : window.innerHeight - 96) / scale));
-    const showHeader = view !== 'welcome' && view !== 'localsend' && !fileDragging;
+    const width = Math.min(searchSize?.width||receptionSize?.width||welcomeSize.width, Math.max(1, (window.innerWidth - layout.side * 2) / scale));
+    const height = Math.max(closed.band, Math.min(searchSize?.height||receptionSize?.height||welcomeSize.height, (desktop ? desktopMaxHeight - 8 : window.innerHeight - 96) / scale));
+    const showHeader = view !== 'welcome' && view !== 'localsend' && view !== 'search' && !fileDragging;
     const band = showHeader ? scene ? sceneLayout.sceneTop : layout.header : 0;
-    const panelHeight = Math.max(0, height - band - (receptionSize?0:scene ? sceneLayout.bottom : layout.bottom) - (showFooter ? layout.footer : 0));
-    notch.style.setProperty('--island-side', (scene ? sceneLayout.side : layout.side) + 'px');
+    const panelHeight = Math.max(0, height - band - (searchSize ? searchSize.inset * 2 : receptionSize?0:scene ? sceneLayout.bottom : layout.bottom) - (showFooter ? layout.footer : 0));
+    notch.style.setProperty('--island-side', (searchSize ? searchSize.inset : scene ? sceneLayout.side : layout.side) + 'px');
     notch.style.setProperty('--scene-gap', (scene ? homeLayout.gap : sceneLayout.gap) + 'px');
     notch.style.setProperty('--island-header-height', layout.header + 'px');
     menu.hidden = state !== 'open' || !showHeader; menu.inert = menu.hidden || !!closingTo;
@@ -3847,7 +3852,7 @@
     notch.style.setProperty('--closed-width', closed.width + 'px');
     notch.style.setProperty('--closed-height', closed.band + 'px');
     expandedLayer.style.width = width + 'px'; expandedLayer.style.height = height + 'px';
-    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: receptionSize?28:view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius / scale : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : (view === 'tray' ? ISLAND_CONFIG.tray.radius : ISLAND_CONFIG.states.expanded.radius) + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
+    const target = state === 'open' ? {width, height, band, shoulder: 0, radius: searchSize ? searchSize.radius : receptionSize?28:view === 'welcome' && welcomeStage === 'idle' ? ISLAND_CONFIG.states.rest.radius / scale : view === 'welcome' && welcomeStage === 'logo' ? ISLAND_CONFIG.welcome.introRadius : view === 'welcome' ? ISLAND_CONFIG.welcome.radius : (view === 'tray' ? ISLAND_CONFIG.tray.radius : ISLAND_CONFIG.states.expanded.radius) + (appearance.radius - 18) / 3, progress: 1} : {...closed, height: closed.band};
     protectLayoutResize(target.width, target.height);
     motion.setTarget(target, {snap: !motionEnabled() || document.hidden});
     paint(); ia?.render(view,false); renderLocalSend(); syncCalendarLayer(); renderGalet(); recheckCollapse();
@@ -3887,17 +3892,17 @@
     state = next;
     if (next !== 'open' && view === 'search') {
       search?.close({restoreFocus: false, notify: false});
-      selectViewButton({dataset: {view: searchReturnView}});
+      selectViewButton({dataset: {view: searchReturnView}, restoring:true});
     }
     renderScenarios();
     notch.dataset.state = next;
     document.body.dataset.notchState = next;
     toggle.setAttribute('aria-expanded', String(next === 'open'));
-    toggle.tabIndex = next === 'open' && view === 'localsend' ? -1 : 0;
+    toggle.tabIndex = next === 'open' && ['localsend','search'].includes(view) ? -1 : 0;
     toggle.setAttribute('aria-label', next === 'open' ? t('Réduire l’encoche') : t('Ouvrir l’encoche'));
     panel.setAttribute('aria-hidden', String(next !== 'open'));
     panel.inert = next !== 'open';
-    menu.hidden = next !== 'open' || view === 'welcome' || view === 'localsend';
+    menu.hidden = next !== 'open' || ['welcome','localsend','search'].includes(view);
     menu.inert = menu.hidden;
     renderMenuSelection();
     renderIslandNavigation();
@@ -4067,9 +4072,9 @@
     byId('market-toolbar').hidden = view !== 'module-library';
     if (view === 'music' || view === 'focus' || view === 'tasks') islandPage = view;
     renderIslandNavigation();
-    toggle.tabIndex = state === 'open' && view === 'localsend' ? -1 : 0;
+    toggle.tabIndex = state === 'open' && ['localsend','search'].includes(view) ? -1 : 0;
     byId('welcome-player').hidden = view !== 'welcome';
-    menu.hidden = state !== 'open' || view === 'welcome' || view === 'localsend'; menu.inert = menu.hidden;
+    menu.hidden = state !== 'open' || ['welcome','localsend','search'].includes(view); menu.inert = menu.hidden;
     panel.setAttribute('aria-label', view === 'module-library' ? t('Bibliothèque de modules') : view === 'search' ? t('Rechercher') : view === 'nook' ? t('Accueil Notchy') : t(Object.values(moduleDefinitions).find(item => item.view === view)?.label) || (view === 'welcome' ? t('Bienvenue dans Notchy') : view === 'localsend' ? t('Partage LocalSend') : view === 'files' ? t('Actions de fichier') : view === 'scenarios' ? t('Scénarios') : t('Réglages')));
     renderMenuSelection();
     renderHomeLayout();
@@ -4342,7 +4347,8 @@
   });
   void calendar.refresh();
   search = window.NotchySearch.create({host: byId('search-player'), invoke: invokeSearch, t, onGetQuickLook:showQuickLookModule,
-    onOpen: searchOpening, onClose: searchClosed, onSend: searchSend});
+    onOpen: searchOpening, onClose: searchClosed, onSend: searchSend,
+    onLayout() {if (view === 'search' && state === 'open') update();}});
   moduleLibrary = window.NotchyModuleLibrary.create({host:byId('module-library-player'), toolbarHost:byId('market-toolbar'), store:communityStore, language:i18n.locale, onClose:closeModuleLibrary, onPlace:placeCommunityModule,
     getBuiltins() {
       const content={music:['Music','Les commandes de ton lecteur et ses pochettes, directement dans Notchy.','Your player controls and artwork, directly in Notchy.','media'],focus:['Tasks & Focus','Tes tâches, leur durée et les sessions Pomodoro dans un seul module.','Tasks, durations and Pomodoro sessions in one module.','productivity'],weather:['Weather','La météo de ta ville et les prévisions des prochaines heures.','Your local weather and upcoming hourly forecasts.','system'],shelf:['Shelf','Garde tes fichiers à portée de main et partage-les avec LocalSend.','Keep files close at hand and share them with LocalSend.','productivity']};
