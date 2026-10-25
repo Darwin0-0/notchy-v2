@@ -4,3 +4,5 @@ native/quicklook-compat/LICENSE-GPL.txt -text -whitespace
 # Context lines in the reproducible upstream patch intentionally contain a space.
 native/quicklook-compat/*.patch -whitespace
 native/office-preview/* text eol=lf
+# Keep PDF offsets and compressed streams intact on Windows checkouts.
+*.pdf binary

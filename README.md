@@ -79,6 +79,8 @@ Use **Nook** for your activities, **Tray** for files and nearby sharing, and **M
 
 The shared layout assigns a declared presentation to every module. Music, Tasks & Focus and Weather support Small, Wide, Tall, Side, Main and Full; Shelf supports Small, Side, Main and Full. Open **Module Lab** from Settings → Modules to inspect the real module in each supported format. Opening a detail keeps your saved placement. The [layout contract](docs/MODULE_LAYOUT.md) defines dimensions, spacing and the rules for future modules.
 
+The [Mimo blueprint in French](docs/mimo/README.md) includes a 24-page PDF with notch dimensions, module formats, character placements, expressions and animation sequences.
+
 The Rust core owns native settings, network diagnostics, device discovery and file operations. The interface reuses those results and keeps its presentation separate from them. Shared [design tokens](docs/tokens.md) keep activity colors, status colors, type and motion consistent. LocalSend works on the same local network without internet; when automatic discovery is unavailable, add a private IP or use the explicit local-network search in Health.
 
 [Local search](docs/LOCAL_SEARCH.md) is a utility available from every main view. It indexes file and folder names in your personal Windows libraries, with live updates and keyboard navigation. Document contents and application launching are outside this first version; hidden, private and offline locations are excluded.
